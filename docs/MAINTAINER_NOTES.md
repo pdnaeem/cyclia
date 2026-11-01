@@ -26,3 +26,17 @@ These need things only you have:
    (publish aggregate deviations only, not ecoinvent's values).
 
 The tutorial database is illustrative only and must not be cited.
+
+## Releasing an update
+
+1. Put the changed files into the repository folder (or edit them there).
+2. Run `python engine/tools/new_version.py 1.2.1` (with the new number). It sets the version everywhere,
+   adds a changelog section and creates `docs/RELEASE_NOTES_v1.2.1.md`. Fill in both.
+3. GitHub Desktop: commit "Cyclia 1.2.1", then Push origin.
+4. History tab: right-click the commit, Create Tag, `v1.2.1`, then Push origin (it pushes the tag).
+5. GitHub Actions builds the installers and publishes the release (about 30 minutes). Paste the release
+   notes into the release description. Zenodo gives the new version a DOI. Installed copies update
+   themselves on their next start.
+
+Version numbers: last digit for fixes (1.2.1), middle for new features (1.3.0), first for big changes
+that break old project files (2.0.0).

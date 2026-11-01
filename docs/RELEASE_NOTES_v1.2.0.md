@@ -39,7 +39,7 @@ Full list in [docs/CHANGELOG.md](https://github.com/pdnaeem/cyclia/blob/main/doc
 ## Cite
 
 Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.2.0)
-[Computer software]. https://github.com/pdnaeem/cyclia
+[Computer software]. https://doi.org/10.5281/zenodo.23853748
 
 Created by Naeem Ur Rehman. If Cyclia helps your work, you can support it via
 [PayPal](https://paypal.me/pdnaeem) or [Revolut](https://revolut.me/pdnaeem).

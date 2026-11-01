@@ -18,7 +18,7 @@ window.CREDITS = {
   "linkedin": "https://www.linkedin.com/in/pdnaeem/",
   "researchgate": "",
   "repository": "https://github.com/pdnaeem/cyclia",
-  "doi": "",
+  "doi": "10.5281/zenodo.23853748",
   "support_email": "support@niellosoft.com",
   "funding": "",
   "acknowledgements": "",
