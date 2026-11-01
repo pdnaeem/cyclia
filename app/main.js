@@ -105,7 +105,8 @@ function startEngine() {
 // The window's pages (not /api/) are served by Electron straight from the app files, so the interface
 // shows even if the engine cannot find its own copy. API calls still go to the engine on the same origin.
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml", ".json": "application/json" };
+  ".css": "text/css; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml", ".json": "application/json",
+  ".md": "text/markdown; charset=utf-8", ".woff": "font/woff" };
 function serveUiFromApp(port) {
   const origin = `http://127.0.0.1:${port}`;
   const root = path.join(__dirname, "ui");
@@ -189,25 +190,63 @@ ipcMain.handle("open-path", (_e, p) => shell.openPath(String(p)));
 ipcMain.handle("show-in-folder", (_e, p) => shell.showItemInFolder(String(p)));
 ipcMain.handle("app-log-path", () => path.join(app.getPath("userData"), "logs", "desktop.log"));
 
-function checkForUpdates() {
-  if (!autoUpdater || !app.isPackaged) return;
-  try { if (/YOUR_GITHUB_USER/.test(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"))) return; } catch (e) { return; }
+// ---------------------------------------------------------------- updates
+// Windows (NSIS) and Linux AppImage update themselves from the GitHub release. macOS needs a signed app for that,
+// so there the user is pointed to the download page. The window is told about every state so Help > About can
+// show it, and a "Check for updates" button runs a check on demand.
+const RELEASES = "https://github.com/pdnaeem/cyclia/releases/latest";
+let updState = { state: "idle", version: app.getVersion() };
+let updWired = false;
+function sendUpdate(patch) {
+  updState = { ...updState, ...patch, version: app.getVersion() };
+  if (win && !win.isDestroyed()) win.webContents.send("update-status", updState);
+}
+function updatesSupported() {
+  if (!autoUpdater || !app.isPackaged) return "development build";
+  if (process.platform === "darwin") return "mac";
+  if (process.platform === "linux" && !process.env.APPIMAGE) return "deb";
+  try { if (/YOUR_GITHUB_USER/.test(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"))) return "no repository"; }
+  catch (e) { return "no package"; }
+  return "";
+}
+function wireUpdater() {
+  if (updWired) return;
+  updWired = true;
   autoUpdater.logger = { info: appLog, warn: appLog, error: appLog, debug: () => {} };
   autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("checking-for-update", () => sendUpdate({ state: "checking" }));
+  autoUpdater.on("update-not-available", () => sendUpdate({ state: "current", checked: Date.now() }));
+  autoUpdater.on("update-available", (info) => sendUpdate({ state: "downloading", next: info.version, percent: 0 }));
+  autoUpdater.on("download-progress", (p) => sendUpdate({ state: "downloading", percent: Math.round(p.percent || 0) }));
   autoUpdater.on("update-downloaded", async (info) => {
+    sendUpdate({ state: "ready", next: info.version });
     const r = await dialog.showMessageBox(win, { type: "info", buttons: ["Restart now", "Later"], defaultId: 0,
-      message: `Cyclia ${info.version} is ready to install.`, detail: "Your projects are saved. Restart to finish the update." });
+      message: `Cyclia ${info.version} is ready to install.`,
+      detail: "Your projects are saved. Restart now, or the update is installed the next time you close Cyclia." });
     if (r.response === 0) { quitting = true; autoUpdater.quitAndInstall(); }
   });
-  autoUpdater.on("error", (e) => appLog("update check failed: " + (e && e.message)));
-  autoUpdater.checkForUpdates().catch((e) => appLog("update check failed: " + e.message));
+  autoUpdater.on("error", (e) => { appLog("update failed: " + (e && e.message)); sendUpdate({ state: "error", error: String(e && e.message || e) }); });
 }
+function checkForUpdates() {
+  const why = updatesSupported();
+  if (why) { sendUpdate({ state: "manual", reason: why }); return; }
+  wireUpdater();
+  autoUpdater.checkForUpdates().catch((e) => { appLog("update check failed: " + e.message); sendUpdate({ state: "error", error: e.message }); });
+}
+ipcMain.handle("update-check", () => { checkForUpdates(); return updState; });
+ipcMain.handle("update-state", () => updState);
+ipcMain.handle("update-install", () => { if (updState.state === "ready") { quitting = true; autoUpdater.quitAndInstall(); } });
+ipcMain.handle("open-releases", () => shell.openExternal(RELEASES));
 process.on("uncaughtException", (e) => appLog("uncaught: " + (e && e.stack)));
 
 app.whenReady().then(() => {
   if (app.isPackaged) Menu.setApplicationMenu(null);
   appLog(`start ${app.getVersion()} (${BUILD}) on ${process.platform}`);
-  createWindow().then(() => setTimeout(checkForUpdates, 8000));
+  createWindow().then(() => {
+    setTimeout(checkForUpdates, 8000);
+    setInterval(checkForUpdates, 6 * 3600 * 1000);
+  });
 });
 app.on("before-quit", () => { quitting = true; });
 app.on("window-all-closed", () => app.quit());

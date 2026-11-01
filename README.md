@@ -84,14 +84,14 @@ USLCI, Agribalyse or ELCD. Your data stays on your computer.
 
 | Guided first start | Impact assessment | Dark mode |
 |---|---|---|
-| ![Cyclia welcome screen for new LCA users](docs/images/welcome.png) | ![Choosing impact categories in Cyclia](docs/images/impact-assessment.png) | ![Cyclia goal and scope step in dark mode](docs/images/dark-mode.png) |
+| ![Cyclia welcome screen for new LCA users](docs/images/welcome.png) | ![Choosing impact categories in Cyclia](docs/images/impact-assessment.png) | ![Cyclia inventory step in dark mode](docs/images/dark-mode.png) |
 
 ## Validated calculations
 
 LCA results only matter if they are right. Cyclia checks itself in three independent ways:
 
 1. **69 automated tests** of the calculation engine (`engine/tests`)
-2. **A validation suite of 34 product systems with exact known answers**: supply chains, loops,
+2. **A validation suite of 35 product systems with exact known answers**: supply chains, loops,
    allocation, system expansion, units, regional and site factors, background scenarios, module D,
    dynamic GWP, Monte Carlo, Sobol and the fate model. Run it in the app (Toolbox > Validation) and
    attach the report to your thesis or paper.
@@ -144,7 +144,7 @@ login or to check for updates.
 
 If Cyclia helps your research, please cite it. Citing is how free scientific software gets credit.
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.2.3)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.3.0)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853748
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [`CITATION.cff`](CITATION.cff). Inside
@@ -176,7 +176,7 @@ python -m unittest discover -s engine/tests -v
 ```
 
 On Windows, `build-windows.bat` runs the tests, builds the engine and produces the installer in
-`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.2.3` makes GitHub
+`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.3.0` makes GitHub
 Actions build Windows, macOS and Linux installers and publish them as a release.
 
 ```

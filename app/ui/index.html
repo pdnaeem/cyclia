@@ -49,7 +49,7 @@
       <div class="block">
         <h2>Projects</h2>
         <div class="row">
-          <input id="newProjectName" placeholder="New project name, e.g. Hempcrete thesis" maxlength="80">
+          <input id="newProjectName" placeholder="New project name, e.g. Bread carbon footprint" maxlength="80">
           <button class="primary" id="btnCreateProject">Create project</button>
           <button id="btnImportProject">Open a project file</button>
         </div>
@@ -112,7 +112,7 @@
             <button class="primary" id="btnOfImport">Import</button>
           </details>
           <details class="connector">
-            <summary><b>Tutorial database</b><span>16 simplified building-material processes for learning. Not for publication.</span></summary>
+            <summary><b>Tutorial database</b><span>33 simplified processes for learning: building materials, food, textiles, plastics, energy and wastewater. Not for publication.</span></summary>
             <button id="btnTutorial">Add tutorial database</button>
           </details>
         </div>
@@ -204,18 +204,18 @@
         <h2>Functional unit <button type="button" class="q" data-help="functional unit" aria-label="Help">?</button></h2>
         <div class="fu">
           <label>Amount<input name="amount" type="number" step="any" min="0" value="1" required></label>
-          <label>Unit<input name="unit" placeholder="m2" required></label>
-          <label class="wide">of product or service<input name="product" placeholder="external wall with U = 0.25 W/m2K" required></label>
+          <label>Unit<input name="unit" placeholder="item" required></label>
+          <label class="wide">of product or service<input name="product" placeholder="T-shirt worn 50 times" required></label>
         </div>
-        <label>Model name<input name="name" placeholder="Hempcrete wall" required maxlength="120"></label>
+        <label>Model name<input name="name" placeholder="Cotton T-shirt" required maxlength="120"></label>
         <label>Functional unit details<textarea name="fu_description" rows="2" placeholder="Performance and lifetime, e.g. same thermal resistance over a 50-year service life"></textarea></label>
 
         <h2>Goal</h2>
-        <label>Goal of the study<textarea name="goal" rows="2" placeholder="Compare the climate impact of hempcrete and concrete walls"></textarea></label>
+        <label>Goal of the study<textarea name="goal" rows="2" placeholder="Compare the environmental impacts of cotton and polyester T-shirts"></textarea></label>
         <label>Reasons for carrying out the study<textarea name="reasons" rows="2"></textarea></label>
         <div class="form-grid">
           <label>Intended application<input name="application" placeholder="PhD thesis chapter, journal article"></label>
-          <label>Intended audience<input name="audience" placeholder="Researchers, architects"></label>
+          <label>Intended audience<input name="audience" placeholder="Researchers, designers, policy makers"></label>
           <label>Comparative assertion disclosed to the public?<select name="comparative"><option>No</option><option>Yes (critical review required, ISO 14044 6.3)</option></select></label>
           <label>Author<input name="author"></label>
         </div>
@@ -231,11 +231,12 @@
           <label>Time period<input name="period" placeholder="2024 to 2026"></label>
           <label class="wide">Cut-off criteria<input name="cutoff" placeholder="Flows below 1 % of mass and energy excluded, total exclusions below 5 %"></label>
         </div>
+        <label>Data quality requirements (ISO 14044 4.2.3.6)<textarea name="dq_requirements" rows="2" placeholder="Primary data for the foreground (2024, own plant); background from ecoinvent 3.11 for the same region; pedigree scores of 3 or better for lines above 5 %"></textarea></label>
         <label>Key assumptions<textarea name="assumptions" rows="2"></textarea></label>
 
         <h2>Allocation <button type="button" class="q" data-help="allocation" aria-label="Help">?</button></h2>
         <div class="form-grid">
-          <label class="wide">Allocation procedure (text for the report)<input name="allocation" placeholder="Economic allocation between hemp shiv and fibre"></label>
+          <label class="wide">Allocation procedure (text for the report)<input name="allocation" placeholder="Economic allocation between cotton fibre and cottonseed"></label>
           <label>How the share is set<select name="alloc_basis">
             <option value="">No allocation or manual %</option><option value="mass">By mass of co-products</option>
             <option value="price">By economic value of co-products</option><option value="energy">By energy content</option></select></label>
@@ -576,7 +577,7 @@
       <div class="tt" id="tt-valid">
         <div class="block">
           <h2>Validation suite</h2>
-          <p class="hint">Runs 34 small product systems with known exact answers (chains, loops, allocation, system expansion, nesting, units, regional and site factors, background scenarios, scenario files, module D, dynamic GWP, Monte Carlo, Sobol, fate model) in a temporary library and compares Cyclia with them. Attach the report to a paper or a thesis.</p>
+          <p class="hint">Runs 35 small product systems with known exact answers (chains, loops, waste treatment, allocation, system expansion, nesting, units, regional and site factors, background scenarios, scenario files, module D, dynamic GWP, Monte Carlo, Sobol, fate model) in a temporary library and compares Cyclia with them. Attach the report to a paper or a thesis.</p>
           <div class="row"><button class="primary" id="btnValidate">Run validation suite</button><button id="btnValidReport" disabled>Save report (Word)</button></div>
           <div id="validOut"></div>
         </div>
@@ -663,8 +664,9 @@
 
 <aside class="drawer" id="help" hidden aria-label="Help">
   <div class="drawer-head"><h2>Help</h2><button class="ghost" id="btnHelpClose">Close</button></div>
-  <div class="tabs" id="helpTabs"><button class="on" data-ht="guide">Guided tutorial</button><button data-ht="tour">Feature tour</button><button data-ht="glossary">Glossary</button><button data-ht="about">About and support</button></div>
-  <div data-hp="guide"><p class="hint">Follow these steps once with the tutorial database; each ticks itself when done.</p><ol class="guide" id="guideList"></ol></div>
+  <div class="tabs" id="helpTabs"><button class="on" data-ht="manual">User guide</button><button data-ht="guide">Guided tutorial</button><button data-ht="tour">Feature tour</button><button data-ht="glossary">Glossary</button><button data-ht="about">About and support</button></div>
+  <div data-hp="manual"><input id="guideSearch" type="search" placeholder="Search the guide, e.g. allocation, transport, waste" aria-label="Search the guide"><div id="guideDoc" class="guide-doc"><p class="hint">Opening the guide...</p></div></div>
+  <div data-hp="guide" hidden><p class="hint">Follow these steps once with the tutorial database; each ticks itself when done.</p><ol class="guide" id="guideList"></ol></div>
   <div data-hp="tour" hidden><p class="hint">Every feature and where to find it. Load the demo in step 1 first so each one has data to work with.</p><ul class="tour" id="tourList"></ul></div>
   <div data-hp="glossary" hidden><input id="glossSearch" type="search" placeholder="Search terms" aria-label="Search glossary"><dl id="glossary"></dl></div>
   <div data-hp="about" hidden>
@@ -677,6 +679,9 @@
     <h3>Cite Cyclia</h3>
     <p class="hint">Cyclia is free. Citing it is how its author gets credit, and how other researchers find it.</p>
     <div class="cite-box"><p id="citeApa"></p><div class="row"><button id="btnCopyApa">Copy citation</button><button class="ghost" id="btnCopyBib">Copy BibTeX</button><button class="ghost" id="btnCopyMethods">Copy a sentence for the methods section</button></div></div>
+    <h3>Updates</h3>
+    <div class="update-box"><div class="grow"><b id="updTitle">Cyclia</b><span class="hint" id="updText">Updates are checked when Cyclia starts.</span></div>
+      <button id="btnUpdCheck">Check for updates</button><button class="primary" id="btnUpdInstall" hidden>Restart and install</button></div>
     <h3>This copy</h3>
     <p id="aboutText" class="hint"></p>
     <div class="row"><label class="inline grow">Your name (for comments, versions and reviews)<input id="authorName" placeholder="First and last name"></label><button id="btnAuthor">Save</button></div>
@@ -706,7 +711,7 @@
     <div class="w-page" data-wp="2" hidden>
       <h2>How would you like to start?</h2>
       <div class="w-choices">
-        <button data-start="learn"><b>Learn with a first study</b><span>Creates the project "My first LCA" with the free tutorial database (16 building materials and their impact methods) and guides you through the six steps. About 20 minutes.</span></button>
+        <button data-start="learn"><b>Learn with a first study</b><span>Creates the project "My first LCA" with the free tutorial database (33 simplified processes from buildings, food, textiles, plastics and energy, with impact methods) and guides you through the six steps. About 20 minutes.</span></button>
         <button data-start="demo"><b>Explore the full demo</b><span>Seven ready-made models that show every feature: scenarios, EPD modules, uncertainty, toxicity and more. Nothing to type.</span></button>
         <button data-start="own"><b>Start my own study</b><span>An empty project. Then connect ecoinvent with your licence, or import openLCA, SimaPro or ILCD data.</span></button>
       </div>
@@ -730,5 +735,6 @@
 <script src="app.js"></script>
 <script src="features.js"></script>
 <script src="coach.js"></script>
+<script src="guide.js"></script>
 </body>
 </html>

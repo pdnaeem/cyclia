@@ -15,7 +15,7 @@ const COACH = {
   setup: {
     iso: "Preparation",
     what: "Every LCA needs three things before you start: a project that stores your work, a background database that says how materials and energy are produced, and an impact method that turns emissions into impacts such as climate change.",
-    example: "A thesis on hempcrete walls: project \"Hempcrete thesis\", database ecoinvent 3.11 cut-off, method EF 3.1.",
+    example: "A thesis comparing cotton and polyester T-shirts: project \"T-shirt study\", database ecoinvent 3.11 cut-off, method EF 3.1.",
     tasks: [
       ["Create or open a project", (st) => !!st.project, "#newProjectName", "Type a name above and press Create project. Projects are saved automatically."],
       ["Add a background database", (st) => (st.databases || []).length > 0, "#btnTutorial", "No ecoinvent licence? Open \"Tutorial database\" and press Add. It is free and built in."],
@@ -27,7 +27,7 @@ const COACH = {
   scope: {
     iso: "ISO 14044, 4.2",
     what: "Say what you study and why. The functional unit is the reference of the whole study: every amount in the inventory is given per functional unit, so two products are only comparable if they deliver the same function.",
-    example: "Functional unit: 1 m2 of external wall with U = 0.25 W/m2K over 50 years. Boundary: cradle-to-grave.",
+    example: "Functional unit: 1 kWh of electricity delivered to a household by rooftop solar panels. Boundary: cradle-to-grave. Other examples: 1 kg of bread at the bakery gate, 1 m3 of wastewater treated, 1 m2 of wall over 50 years.",
     tasks: [
       ["Fill in the functional unit: amount, unit and product", () => !!(S.model && S.model.unit && S.model.product), "[name=unit]", "Type in the form below. Nothing is stored until you press Save goal & scope. Or press \"Start from a template\"."],
       ["Write the goal of the study", () => !!(S.model && S.model.scope && S.model.scope.goal), "[name=goal]", "One or two sentences: what question will the study answer?"],
@@ -41,7 +41,7 @@ const COACH = {
     needs: () => !S.model && ["This step needs a model. Describe what you study in step 2 first.", "scope"],
     iso: "ISO 14044, 4.3",
     what: "List every input (materials, energy, transport) and every direct output (emissions, waste) needed for one functional unit. Search a dataset, click it, then type the amount.",
-    example: "For 1 m2 of hempcrete wall: 0.3 m3 hempcrete, 12 kg lime, 15 tkm transport by lorry, end-of-life treatment.",
+    example: "For 1 kg of bread: 0.65 kg wheat flour, 0.4 kg tap water, 2.5 MJ natural gas and 0.3 kWh electricity for baking, transport to the shop.",
     tasks: [
       ["Add the first input: search, click a dataset, type the amount", () => !!(S.model && S.model.inputs.length), "#searchBox", "Try a word like cement, electricity or lorry. The region box prefers local datasets."],
       ["Add every material, energy and transport (at least three lines)", () => !!(S.model && S.model.inputs.length >= 3), "#searchBox", "Think through the life cycle: production, transport, use, end of life."],
@@ -71,7 +71,7 @@ const COACH = {
       : !S.result && ["There is nothing to interpret yet. Choose impact categories and press Calculate in step 4.", "impact"],
     iso: "ISO 14044, 4.5",
     what: "Interpretation means finding what drives the result and testing how reliable it is. Read the totals, then the hotspots, then the checks and the sensitivity.",
-    example: "\"Cement causes 62 % of the climate impact; a 10 % change in its amount changes the total by 6 %.\"",
+    example: "\"Nitrogen fertiliser causes most of the climate impact of the wheat; using 10 % less fertiliser lowers the total noticeably, while transport hardly matters.\"",
     tasks: [
       ["Read the totals per functional unit", () => !!S.result, "#totals", "Every number is per functional unit, as defined in step 2."],
       ["Find the largest contributors (hotspots)", () => !!S.result, "[data-rt=contrib]", "The Contributions tab ranks inputs, processes and emissions."],
@@ -85,7 +85,7 @@ const COACH = {
     needs: () => !S.model && ["This step needs a model. Describe what you study in step 2 first.", "scope"],
     iso: "ISO 14044, 5",
     what: "Write what the results mean, their limits and what you recommend. Cyclia then writes an ISO 14044-structured Word report and a methods paragraph you can paste into your thesis.",
-    example: "Limitation: \"Hemp cultivation data come from one French farm and may not represent other regions.\"",
+    example: "Limitation: \"Cotton yields come from one growing region and may not represent cotton from elsewhere.\"",
     tasks: [
       ["Write the conclusions", () => !!(S.model && S.model.scope && S.model.scope.conclusions), "[name=conclusions]", "Answer the question you set in the goal."],
       ["Write the limitations", () => !!(S.model && S.model.scope && S.model.scope.limitations), "[name=limitations]", "Data gaps, assumptions, what the boundary leaves out."],
@@ -153,6 +153,7 @@ function renderCoach() {
   el.innerHTML = `
     <summary><span class="coach-step">${stepLabel}</span><b>${esc(NAMES[step])}</b><span class="coach-iso">${esc(c.iso)}</span>
       ${total ? `<span class="coach-count ${n === total ? "ok" : ""}">${n === total ? "All done" : `${n} of ${total} done`}</span>` : ""}
+      <a href="#" class="coach-guide" data-guide="${window.guideAnchorFor ? window.guideAnchorFor(step) : ""}" title="Open the user guide at this step">Guide</a>
       <span class="coach-more">${el.open ? "Hide" : "What to do here"}</span></summary>
     <div class="coach-body">
       <div class="coach-main">
@@ -387,3 +388,48 @@ function paintCredit() {
 }
 paintCredit();
 renderCoach();
+
+/* ---------------- updates ---------------- */
+const UPD_MANUAL = { mac: "On macOS, download new versions from the releases page (automatic updates need a signed app).",
+  deb: "This copy was installed from the .deb package: download new versions from the releases page.",
+  "development build": "Development build: updates are not checked." };
+let lastUpd = "";
+function paintUpdate(u) {
+  if (!u) return;
+  const v = u.version ? `Cyclia ${u.version}` : "Cyclia";
+  const text = {
+    idle: "Updates are checked when Cyclia starts and every few hours.",
+    checking: "Checking for a new version...",
+    current: "You have the latest version.",
+    downloading: `Downloading Cyclia ${u.next || ""}${u.percent ? ` (${u.percent} %)` : ""}. You can keep working.`,
+    ready: `Cyclia ${u.next} is ready. Restart to install it, or it installs when you close Cyclia.`,
+    manual: UPD_MANUAL[u.reason] || "Download new versions from the releases page.",
+    error: `The update check did not work (${u.error || "no connection"}). You can download the latest version from the releases page.`,
+  }[u.state] || "";
+  $("#updTitle").textContent = v;
+  $("#updText").textContent = " " + text;
+  $("#btnUpdInstall").hidden = u.state !== "ready";
+  $("#btnUpdCheck").textContent = ["manual", "error"].includes(u.state) ? "Open the releases page" : "Check for updates";
+  $("#btnUpdCheck").disabled = u.state === "checking" || u.state === "downloading";
+  if (u.state !== lastUpd) {
+    if (u.state === "downloading" && u.next) toast(`A new version, Cyclia ${u.next}, is downloading in the background.`);
+    if (u.state === "ready") toast(`Cyclia ${u.next} is ready to install.`);
+    lastUpd = u.state;
+  }
+}
+if (desktop && desktop.onUpdate) {
+  desktop.onUpdate(paintUpdate);
+  desktop.updateState().then(paintUpdate).catch(() => {});
+} else {
+  $("#btnUpdCheck").textContent = "Open the releases page";
+}
+$("#btnUpdCheck").addEventListener("click", async () => {
+  const st = $("#btnUpdCheck").textContent;
+  if (!desktop || !desktop.checkUpdates || st === "Open the releases page") {
+    if (desktop && desktop.openReleases) desktop.openReleases(); else window.open("https://github.com/pdnaeem/cyclia/releases/latest", "_blank");
+    return;
+  }
+  paintUpdate({ state: "checking" });
+  paintUpdate(await desktop.checkUpdates());
+});
+$("#btnUpdInstall").addEventListener("click", () => desktop && desktop.installUpdate && desktop.installUpdate());

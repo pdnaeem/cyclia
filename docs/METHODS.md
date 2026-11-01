@@ -214,7 +214,7 @@ invalid inputs; and every 1.2 feature through the API (background scenarios, sit
 external emissions, literature import, sweeps and optimisation, templates, versions and locks, EPD, PEF,
 ISO 14067, GHG Protocol, review, Brightway round trip, openLCA export, Python client, teaching).
 
-The **validation suite** (Toolbox) builds 34 product systems with exact answers in a temporary library and
+The **validation suite** (Toolbox) builds 35 product systems with exact answers in a temporary library and
 reports expected value, Cyclia's value and the error: linear chains, production amounts other than one,
 loops, units, system expansion, mass and economic allocation, nesting, formulas and scenarios, module D,
 direct flows, regional and site-specific factors, prospective interpolation, consequential substitution, exchanges set from a scenario file,

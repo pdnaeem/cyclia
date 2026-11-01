@@ -265,12 +265,15 @@ def impacts(mc, M, acts, flows, fixed=None, lu=None, B=None, Q=None):
 
 
 def demand_vector(mc, acts):
+    """Demand for the background. A line amount is always entered as a positive quantity of the dataset's product;
+    for a treatment dataset (negative reference amount, ecoSpold2 convention: it 'produces' -1 kg of waste) that
+    quantity is the waste sent to treatment, so the demand takes the sign of the reference amount."""
     f = np.zeros(mc.n)
     for aid, amt in acts.items():
         i = mc.act_index.get(aid)
         if i is None:
             raise LCAError("A model input points to a dataset that is no longer in the library. Check step 3.")
-        f[i] += amt
+        f[i] += amt if mc.diag[i] >= 0 else -amt
     return f
 
 
@@ -1115,7 +1118,8 @@ def checks(store, model_id, method_ids, result=None):
         if not (sc.get(key) or "").strip():
             add("warning", "scope", f"Goal & scope: the {label} is not stated (ISO 14044 4.2).")
     for key, label in (("geography", "geographical coverage"), ("period", "time period"),
-                       ("cutoff", "cut-off criteria"), ("allocation", "allocation procedure")):
+                       ("cutoff", "cut-off criteria"), ("allocation", "allocation procedure"),
+                       ("dq_requirements", "data quality requirements")):
         if not (sc.get(key) or "").strip():
             add("info", "scope", f"Goal & scope: {label} not described.")
     if (sc.get("comparative") or "").startswith("Yes") and not (sc.get("review") or "").strip():

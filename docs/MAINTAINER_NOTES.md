@@ -14,6 +14,10 @@ Buy a code-signing certificate (Windows) and an Apple Developer account (macOS),
 secrets listed at the top of `.github/workflows/build.yml` and set `mac.notarize` to `true` in
 `app/package.json`. Unsigned builds work without them.
 
+When you have a Windows certificate, also add `"signtoolOptions": {"publisherName": "<the name on the
+certificate>"}` under `build.win` in `app/package.json`. Do not add it before: the updater then verifies the
+signature of every downloaded update, and unsigned updates are rejected (this broke updates in 1.2.x).
+
 ## Before and after the first public release
 
 These need things only you have:

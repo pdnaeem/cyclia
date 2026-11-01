@@ -403,7 +403,7 @@ document.addEventListener("click", async (e) => {
 
 /* ---------------- models & scope ---------------- */
 const SCOPE_FIELDS = ["fu_description", "goal", "reasons", "application", "audience", "comparative", "author", "boundary",
-  "stage_system", "geography", "period", "allocation", "alloc_share", "alloc_basis", "main_mass", "cutoff", "assumptions", "horizon"];
+  "stage_system", "geography", "period", "allocation", "alloc_share", "alloc_basis", "main_mass", "cutoff", "assumptions", "dq_requirements", "horizon"];
 const CONC_FIELDS = ["conclusions", "limitations", "recommendations", "review"];
 
 function fillStageSystems() {
@@ -684,6 +684,7 @@ async function openDetail(kind, id, btn) {
       (a.emissions.length ? `<h4>Direct emissions per 1 ${esc(a.unit)}</h4><table>${a.emissions.slice(0, 6).map((f) =>
       `<tr><td>${esc(f.name)} <span class="hint">${esc(f.compartment)}</span></td><td class="num">${fmt(f.amount)} ${esc(f.unit)}</td></tr>`).join("")}</table>` : "") +
       (a.comment ? `<details><summary>Dataset description</summary><p class="hint">${esc(a.comment)}</p></details>` : "");
+    if (a.production < 0) body = `<p class="banner">This is a <b>waste treatment</b> dataset. Enter the amount of waste you send to it as a positive number; Cyclia counts its burdens. To model avoided treatment, tick "Avoided product".</p>` + body;
     extra = `<div class="row">${S.replaceLine ? `<button class="primary" data-doreplace="${id}">Replace the line with this dataset</button>` : ""}
       <button class="ghost" data-copyproc="${id}">Copy as editable process</button></div>`;
   } else if (kind === "flow") {
@@ -700,6 +701,10 @@ async function openDetail(kind, id, btn) {
     <form class="add" novalidate>
       <label>Amount per functional unit, or formula<input name="amount" required placeholder="e.g. 12 or thickness * 1800"></label>
       <label>Unit<select name="unit">${unitList.map((u) => `<option>${esc(u)}</option>`).join("")}</select></label>
+      ${unitList.includes("t*km") ? `<div class="full tkm"><span class="hint">Transport helper:</span>
+        <input type="number" min="0" step="any" data-tkm="kg" placeholder="mass, kg" aria-label="Mass carried in kg">
+        <span class="hint">kg carried</span><input type="number" min="0" step="any" data-tkm="km" placeholder="distance, km" aria-label="Distance in km">
+        <span class="hint">km</span></div>` : ""}
       <label class="full">Life cycle stage<input name="stage" list="stageList" value="${esc(ls.get("cyclia.lastStage", ""))}" placeholder="e.g. A1 Raw material supply"></label>
       <label class="full">Data source<input name="comment" placeholder="e.g. supplier EPD, own measurement, literature"></label>
       ${dyn ? '<label>Year of emission<input name="year" type="number" min="0" step="any" value="0"></label>' : ""}
@@ -741,6 +746,10 @@ async function openDetail(kind, id, btn) {
       f.amount.value = ""; f.comment.value = ""; f.avoided.checked = false; f.amount.focus();
     });
   });
+  $$("[data-tkm]", d).forEach((x) => x.addEventListener("input", () => {
+    const kg = Number($("[data-tkm=kg]", d).value), km = Number($("[data-tkm=km]", d).value);
+    if (kg > 0 && km > 0) { $("input[name=amount]", d).value = String(Number((kg / 1000 * km).toPrecision(6))); $("select[name=unit]", d).value = "t*km"; }
+  }));
   $("input[name=amount]", d).focus();
 }
 function closeDetail() { $("#detail").hidden = true; $(".inv").classList.remove("with-detail"); $$("#searchResults button").forEach((x) => x.classList.remove("sel")); }
@@ -955,9 +964,16 @@ $("#btnInvImportGo").addEventListener("click", (e) => importInventory($("#invImp
 function renderMethodPicker() {
   const fams = {};
   S.methods.forEach((m) => (fams[m.family] = fams[m.family] || []).push(m));
+  // main indicators first (e.g. "climate change: total" before its biogenic and fossil parts)
+  const part = (m) => /(biogenic|fossil|land use and land use change|organics|inorganics)/i.test(`${m.category} ${m.indicator}`) &&
+    !/total/i.test(m.indicator) ? 1 : 0;
+  Object.values(fams).forEach((l) => l.sort((a, b) => part(a) - part(b) || a.category.localeCompare(b.category)));
   const names = Object.keys(fams);
   $("#noMethods").hidden = names.length > 0;
-  $("#methodPicker").innerHTML = names.map((f) => {
+  const starter = !S.selectedMethods.size && names.length ? `<div class="starter"><div class="grow"><b>Not sure where to start?</b>
+    <span class="hint">Climate change is the usual first indicator. Add more categories when your goal needs them.</span></div>
+    <button class="primary" data-starter>Select climate change</button></div>` : "";
+  $("#methodPicker").innerHTML = starter + names.map((f) => {
     const list = fams[f];
     const on = list.filter((m) => S.selectedMethods.has(m.id)).length;
     const cats = list.map((m) => `<label><input type="checkbox" data-mid="${m.id}" ${S.selectedMethods.has(m.id) ? "checked" : ""}>
@@ -975,6 +991,16 @@ $("#methodPicker").addEventListener("change", (e) => {
   saveMethodSel(); renderMethodPicker(); markSteps();
 });
 $("#methodPicker").addEventListener("click", (e) => {
+  if (e.target.closest("[data-starter]")) {
+    const cc = S.methods.filter((m) => /climate change/i.test(m.category) && m.n_cfs);
+    const rank = (m) => (/EF v?3\.1/i.test(m.family) ? 0 : /built-in/i.test(m.family) ? 1 : 2) * 10 +
+      (/total/i.test(m.indicator) || !/(biogenic|fossil|land use)/i.test(`${m.category} ${m.indicator}`) ? 0 : 5);
+    const pick = cc.sort((a, b) => rank(a) - rank(b))[0];
+    if (!pick) { toast("No climate change category with factors in the library. Import a method in step 1.", true); return; }
+    S.selectedMethods.add(pick.id); saveMethodSel(); renderMethodPicker(); markSteps();
+    toast(`Selected: ${pick.family}, ${pick.category}. Now press Calculate.`);
+    return;
+  }
   const b = e.target.closest("[data-all]");
   if (!b) return;
   const list = S.methods.filter((m) => m.family === b.dataset.all);
@@ -1328,7 +1354,7 @@ $("#btnBackup").addEventListener("click", (e) => guard(e.target, async () => {
 /* ---------------- help, guide, licence ---------------- */
 function openHelp(tab, term) {
   $("#help").hidden = false;
-  showHelpTab(tab || "guide");
+  showHelpTab(tab || "manual");
   if (term) {
     $("#glossSearch").value = "";
     renderGlossary();
@@ -1337,6 +1363,8 @@ function openHelp(tab, term) {
   }
 }
 function showHelpTab(t) {
+  $("#help").classList.toggle("wide", t === "manual");
+  if (t === "manual" && window.openGuide && !$("#guideDoc").dataset.ready) { $("#guideDoc").dataset.ready = "1"; setTimeout(() => window.openGuide(""), 0); }
   $$("#helpTabs button").forEach((b) => b.classList.toggle("on", b.dataset.ht === t));
   $$("[data-hp]").forEach((p) => (p.hidden = p.dataset.hp !== t));
   if (t === "glossary") renderGlossary();
@@ -1344,7 +1372,7 @@ function showHelpTab(t) {
   if (t === "guide") renderGuide();
   if (t === "tour") renderTour();
 }
-$("#btnHelp").addEventListener("click", () => ($("#help").hidden ? openHelp("guide") : ($("#help").hidden = true)));
+$("#btnHelp").addEventListener("click", () => ($("#help").hidden ? openHelp("manual") : ($("#help").hidden = true)));
 $("#btnHelpClose").addEventListener("click", () => ($("#help").hidden = true));
 $$("#helpTabs button").forEach((b) => b.addEventListener("click", () => showHelpTab(b.dataset.ht)));
 document.addEventListener("click", (e) => { const q = e.target.closest("[data-help]"); if (q) { e.preventDefault(); openHelp("glossary", q.dataset.help); } });

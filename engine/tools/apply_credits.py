@@ -223,7 +223,6 @@ def images(c, who, aff):
     for line in _wrap(d, "Life cycle assessment for researchers", _font(12), W - 34):
         d.text((18, y), line, font=_font(12), fill=(147, 172, 163))
         y += 16
-    d.line([(18, 214), (60, 214)], fill=OCHRE, width=2)
     d.text((18, 224), "Created by", font=_font(11), fill=(147, 172, 163))
     y = 240
     for line in _wrap(d, who, _font(14, True), W - 30):
@@ -238,12 +237,11 @@ def images(c, who, aff):
     im = Image.new("RGB", (W, H), WHITE)
     d = ImageDraw.Draw(im)
     d.text((8, 8), "Cyclia", font=_font(17, True), fill=(35, 87, 74))
-    d.line([(8, 32), (30, 32)], fill=OCHRE, width=2)
     f = _font(10)
     by = f"by {who}"
     while d.textlength(by, font=f) > W - 12 and f.size > 7:
         f = _font(f.size - 1)
-    d.text((8, 37), by, font=f, fill=(82, 102, 95))
+    d.text((8, 33), by, font=f, fill=(82, 102, 95))
     im.save(os.path.join(BUILD, "installerHeader.bmp"))
 
 
@@ -323,6 +321,7 @@ def main():
     write_citation(c)
     write_package(c)
     write_funding(c)
+    shutil.copyfile(os.path.join(ROOT, "docs", "USER_GUIDE.md"), os.path.join(UI, "guide.md"))  # in-app guide
     print(f"Credits applied for {c['display_name']} (Cyclia {c['version']})" + (f", photo {photo}" if photo else ""))
 
 

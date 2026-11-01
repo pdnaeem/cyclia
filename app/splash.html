@@ -18,7 +18,7 @@
   .tag { color: #93aca3; margin-top: 2px; }
   .status { padding: 0 44px; margin-top: 28px; color: #93aca3; font-size: 13px; display: flex; align-items: center; gap: 10px; }
   .bar { position: relative; height: 3px; width: 120px; background: rgba(255,255,255,.18); border-radius: 2px; overflow: hidden; }
-  .bar::after { content: ""; position: absolute; inset: 0; width: 40%; background: #e0b252; border-radius: 2px;
+  .bar::after { content: ""; position: absolute; inset: 0; width: 40%; background: rgba(255,255,255,.75); border-radius: 2px;
     animation: slide 1.3s ease-in-out infinite; }
   @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
   @media (prefers-reduced-motion: reduce) { .bar::after { animation: none; width: 100%; } }
@@ -27,7 +27,6 @@
   .by b { display: block; color: #fff; font-size: 15px; font-weight: 600; margin-top: 2px; }
   .by span { display: block; margin-top: 2px; }
   .lic { font-size: 11.5px; color: #9fbcb2; text-align: right; }
-  .rule { width: 44px; height: 2px; background: #e0b252; margin-bottom: 10px; }
 </style>
 </head>
 <body>
@@ -39,7 +38,7 @@
     <div class="status"><div class="bar"></div><span>Starting the calculation engine</span></div>
   </div>
   <footer>
-    <div class="by"><div class="rule"></div>Created by<b id="who">Naeem Ur Rehman</b><span id="role"></span></div>
+    <div class="by">Created by<b id="who">Naeem Ur Rehman</b><span id="role"></span></div>
     <div class="lic">Free and open source<br>MIT licence<br><span id="ver"></span></div>
   </footer>
 <script src="ui/credits.js"></script>

@@ -50,15 +50,16 @@ def _toy(st):
             "L2": ("loop process 2 (validation)", "loop product 2", "kg", 1.0, "GLO"),
             "WFR": ("water use (validation)", "water use FR", "m3", 1.0, "FR"),
             "WDE": ("water use (validation)", "water use DE", "m3", 1.0, "DE"),
+            "T": ("treatment of waste (validation)", "waste", "kg", -1.0, "GLO"),  # ecoSpold2: treatment produces -1 kg
         }
         for k, (n, prod, u, p, loc) in spec.items():
             acts[k] = st.conn.execute("INSERT INTO activities(db_id,key,name,product,location,unit,production) "
                                       "VALUES(?,?,?,?,?,?,?)", (db, k, n, prod, loc, u, p)).lastrowid
-        tech = [("M", "E", 1.0), ("S", "E", 2.0), ("P", "S", 1.0), ("L1", "L2", 0.2), ("L2", "L1", 0.5)]
+        tech = [("M", "E", 1.0), ("S", "E", 2.0), ("P", "S", 1.0), ("L1", "L2", 0.2), ("L2", "L1", 0.5), ("T", "E", 0.1)]
         for o, i, a in tech:
             st.conn.execute("INSERT INTO tech(output_id,input_id,amount) VALUES(?,?,?)", (acts[o], acts[i], a))
         bio = [("E", "co2", 0.5), ("E2", "co2", 0.1), ("S", "co2", 1.0), ("P", "ch4", 0.01), ("L1", "co2", 1.0),
-               ("L2", "co2", 2.0), ("WFR", "w", 1.0), ("WDE", "w", 1.0)]
+               ("L2", "co2", 2.0), ("WFR", "w", 1.0), ("WDE", "w", 1.0), ("T", "co2", 0.3)]
         for a, f, v in bio:
             st.conn.execute("INSERT INTO bio(activity_id,flow_id,amount) VALUES(?,?,?)", (acts[a], flows[f], v))
         st.conn.commit()
@@ -115,6 +116,9 @@ def validation_suite(progress=lambda *a: None):
              1.4 / 0.9, tot(_model(st, "loop", [("activity", A["L1"], 1.0)]))[0]["total"])
         m4 = _model(st, "two lines", [("activity", A["S"], 10.0), ("activity", A["E"], 5.0)])
         case("V04", "Foreground model", "10 kg steel + 5 kWh = 20 + 2.5", 22.5, tot(m4)[0]["total"])
+        case("V35", "Waste treatment", "2 kg of waste sent to a treatment dataset (reference amount -1 kg; 0.3 kg CO2 and "
+             "0.1 kWh per kg treated) = 2 x (0.3 + 0.05) = 0.7, not a credit",
+             0.7, tot(_model(st, "waste", [("activity", A["T"], 2.0)]))[0]["total"])
         progress(20, "Units, credits, allocation")
         m5 = _model(st, "units", [("activity", A["S"], units.factor("g", "kg") * 500, {"input_amount": 500, "unit": "g"}),
                                   ("activity", A["E"], units.factor("MJ", "kWh") * 3.6, {"input_amount": 3.6, "unit": "MJ"})])

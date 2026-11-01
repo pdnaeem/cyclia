@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.3.0 (2026-11-01)
+
+- **Automatic updates fixed on Windows**: the build no longer asks the updater to verify a code signature
+  that unsigned installers cannot have. Help > About shows the update state with "Check for updates";
+  checks run at start and every six hours. Copies of 1.2.x must install 1.3.0 once by hand
+- **Correction: waste treatment datasets.** In ecoinvent a treatment dataset has a reference amount of -1 kg
+  (it "produces" minus 1 kg of waste). A positive amount of waste sent to such a dataset was counted as a
+  credit instead of a burden. It is now counted correctly. New validation case V35 checks it. Please
+  recalculate models that use ecoinvent waste treatment datasets.
+- Complete user guide (docs/USER_GUIDE.md), also inside the app: Help > User guide, with search, and a
+  "Guide" link on every step that opens the right section
+- Impact assessment: "Select climate change" for a quick start; main indicators listed before their parts
+  (total before biogenic and fossil)
+- Inventory: notice when a dataset is a waste treatment; transport helper (kg and km to t*km)
+- Goal and scope: data quality requirements (ISO 14044 4.2.3.6), in the report and the checks
+- Tutorial database extended from 16 to 33 processes: building materials, food (fertiliser, wheat, flour,
+  bread), textiles (cotton to T-shirt), plastics (PE, PET, bottle), energy (PV, low-voltage electricity) and
+  waste and water (incineration, landfill, wastewater treatment)
+- New templates: cotton T-shirt, wastewater treatment per m3, chemical product at the plant gate
+- Guidance examples now come from different sectors, not only buildings
+- Design: softer cards, pill tabs, calmer header, subtle page transitions, icons on the welcome screen;
+  decorative yellow lines removed from the app, splash and installer
+
 ## 1.2.3 (2026-11-01)
 
 - Reverted the 1.2.2 rule that applied "unspecified" factors to other subcompartments. The benchmark showed

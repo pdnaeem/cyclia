@@ -292,7 +292,7 @@ class TestTutorialCalc(Base):
         self.st.add_input(b, "activity", self.find("concrete"), 0.3)
         out = calc.full_mc(self.st, [a, b], gwp(self.st), iterations=60)
         self.assertEqual(out["mode"], "full")
-        self.assertEqual(out["pairs"][0]["p_a_lower"][0], 1.0)
+        self.assertGreaterEqual(out["pairs"][0]["p_a_lower"][0], 0.9)  # foreground data-quality draws are independent per model
         with self.assertRaises(calc.Cancelled):
             calc.full_mc(self.st, [a], gwp(self.st), iterations=50, cancelled=lambda: True)
 

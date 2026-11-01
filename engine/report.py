@@ -205,6 +205,7 @@ def word_report(path, model, result, databases, version=""):
                                                        if result.get("allocation_share", 1) < 1 else "")],
         ["Stage system", s.get("stage_system") or "-"],
         ["Cut-off criteria", s.get("cutoff") or "-"],
+        ["Data quality requirements", s.get("dq_requirements") or "-"],
         ["Key assumptions", s.get("assumptions") or "-"],
     ], widths=[5, 11.5])
 
