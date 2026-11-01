@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="api-token" content="__API_TOKEN__">
+<title>Cyclia</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="shell">
+  <nav class="rail" aria-label="Study steps">
+    <div class="brand"><img src="icon.png" alt="" class="brand-icon"><div>Cyclia<small>Life cycle assessment</small></div></div>
+    <div class="progress-mini" id="railProgress" aria-live="polite"></div>
+    <ol class="steps" id="steps">
+      <li><button data-step="setup"><span class="n">1</span><span><b>Project &amp; data</b><small>Library, databases, methods</small></span></button></li>
+      <li><button data-step="scope"><span class="n">2</span><span><b>Goal &amp; scope</b><small>Unit, boundary, parameters</small></span></button></li>
+      <li><button data-step="inventory"><span class="n">3</span><span><b>Inventory</b><small>Inputs, outputs, stages</small></span></button></li>
+      <li><button data-step="impact"><span class="n">4</span><span><b>Impact assessment</b><small>Categories and calculation</small></span></button></li>
+      <li><button data-step="results"><span class="n">5</span><span><b>Interpretation</b><small>Hotspots, checks, uncertainty</small></span></button></li>
+      <li><button data-step="report"><span class="n">6</span><span><b>Report</b><small>Conclusions and exports</small></span></button></li>
+    </ol>
+    <div class="tools-nav"><button data-step="tools" id="navTools"><span class="n">T</span><span><b>Toolbox</b><small>Validation, scenarios, chemicals, teaching</small></span></button></div>
+    <div class="rail-foot">
+      <div id="jobBox" class="job" hidden></div>
+      <button class="ghost help-btn" id="btnHelp">Help, tutorial and glossary</button>
+      <div id="projectBadge" class="project-badge">No project open</div>
+      <div class="version" id="versionTag"></div>
+      <button class="credit-link" id="creditLink" title="About Cyclia and its author"><span class="mini-avatar" data-avatar></span><span>Created by<b data-credit-name>Naeem Ur Rehman</b></span></button>
+    </div>
+  </nav>
+
+  <main>
+    <header class="study">
+      <p id="studySentence" class="sentence">Start by opening a project and connecting a database.</p>
+      <button class="ghost coach-toggle" id="coachToggle" aria-pressed="true" title="Show or hide the step-by-step guidance">Guidance on</button>
+      <div class="model-pick">
+        <label for="modelSelect">Model</label>
+        <select id="modelSelect"></select>
+      </div>
+    </header>
+
+    <!-- STEP 1 -->
+    <section class="view" id="view-setup">
+      <h1>Project &amp; data</h1>
+      <p class="lead">Databases and impact methods live in one library on this computer and are shared by all projects. A project file holds only your models, so it stays small and can be sent to a colleague.</p>
+
+      <div class="block">
+        <h2>Projects</h2>
+        <div class="row">
+          <input id="newProjectName" placeholder="New project name, e.g. Hempcrete thesis" maxlength="80">
+          <button class="primary" id="btnCreateProject">Create project</button>
+          <button id="btnImportProject">Open a project file</button>
+        </div>
+        <div class="row" id="importProjectRow" hidden>
+          <input id="importProjectPath" class="grow" placeholder="Full path of a .lca file">
+          <button id="btnImportProjectGo">Open file</button>
+        </div>
+        <ul class="list" id="projectList"></ul>
+        <div class="demo-row"><div class="grow"><b>Try every feature with the demo</b><br><span class="hint">Creates the project "Cyclia feature demo": an illustrative database and methods, and seven models that use parameters, scenarios, EN 15804 modules, EPD values, allocation, dynamic GWP, background scenarios, external model emissions, toxicity factors, templates, comments, versions and a locked model. The data are for learning only.</span></div><button class="primary" id="btnDemo">Load the full demo</button></div>
+      </div>
+
+      <div class="block needs-project">
+        <h2>Databases in the library <button class="q" data-help="system model" aria-label="Help">?</button></h2>
+        <ul class="list" id="dbList"></ul>
+        <div id="linkPanel" class="subpanel" hidden></div>
+        <div id="validatePanel" class="subpanel" hidden></div>
+        <div class="connectors">
+          <details class="connector">
+            <summary><b>ecoinvent with your licence</b><span>Log in once; Cyclia downloads the release and its impact methods.</span></summary>
+            <p class="hint" id="eiMissing" hidden>The ecoinvent connector is not installed in this engine. Use "ecoinvent folder you already downloaded".</p>
+            <div class="form-grid">
+              <label>ecoinvent username<input id="eiUser" autocomplete="username"></label>
+              <label>Password<input id="eiPass" type="password" autocomplete="current-password"></label>
+            </div>
+            <div class="row"><button id="btnEiList">Show my releases</button><span class="hint" id="eiHint"></span></div>
+            <div class="form-grid" id="eiPick" hidden>
+              <label>Version<select id="eiVersion"></select></label>
+              <label>System model<select id="eiModel"></select></label>
+            </div>
+            <div id="eiInstallRow" hidden>
+              <label class="inline"><input type="checkbox" id="eiValidate" checked> Then validate Cyclia against ecoinvent's own LCIA results (recommended; a few extra minutes)</label>
+              <label class="inline">Datasets to compare <select id="eiSample"><option value="100">100</option><option value="500">500</option><option value="0">all</option></select></label>
+              <div class="row"><button class="primary" id="btnEiInstall">Download, connect and validate</button>
+                <button id="btnEiValidate" title="For a release that is already in the library">Validate only</button>
+                <span class="hint">Takes 10 to 30 minutes the first time. The password is not saved.</span></div>
+            </div>
+            <div id="eiValOut"></div>
+          </details>
+          <details class="connector">
+            <summary><b>ecoinvent folder you already downloaded</b><span>Extracted ecoSpold02 release from ecoquery (the folder that contains "datasets").</span></summary>
+            <div class="form-grid">
+              <label class="wide">Folder<span class="pathpick"><input id="esFolder" placeholder="C:\ecoinvent\ecoinvent 3.11_cutoff_ecoSpold02"><button data-pick="folder" data-target="esFolder">Browse</button></span></label>
+              <label>Name in the library<input id="esName" placeholder="ecoinvent 3.11 cut-off"></label>
+              <label>Version<input id="esVersion" placeholder="3.11"></label>
+              <label>System model<select id="esModel"><option>cut-off</option><option>APOS</option><option>consequential</option><option value="">other</option></select></label>
+            </div>
+            <button class="primary" id="btnEsImport">Import folder</button>
+          </details>
+          <details class="connector">
+            <summary><b>Other formats</b><span>openLCA JSON-LD (USLCI, Agribalyse, ELCD), SimaPro CSV, ILCD (Ökobaudat, EF datasets), ecoSpold1.</span></summary>
+            <div class="form-grid">
+              <label>Format<select id="ofFormat">
+                <option value="jsonld">openLCA JSON-LD (.zip or folder)</option>
+                <option value="simapro">SimaPro CSV export</option>
+                <option value="ilcd">ILCD (.zip or folder)</option>
+                <option value="ecospold1">ecoSpold1 (.xml file or folder)</option></select></label>
+              <label>Name in the library<input id="ofName" placeholder="USLCI 2024"></label>
+              <label class="wide">File or folder<span class="pathpick"><input id="ofPath"><button data-pick="file" data-target="ofPath">File</button><button data-pick="folder" data-target="ofPath">Folder</button></span></label>
+            </div>
+            <button class="primary" id="btnOfImport">Import</button>
+          </details>
+          <details class="connector">
+            <summary><b>Tutorial database</b><span>16 simplified building-material processes for learning. Not for publication.</span></summary>
+            <button id="btnTutorial">Add tutorial database</button>
+          </details>
+        </div>
+      </div>
+
+      <div class="block needs-project">
+        <h2>Impact assessment methods <button class="q" data-help="characterisation factor" aria-label="Help">?</button></h2>
+        <ul class="list" id="methodFamilies"></ul>
+        <div class="connectors">
+          <details class="connector">
+            <summary><b>ecoinvent LCIA file</b><span>"LCIA Implementation" Excel from ecoquery: EF 3.1, ReCiPe 2016, CML-IA, IPCC 2021 and more.</span></summary>
+            <div class="form-grid"><label class="wide">Excel file<span class="pathpick"><input id="lcPath"><button data-pick="file" data-target="lcPath" data-ext="xlsx">Browse</button></span></label></div>
+            <button class="primary" id="btnLcImport">Import methods</button>
+          </details>
+          <details class="connector">
+            <summary><b>Free method packages</b><span>EF 3.1, ReCiPe and others published for openLCA (JSON-LD zip). Use "Other formats" above with the zip; methods are recognised automatically.</span></summary>
+            <p class="hint">Download the method package from openLCA Nexus or the JRC, then import it with format "openLCA JSON-LD". Flows are matched by UUID and by name.</p>
+          </details>
+          <details class="connector">
+            <summary><b>Any method from a CSV table</b><span>One row per factor; optional location column for regional factors (e.g. AWARE by country).</span></summary>
+            <div class="form-grid"><label class="wide">CSV file<span class="pathpick"><input id="csvPath"><button data-pick="file" data-target="csvPath" data-ext="csv">Browse</button></span></label></div>
+            <div class="row"><button class="primary" id="btnCsvImport">Import methods</button><button class="ghost" data-template="cf_csv">Show the CSV format</button></div>
+            <pre data-template-out="cf_csv" hidden></pre>
+          </details>
+          <details class="connector">
+            <summary><b>Flow mapping</b><span>Lets methods and databases with different flow names work together (FEDEFL/GLAD mapping files or your own table).</span></summary>
+            <div class="form-grid"><label class="wide">CSV file<span class="pathpick"><input id="mapPath"><button data-pick="file" data-target="mapPath" data-ext="csv">Browse</button></span></label></div>
+            <div class="row"><button class="primary" id="btnMapImport">Import mapping</button><button class="ghost" data-template="mapping_csv">Show the CSV format</button></div>
+            <pre data-template-out="mapping_csv" hidden></pre>
+          </details>
+          <details class="connector">
+            <summary><b>Official EF 3.1 normalisation and weighting</b><span>Built in from the JRC publications; attached to the EF 3.1 categories you imported.</span></summary>
+            <p class="hint" id="ef31Source"></p>
+            <div class="row"><label class="inline">EF method in the library <select id="ef31Family"></select></label><button class="primary" id="btnEf31">Add EF 3.1 factors</button></div>
+            <div id="ef31Out"></div>
+          </details>
+          <details class="connector">
+            <summary><b>Factors by CAS number (official USEtox and other tables)</b><span>Any Excel or CSV table with a CAS column, e.g. the USEtox 2.x results. Substances are matched by CAS number, then by name.</span></summary>
+            <div class="form-grid"><label class="wide">Excel or CSV file<span class="pathpick"><input id="casPath"><button data-pick="file" data-target="casPath">Browse</button></span></label></div>
+            <div class="row"><button id="btnCasRead">Read table</button></div>
+            <div id="casMap"></div>
+          </details>
+          <details class="connector">
+            <summary><b>Normalisation and weighting factors</b><span>Optional ISO 14044 elements, e.g. EF 3.1 person-year factors.</span></summary>
+            <div class="form-grid"><label class="wide">CSV file<span class="pathpick"><input id="nwPath"><button data-pick="file" data-target="nwPath" data-ext="csv">Browse</button></span></label></div>
+            <div class="row"><button class="primary" id="btnNwImport">Import factors</button><button class="ghost" data-template="nw_csv">Show the CSV format</button></div>
+            <pre data-template-out="nw_csv" hidden></pre>
+          </details>
+          <details class="connector" id="eiBenchBox">
+            <summary><b>Validate against ecoinvent (automatic)</b><span>Compares Cyclia with ecoinvent's own LCIA results for a sample of datasets and every category. One file, one click.</span></summary>
+            <ol class="howto">
+              <li>Import your ecoinvent release (above) and the LCIA file of the same version (ecoinvent LCIA file, under "Impact assessment methods").</li>
+              <li>On ecoquery.ecoinvent.org, open the same version and system model, go to <b>Files</b>, and download the Excel file with the <b>cumulative LCIA results</b> (its name contains "LCIA" and the system model, e.g. "Cut-off Cumulative LCIA"). Unzip it if it is zipped.</li>
+              <li>Choose that file below, pick the method (for example EF v3.1) and press <b>Run</b>. Cyclia picks datasets from every group (markets, waste treatment, electricity, metals, agriculture, chemicals, construction, transport) and compares every category.</li>
+            </ol>
+            <div class="form-grid">
+              <label class="wide">Cumulative LCIA results file (.xlsx)<span class="pathpick"><input id="ebPath"><button data-pick="file" data-target="ebPath" data-ext="xlsx">Browse</button></span></label>
+              <label>Method<select id="ebFamily"></select></label>
+              <label>Datasets<select id="ebSample"><option value="100">100 (a few minutes)</option><option value="500">500</option><option value="0">All datasets (long)</option></select></label>
+            </div>
+            <div class="row"><button class="primary" id="btnEiBench">Run</button><button id="btnEiBenchSave" disabled>Save the Excel report</button></div>
+            <div id="ebOut"></div>
+          </details>
+          <details class="connector">
+            <summary><b>Benchmark against reference results</b><span>Compare Cyclia with openLCA, Brightway or ecoinvent's own LCIA results for the same datasets.</span></summary>
+            <div class="form-grid"><label class="wide">CSV or Excel file<span class="pathpick"><input id="bmPath"><button data-pick="file" data-target="bmPath">Browse</button></span></label></div>
+            <div class="row"><button class="primary" id="btnBenchmark">Run benchmark</button><button class="ghost" data-template="benchmark_csv">Show the format</button></div>
+            <pre data-template-out="benchmark_csv" hidden></pre>
+            <div id="bmOut"></div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEP 2 -->
+    <section class="view" id="view-scope" hidden>
+      <h1>Goal &amp; scope</h1>
+      <p class="lead">A model is one product system. Every amount in the inventory is per functional unit defined here (ISO 14044 4.2).</p>
+      <p class="hint" id="processNote" hidden></p>
+      <div class="row">
+        <button id="btnNewModel">New model</button>
+        <button id="btnDuplicateModel">Duplicate as alternative</button>
+        <button id="btnTemplates">Start from a template</button>
+        <button class="ghost danger" id="btnDeleteModel">Delete model</button>
+      </div>
+      <div id="tplPanel" class="subpanel" hidden></div>
+      <div class="banner lock-banner" data-lockbanner hidden></div>
+      <form id="scopeForm" class="block" novalidate>
+        <h2>Functional unit <button type="button" class="q" data-help="functional unit" aria-label="Help">?</button></h2>
+        <div class="fu">
+          <label>Amount<input name="amount" type="number" step="any" min="0" value="1" required></label>
+          <label>Unit<input name="unit" placeholder="m2" required></label>
+          <label class="wide">of product or service<input name="product" placeholder="external wall with U = 0.25 W/m2K" required></label>
+        </div>
+        <label>Model name<input name="name" placeholder="Hempcrete wall" required maxlength="120"></label>
+        <label>Functional unit details<textarea name="fu_description" rows="2" placeholder="Performance and lifetime, e.g. same thermal resistance over a 50-year service life"></textarea></label>
+
+        <h2>Goal</h2>
+        <label>Goal of the study<textarea name="goal" rows="2" placeholder="Compare the climate impact of hempcrete and concrete walls"></textarea></label>
+        <label>Reasons for carrying out the study<textarea name="reasons" rows="2"></textarea></label>
+        <div class="form-grid">
+          <label>Intended application<input name="application" placeholder="PhD thesis chapter, journal article"></label>
+          <label>Intended audience<input name="audience" placeholder="Researchers, architects"></label>
+          <label>Comparative assertion disclosed to the public?<select name="comparative"><option>No</option><option>Yes (critical review required, ISO 14044 6.3)</option></select></label>
+          <label>Author<input name="author"></label>
+        </div>
+
+        <h2>Scope <button type="button" class="q" data-help="system boundary" aria-label="Help">?</button></h2>
+        <div class="form-grid">
+          <label>System boundary<select name="boundary">
+            <option value="">Choose</option><option value="cradle-to-gate">Cradle-to-gate</option>
+            <option value="cradle-to-grave">Cradle-to-grave</option><option value="cradle-to-cradle">Cradle-to-cradle</option>
+            <option value="gate-to-gate">Gate-to-gate</option></select></label>
+          <label>Life cycle stages<select name="stage_system"></select></label>
+          <label>Geography<input name="geography" placeholder="France"></label>
+          <label>Time period<input name="period" placeholder="2024 to 2026"></label>
+          <label class="wide">Cut-off criteria<input name="cutoff" placeholder="Flows below 1 % of mass and energy excluded, total exclusions below 5 %"></label>
+        </div>
+        <label>Key assumptions<textarea name="assumptions" rows="2"></textarea></label>
+
+        <h2>Allocation <button type="button" class="q" data-help="allocation" aria-label="Help">?</button></h2>
+        <div class="form-grid">
+          <label class="wide">Allocation procedure (text for the report)<input name="allocation" placeholder="Economic allocation between hemp shiv and fibre"></label>
+          <label>How the share is set<select name="alloc_basis">
+            <option value="">No allocation or manual %</option><option value="mass">By mass of co-products</option>
+            <option value="price">By economic value of co-products</option><option value="energy">By energy content</option></select></label>
+          <label class="alloc-manual">Share for this product (%)<input name="alloc_share" type="number" min="0" max="100" step="any" placeholder="100"></label>
+          <label class="alloc-cp">This product: value per functional unit<input name="main_value" type="number" min="0" step="any"></label>
+          <label>Mass of this product per functional unit (kg, for the mass-balance check)<input name="main_mass" type="number" min="0" step="any"></label>
+        </div>
+        <div class="alloc-cp">
+          <table class="cp-table"><thead><tr><th>Co-product</th><th>Mass (kg)</th><th>Economic value</th><th>Energy (MJ)</th><th></th></tr></thead><tbody id="cpRows"></tbody></table>
+          <button type="button" class="ghost" id="btnAddCp">Add co-product</button>
+          <p class="hint" id="allocShare"></p>
+        </div>
+
+        <h2>Time <button type="button" class="q" data-help="dynamic GWP" aria-label="Help">?</button></h2>
+        <div class="form-grid">
+          <label class="inline"><input type="checkbox" name="dynamic"> Report time-dependent climate impact (dynamic GWP)</label>
+          <label>Time horizon (years)<input name="horizon" type="number" min="1" max="500" value="100"></label>
+        </div>
+        <div class="row"><button class="primary" type="submit">Save goal &amp; scope</button><span class="hint" id="scopeSaved" role="status"></span></div>
+      </form>
+
+      <div class="block needs-model">
+        <h2>Parameters <button class="q" data-help="parameter" aria-label="Help">?</button></h2>
+        <p class="hint">Use parameters in amounts (e.g. <code>thickness * area * density</code>). Project parameters apply to all models; model parameters override them. Give a distribution to include a parameter in Monte Carlo and Sobol analysis.</p>
+        <div class="table-wrap"><table class="param-table"><thead><tr><th>Applies to</th><th>Name</th><th>Value or formula</th><th>Unit</th><th>Uncertainty</th><th>Current value</th><th></th></tr></thead><tbody id="paramRows"></tbody></table></div>
+        <form class="row param-add" id="paramForm" novalidate>
+          <select name="scope" aria-label="Applies to"><option value="model">This model</option><option value="project">Whole project</option></select>
+          <input name="name" placeholder="name, e.g. thickness" aria-label="Name">
+          <input name="value" placeholder="value or formula" aria-label="Value or formula">
+          <input name="unit" placeholder="unit" size="6" aria-label="Unit">
+          <select name="utype" aria-label="Distribution"><option value="0">no distribution</option><option value="1">lognormal (GSD)</option><option value="2">normal (SD)</option><option value="3">triangular (min, mode, max)</option><option value="4">uniform (min, max)</option></select>
+          <input name="p1" size="6" placeholder="p1" aria-label="p1"><input name="p2" size="6" placeholder="p2" aria-label="p2"><input name="p3" size="6" placeholder="p3" aria-label="p3">
+          <button class="primary" type="submit">Add parameter</button>
+        </form>
+      </div>
+
+      <div class="block needs-model">
+        <h2>Scenarios <button class="q" data-help="scenario" aria-label="Help">?</button></h2>
+        <p class="hint">A scenario is a set of parameter values, e.g. "thick insulation" or "French electricity". Pick one in step 4 or compare them in step 5.</p>
+        <ul class="list" id="scenarioList"></ul>
+        <form class="row" id="scenarioForm" novalidate>
+          <input name="name" placeholder="Scenario name" aria-label="Scenario name">
+          <input name="overrides" class="grow" placeholder="Values, e.g. thickness=0.3, transport_km=120" aria-label="Values">
+          <button class="primary" type="submit">Save scenario</button>
+        </form>
+      </div>
+
+      <div class="block needs-model">
+        <h2>Versions and lock <button class="q" data-help="version" aria-label="Help">?</button></h2>
+        <p class="hint">Save a named version before larger changes; compare any two versions or restore one. Lock a model once it has been reviewed so nobody changes it by accident.</p>
+        <div class="row"><input id="versionName" class="grow" placeholder="Version name, e.g. Submitted to supervisor"><button class="primary" id="btnSaveVersion">Save version</button></div>
+        <ul class="list" id="versionList"></ul>
+        <div class="row" id="diffRow"><label class="inline">Compare <select id="diffA"></select></label><label class="inline">with <select id="diffB"></select></label><button id="btnDiff">Show differences</button></div>
+        <div id="diffOut"></div>
+        <div class="row lockrow"><span class="grow" id="lockState"></span><input id="lockReason" placeholder="Reason (optional)" size="28"><button id="btnLock">Lock model</button></div>
+      </div>
+    </section>
+
+    <!-- STEP 3 -->
+    <section class="view" id="view-inventory" hidden>
+      <h1>Inventory</h1>
+      <p class="lead" id="invLead">Add every input and output needed for one functional unit.</p>
+      <div class="inv">
+        <div class="finder block">
+          <div class="tabs" role="tablist">
+            <button role="tab" class="on" data-src="activity">Datasets</button>
+            <button role="tab" data-src="flow">Direct emissions &amp; resources</button>
+            <button role="tab" data-src="model">My models &amp; processes</button>
+            <button role="tab" data-src="fixed">EPD values</button>
+          </div>
+          <div id="replaceBanner" class="banner" hidden></div>
+          <div class="row search-row" id="searchRow">
+            <input id="searchBox" type="search" placeholder="Search, e.g. cement, electricity France, lorry" aria-label="Search">
+            <select id="searchDb" aria-label="Database"></select>
+            <input id="searchLoc" placeholder="Region, e.g. FR" size="8" aria-label="Preferred region">
+          </div>
+          <p class="hint" id="searchHint"></p>
+          <ul class="results" id="searchResults"></ul>
+          <form id="epdForm" class="epd" hidden novalidate>
+            <p class="hint">Enter declared values from an EPD per declared unit (e.g. A1-A3 of 1 kg insulation). Values are used as they are, without supply chain.</p>
+            <div class="form-grid">
+              <label>EPD product name<input name="name" placeholder="Wood fibre insulation, Brand X"></label>
+              <label>Declared unit<input name="unit" placeholder="kg"></label>
+              <label>Region<input name="location" placeholder="DE"></label>
+              <label>Source (EPD number, programme)<input name="source" placeholder="EPD-ABC-2025-01, IBU"></label>
+            </div>
+            <div id="epdValues"></div>
+          </form>
+        </div>
+        <aside class="detail block" id="detail" hidden></aside>
+      </div>
+      <div class="block">
+        <div class="row head-row">
+          <h2 class="grow">Model inventory <span class="count" id="invCount"></span></h2>
+          <button class="ghost" id="btnLit" title="Turn a table from a paper, report or spreadsheet into lines">From a paper or table</button>
+          <button class="ghost" id="btnExt" title="Add emissions computed by another model, e.g. leaching or field emissions">External model emissions</button>
+          <button class="ghost" id="btnUndo" title="Undo the last change">Undo</button>
+          <button class="ghost" id="btnDiagram">Flow diagram</button>
+          <button class="ghost" id="btnInvTemplate">Excel template</button>
+          <button class="ghost" id="btnInvImport">Import from Excel</button>
+          <button class="ghost" id="btnInvExport">Export to Excel</button>
+        </div>
+        <div class="row" id="invImportRow" hidden>
+          <input id="invImportPath" class="grow" placeholder="Full path of the filled template (.xlsx)">
+          <button id="btnInvImportGo">Import rows</button>
+        </div>
+        <div class="banner lock-banner" data-lockbanner hidden></div>
+        <div id="litPanel" class="subpanel" hidden>
+          <div class="row"><h3 class="grow">Inventory from a paper or table</h3><button class="ghost" data-close>Close</button></div>
+          <p class="hint">Paste a table copied from a PDF, Word or Excel (one row per line: name, amount, unit, optional stage), or choose a file (PDF, Word, Excel, CSV). Cyclia proposes a dataset or elementary flow for each row with a matching unit; you confirm every row before anything is added.</p>
+          <textarea id="litText" rows="6" placeholder="Portland cement&#9;300&#9;kg&#9;A1"></textarea>
+          <div class="row"><input id="litSource" class="grow" placeholder="Source, e.g. Smith et al. 2023, Table 2"><input id="litLoc" size="8" placeholder="Region, e.g. FR"><button class="ghost" id="btnLitExample">Use example</button><button class="ghost" id="btnLitFile">Choose file</button><button class="primary" id="btnLitParse">Find matches</button></div>
+          <div class="row" id="litPathRow" hidden><input id="litPath" class="grow" placeholder="Full path of a PDF, Word, Excel or CSV file"><button id="btnLitPath">Read file</button></div>
+          <div id="litOut"></div>
+        </div>
+        <div id="extPanel" class="subpanel" hidden>
+          <div class="row"><h3 class="grow">Emissions from an external model</h3><button class="ghost" data-close>Close</button></div>
+          <p class="hint">Couple a fate, leaching, runoff or field-emission model: paste or choose its output as CSV with the columns <code>year, flow, compartment, subcompartment, amount, unit</code>. Each row becomes a direct emission per functional unit; the year feeds the dynamic climate analysis.</p>
+          <textarea id="extText" rows="6"></textarea>
+          <div class="form-grid">
+            <label>Life cycle stage<input id="extStage" list="stageList" placeholder="B1 Use"></label>
+            <label>Scale factor (e.g. per m2)<input id="extScale" type="number" step="any" value="1"></label>
+            <label class="wide">Source label<input id="extSource" placeholder="Leaching model v2, run 2025-06-01"></label>
+            <label class="inline"><input type="checkbox" id="extAgg"> One line per flow (sum over years)</label>
+            <label class="inline"><input type="checkbox" id="extCreate"> Create flows that are not in the library</label>
+          </div>
+          <div class="row"><button class="ghost" id="btnExtExample">Use example</button><button class="ghost" id="btnExtFile">Choose CSV file</button><button class="primary" id="btnExtImport">Import emissions</button></div>
+          <div id="extOut"></div>
+        </div>
+        <div id="invProblems" class="problems" hidden></div>
+        <div id="diagram" class="diagram" hidden></div>
+        <div class="table-wrap">
+          <table class="inv-table">
+            <thead><tr><th>Stage</th><th>Input or output</th><th>Amount</th><th>Credit <button class="q" data-help="avoided product" aria-label="Help">?</button></th><th class="col-year">Year</th><th>Data quality <button class="q" data-help="pedigree matrix" aria-label="Help">?</button></th><th>Data source</th><th><span class="sr">Actions</span></th></tr></thead>
+            <tbody id="invRows"></tbody>
+          </table>
+        </div>
+        <p class="empty" id="invEmpty">Nothing here yet. Search above and add your first material or energy input, or import an Excel sheet.</p>
+        <p class="hint ped-legend">Amounts can be numbers or formulas of parameters (click f(x)). Data quality: reliability, completeness, time, geography, technology; 1 best, 5 worst. New lines start at 3 until you rate them.</p>
+        <datalist id="stageList"></datalist>
+      </div>
+      <div class="block needs-model" id="commentsBlock">
+        <div class="row head-row"><h2 class="grow">Comments <span class="count" id="commentCount"></span></h2><label class="inline"><input type="checkbox" id="showResolved"> Show resolved</label></div>
+        <p class="hint" id="commentFilter" hidden></p>
+        <ul class="comments" id="commentList"></ul>
+        <form class="row" id="commentForm" novalidate><input name="text" class="grow" placeholder="Note for your supervisor or co-authors" aria-label="Comment"><button class="primary" type="submit">Add comment</button></form>
+      </div>
+    </section>
+
+    <!-- STEP 4 -->
+    <section class="view" id="view-impact" hidden>
+      <h1>Impact assessment</h1>
+      <p class="lead">Choose impact categories (classification and characterisation). EF 3.1 is the EU reference; ReCiPe 2016 and CML-IA are common in journals. Use one method family per indicator.</p>
+      <div class="block">
+        <div id="methodPicker"></div>
+        <p class="empty" id="noMethods" hidden>No methods yet. Import an ecoinvent LCIA file, a method package or a CSV in step 1.</p>
+      </div>
+      <div class="block">
+        <h2>Options</h2>
+        <div class="form-grid">
+          <label>Scenario<select id="scenarioSel"><option value="">Base values</option></select></label>
+          <label>Normalisation and weighting<select id="nwSet"><option value="">Not used</option></select></label>
+          <label>Sensitivity check range (± %)<input id="sensPct" type="number" min="1" max="100" value="10"></label>
+          <label>Background database <button type="button" class="q" data-help="background scenario" aria-label="Help">?</button><select id="bgSel"><option value="">As imported (attributional)</option></select></label>
+          <label id="bgYearLabel" hidden>Target year<input id="bgYear" type="number" min="2000" max="2100" value="2050"></label>
+        </div>
+        <fieldset class="radios">
+          <legend>Uncertainty analysis <button type="button" class="q" data-help="Monte Carlo" aria-label="Help">?</button></legend>
+          <label><input type="radio" name="unc" value="none" checked> None</label>
+          <label><input type="radio" name="unc" value="foreground"> Foreground data quality and parameter distributions (seconds)</label>
+          <label><input type="radio" name="unc" value="full"> Full Monte Carlo including database uncertainty (minutes for ecoinvent)</label>
+          <label class="inline-num">Iterations <input id="mcN" type="number" min="20" max="5000" value="1000"></label>
+        </fieldset>
+      </div>
+      <div class="row"><button class="primary big" id="btnCalc">Calculate</button><span class="hint" id="calcHint" role="status"></span></div>
+    </section>
+
+    <!-- STEP 5 -->
+    <section class="view" id="view-results" hidden>
+      <h1>Interpretation</h1>
+      <p class="empty" id="noResults">Calculate in step 4 to see results here.</p>
+      <div id="resultsBody" hidden>
+        <div class="block"><h2>Results per functional unit</h2><p class="hint" id="resultMeta"></p><div class="table-wrap"><table id="totals"></table></div><p class="hint" id="singleScore"></p></div>
+        <div class="tabs" role="tablist" id="resTabs">
+          <button class="on" data-rt="contrib">Contributions</button>
+          <button data-rt="tree">Supply chain</button>
+          <button data-rt="stages">Stages</button>
+          <button data-rt="sens">Sensitivity</button>
+          <button data-rt="unc">Uncertainty</button>
+          <button data-rt="dyn" id="tabDyn" hidden>Dynamic climate</button>
+          <button data-rt="map">Map</button>
+          <button data-rt="explore">Explore parameters</button>
+          <button data-rt="pef">PEF</button>
+          <button data-rt="lci">Inventory results</button>
+          <button data-rt="checks">Checks <span id="checkCount"></span></button>
+          <button data-rt="compare">Compare</button>
+        </div>
+        <div class="row cat-row" id="catRow"><label for="catSelect" class="inline">Impact category</label><select id="catSelect"></select></div>
+
+        <div class="rt" id="rt-contrib"><div class="block charts">
+          <figure><figcaption>By model input</figcaption><div id="chartInputs"></div></figure>
+          <figure><figcaption>Supply-chain hotspots (processes)</figcaption><div id="chartProcs"></div></figure>
+          <figure><figcaption>Elementary flows</figcaption><div id="chartFlows"></div></figure>
+        </div></div>
+        <div class="rt" id="rt-tree" hidden><div class="block">
+          <p class="hint">Cumulative impact of each input and, when expanded, of its suppliers. Branches below 0.5 % are grouped.</p>
+          <div id="sankey"></div>
+          <div id="treeBox" class="tree"></div>
+        </div></div>
+        <div class="rt" id="rt-stages" hidden><div class="block"><div id="chartStages"></div><div class="table-wrap"><table id="stageTable"></table></div></div></div>
+        <div class="rt" id="rt-sens" hidden><div class="block">
+          <h3>Inputs</h3><p class="hint" id="sensNote"></p><div id="chartSens"></div>
+          <h3>Parameters</h3><div id="paramSens"></div>
+          <h3>Global sensitivity (Sobol indices) <button class="q" data-help="Sobol indices" aria-label="Help">?</button></h3>
+          <div class="row"><label class="inline">Samples <input id="sobolN" type="number" min="64" max="4096" value="512"></label><button id="btnSobol">Calculate Sobol indices</button></div>
+          <div id="sobolOut"></div>
+        </div></div>
+        <div class="rt" id="rt-unc" hidden><div class="block">
+          <p class="empty" id="uncNone">No uncertainty analysis in this calculation. Choose one under Options in step 4.</p>
+          <div id="uncBody" hidden><div id="chartMc"></div><p class="hint" id="mcNote"></p></div>
+        </div></div>
+        <div class="rt" id="rt-dyn" hidden><div class="block"><div id="dynOut"></div></div></div>
+        <div class="rt" id="rt-map" hidden><div class="block">
+          <p class="hint">Where the impact happens: contributions of all processes in the supply chain, grouped by the location of each process.</p>
+          <div id="mapOut"></div><div class="table-wrap"><table id="locTable"></table></div>
+        </div></div>
+        <div class="rt" id="rt-explore" hidden><div class="block">
+          <h3>Parameter sweep</h3>
+          <p class="hint">How the results change when one or two parameters move across a range (other parameters at their values or the chosen scenario).</p>
+          <div id="sweepParams"></div>
+          <div class="row"><button class="primary" id="btnSweep">Run sweep</button></div>
+          <div id="sweepOut"></div>
+          <h3>Optimisation and trade-offs <button class="q" data-help="Pareto front" aria-label="Help">?</button></h3>
+          <p class="hint">Find the parameter values within their bounds that minimise one category, optionally keeping other categories below a limit. With a second category, Cyclia also draws the Pareto front of the two.</p>
+          <div class="form-grid"><label>Minimise<select id="optObj"></select></label><label>Trade-off with (optional)<select id="optObj2"></select></label>
+            <label>Limit on<select id="optCon"></select></label><label>Upper limit<input id="optConMax" type="number" step="any"></label></div>
+          <div class="row"><button class="primary" id="btnOptimise">Optimise</button><span class="hint">Uses the bounds set above for the sweep.</span></div>
+          <div id="optOut"></div>
+        </div></div>
+        <div class="rt" id="rt-pef" hidden><div class="block" id="pefOut"></div></div>
+        <div class="rt" id="rt-lci" hidden><div class="block">
+          <h3>Toxicity coverage</h3><div id="toxCov"></div>
+          <h3>Flows without a factor in the selected categories</h3><div id="uncharOut"></div>
+          <h3>Life cycle inventory (largest flows)</h3><p class="hint" id="lciNote"></p><div class="table-wrap"><table id="lciTable"></table></div>
+        </div></div>
+        <div class="rt" id="rt-checks" hidden><div class="block"><p class="hint">Completeness, consistency and sensitivity checks of ISO 14044 4.5.3. Errors must be fixed; warnings and notes belong in your report.</p><ul class="checks-list" id="checksList"></ul></div></div>
+        <div class="rt" id="rt-compare" hidden>
+          <div class="block">
+            <h2>Models</h2>
+            <div id="compareModels" class="checks"></div>
+            <div class="row"><button class="primary" id="btnCompare">Compare</button><button id="btnCompareMc">Comparative Monte Carlo</button><span class="hint">Uses the categories and scenario chosen in step 4.</span></div>
+          </div>
+          <div class="block" id="compareOut" hidden></div>
+          <div class="block" id="compareMcOut" hidden></div>
+          <div class="block">
+            <h2>Scenarios of this model</h2>
+            <div id="compareScen" class="checks"></div>
+            <button id="btnCompareScen">Compare scenarios</button>
+            <div id="compareScenOut"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEP 6 -->
+    <section class="view" id="view-report" hidden>
+      <h1>Report</h1>
+      <p class="lead">Write your conclusions, then export. The Word report follows ISO 14044: goal and scope, inventory with parameters, impact assessment, interpretation with checks and sensitivity, inventory results and a methods paragraph for your manuscript.</p>
+      <form id="concForm" class="block" novalidate>
+        <h2>Conclusions</h2>
+        <label>Conclusions<textarea name="conclusions" rows="3"></textarea></label>
+        <label>Limitations<textarea name="limitations" rows="2"></textarea></label>
+        <label>Recommendations<textarea name="recommendations" rows="2"></textarea></label>
+        <label>Critical review (who reviewed, how, statement) <button type="button" class="q" data-help="critical review" aria-label="Help">?</button><textarea name="review" rows="2"></textarea></label>
+        <div class="row"><button class="primary" type="submit">Save text</button><span class="hint" id="concSaved" role="status"></span></div>
+      </form>
+      <div class="block">
+        <h2>Exports</h2>
+        <div class="row">
+          <button class="primary" id="btnWord">Create Word report</button>
+          <button id="btnExcel">Export results to Excel</button>
+          <button id="btnMethodsText">Write methods paragraph</button>
+          <button id="btnBackup">Back up project file</button>
+        </div>
+        <ul class="list" id="exports"></ul>
+      </div>
+      <div class="block">
+        <h2>Standards and declarations</h2>
+        <details class="connector">
+          <summary><b>EPD according to EN 15804+A2</b><span>Declaration draft with modules A1 to D, ND for modules not declared, and a verification checklist.</span></summary>
+          <form id="epdInfo" class="form-grid" novalidate>
+            <label>Manufacturer<input name="manufacturer"></label><label>Production site<input name="site"></label>
+            <label>Programme operator<input name="programme"></label><label>Declaration number<input name="number"></label>
+            <label>Product category rules (PCR)<input name="pcr"></label><label>Reference service life<input name="rsl" placeholder="50 years"></label>
+            <label>Date of issue<input name="issued" type="date"></label><label>Valid until<input name="valid_until" type="date"></label>
+            <label>Verification<input name="verification" placeholder="Independent external verification"></label><label>Verifier<input name="verifier"></label>
+            <label>Biogenic carbon in product (kg C)<input name="biogenic_product" type="number" step="any"></label><label>Biogenic carbon in packaging (kg C)<input name="biogenic_packaging" type="number" step="any"></label>
+            <label class="wide">Product description<textarea name="description" rows="2"></textarea></label>
+            <div class="wide"><span class="hint">Modules declared in addition to those with inventory lines:</span><div class="modchecks" id="epdModules"></div></div>
+          </form>
+          <div class="row"><button id="btnEpdSave">Save EPD details</button><button id="btnEpdCheck">Check requirements</button><button class="primary" id="btnEpdWord">Create EPD (Word)</button><button id="btnEpdExcel">EPD data for the verifier (Excel)</button></div>
+          <div id="epdOut"></div>
+        </details>
+        <details class="connector">
+          <summary><b>Carbon footprint report (ISO 14067) and GHG Protocol</b><span>Uses the built-in IPCC 2021 method with the fossil, biogenic and land use split.</span></summary>
+          <div class="row"><button class="primary" id="btnIso14067">Create ISO 14067 report (Word)</button><button id="btnGhg">GHG Protocol Product Standard (Excel)</button></div>
+        </details>
+      </div>
+      <div class="block">
+        <div class="row head-row"><h2 class="grow">Critical review <button class="q" data-help="critical review" aria-label="Help">?</button></h2><button id="btnReviewLoad">Open checklist</button><button id="btnReviewSave">Save reviewer notes</button><button id="btnReviewExport">Export checklist (Excel)</button></div>
+        <p class="hint">The ISO 14044 requirements with what Cyclia can check automatically. The reviewer adds a status and a comment per item; notes are stored in the model.</p>
+        <div id="reviewOut"></div>
+      </div>
+      <div class="block">
+        <h2>Share, reproduce, exchange</h2>
+        <div class="checks" id="shareModels"></div>
+        <div class="row">
+          <button class="primary" id="btnBundle" title="Project file, settings, database and method fingerprints, and results in one zip">Reproducibility bundle</button>
+          <button id="btnBw">Export for Brightway</button>
+          <button id="btnOlca">Export for openLCA (JSON-LD)</button>
+        </div>
+        <p class="hint">A reproducibility bundle lets a reviewer or co-author recalculate your results and see whether their databases and methods are identical to yours (Toolbox > Validation > Verify a bundle).</p>
+      </div>
+      <div class="block" id="methodsTextBox" hidden>
+        <div class="row"><h2 class="grow">Methods paragraph</h2><button class="ghost" id="btnCopy">Copy</button></div>
+        <p id="methodsText" class="methods-text"></p>
+      </div>
+    </section>
+    <!-- TOOLBOX -->
+    <section class="view" id="view-tools" hidden>
+      <h1>Toolbox</h1>
+      <p class="lead">Tools that work across models: checking the software, changing the background database, building toxicity factors, templates, scripting and teaching.</p>
+      <div class="tabs" id="toolTabs" role="tablist">
+        <button class="on" data-tt="valid">Validation</button><button data-tt="bg">Background scenarios</button>
+        <button data-tt="chem">Chemicals and site factors</button><button data-tt="tpl">Templates</button>
+        <button data-tt="code">Python, R and other software</button><button data-tt="teach">Teaching</button>
+      </div>
+      <div class="tt" id="tt-valid">
+        <div class="block">
+          <h2>Validation suite</h2>
+          <p class="hint">Runs 34 small product systems with known exact answers (chains, loops, allocation, system expansion, nesting, units, regional and site factors, background scenarios, scenario files, module D, dynamic GWP, Monte Carlo, Sobol, fate model) in a temporary library and compares Cyclia with them. Attach the report to a paper or a thesis.</p>
+          <div class="row"><button class="primary" id="btnValidate">Run validation suite</button><button id="btnValidReport" disabled>Save report (Word)</button></div>
+          <div id="validOut"></div>
+        </div>
+        <div class="block">
+          <h2>Verify a reproducibility bundle</h2>
+          <p class="hint">Recalculates every model in a bundle with its stored settings and compares results, database fingerprints and method fingerprints with this computer's library.</p>
+          <div class="row"><input id="bundlePath" class="grow" placeholder="Full path of the bundle (.zip)"><button data-pick="file" data-target="bundlePath" data-ext="zip">Browse</button><button class="primary" id="btnVerify">Verify</button></div>
+          <div id="verifyOut"></div>
+        </div>
+      </div>
+      <div class="tt" id="tt-bg" hidden>
+        <div class="block">
+          <h2>Background scenarios</h2>
+          <p class="hint">Change the background database before calculating, without editing it. <b>Prospective</b>: scale emissions or inputs of selected datasets towards a target year (linear between the base year and the years you give), in the spirit of premise. <b>Consequential</b>: replace the suppliers of a market by its marginal supplier. Choose a scenario in step 4.</p>
+          <ul class="list" id="bgList"></ul>
+        </div>
+        <div class="block">
+          <h2>Import a premise or Activity Browser scenario file</h2>
+          <p class="hint">Scenario difference files (Excel or CSV, one column of amounts per scenario) made with premise from integrated assessment models (e.g. REMIND or IMAGE, SSP pathways) or in the Activity Browser. Each scenario column becomes a background scenario; exchanges are matched to your library by dataset name, product and location, and elementary flows by name and compartment. Use the same database version the file was made for.</p>
+          <div class="row"><input id="sdfPath" class="grow" placeholder="Full path of the scenario file"><button data-pick="file" data-target="sdfPath">Browse</button><input id="sdfPrefix" placeholder="Name prefix, e.g. premise REMIND" size="22"><button class="primary" id="btnSdf">Import scenarios</button></div>
+          <div id="sdfOut"></div>
+        </div>
+        <div class="block">
+          <h2 id="bgEditTitle">New prospective scenario</h2>
+          <div class="form-grid"><label>Name<input id="bgName"></label><label>Base year<input id="bgBase" type="number" value="2020"></label><label class="wide">Description<input id="bgDesc"></label></div>
+          <table class="rule-table"><thead><tr><th>Change</th><th>In datasets whose name contains</th><th>Location</th><th>Flow or input</th><th>Factor (number, or year=factor, ...)</th><th></th></tr></thead><tbody id="bgRules"></tbody></table>
+          <div class="row"><button class="ghost" id="btnAddRule">Add rule</button><button class="primary" id="btnSaveBg">Save scenario</button><button class="ghost" id="btnNewBg">New</button></div>
+        </div>
+        <div class="block">
+          <h2>Consequential: marginal suppliers</h2>
+          <p class="hint">Lists the markets in the supply chain of the current model with their present suppliers. Pick the marginal supplier (the one that responds to a change in demand) for the markets that matter.</p>
+          <div class="row"><button id="btnMarkets">Find markets of the current model</button></div>
+          <div id="marketOut"></div>
+        </div>
+      </div>
+      <div class="tt" id="tt-chem" hidden>
+        <div class="block">
+          <h2>Screening toxicity factors for your own chemicals</h2>
+          <p class="hint">For substances without official USEtox factors. A steady-state multimedia fate model (Mackay EQC Level III: air, water, soil, sediment) gives fate factors; USEtox-style exposure and effect factors turn them into freshwater ecotoxicity (CTUe) and human toxicity (CTUh) per kg emitted. Factors are saved as the method "Cyclia screening toxicity (own chemicals)" and the chemical becomes an elementary flow you can add in step 3. Use official USEtox factors for published results where they exist.</p>
+          <div class="form-grid"><label>Chemical name<input id="chemName"></label><label>CAS number<input id="chemCas"></label></div>
+          <div class="form-grid" id="chemFields"></div>
+          <div class="row"><button class="ghost" id="btnChemExample">Use the demo substance</button><button id="btnChemPreview">Calculate factors</button><button class="primary" id="btnChemSave">Save chemical and factors</button></div>
+          <div id="chemOut"></div>
+          <h3>Saved chemicals</h3><ul class="list" id="chemList"></ul>
+        </div>
+        <div class="block">
+          <h2>Site-specific characterisation factors</h2>
+          <p class="hint">Replace the generic factor of a flow by your own value (for example from a local fate model or measured bioavailability). It applies to the model's own direct emissions only, not to the background database, and is reported in the checks.</p>
+          <ul class="list" id="siteList"></ul>
+          <div class="form-grid"><label>Impact category<select id="siteMethod"></select></label><label>Elementary flow<input id="siteFlowQ" placeholder="search, e.g. copper"></label>
+            <label>Factor<input id="siteValue" type="number" step="any"></label><label>Justification<input id="siteNote"></label></div>
+          <ul class="results" id="siteFlowRes"></ul>
+          <button class="primary" id="btnSiteSave">Save site factor</button>
+        </div>
+      </div>
+      <div class="tt" id="tt-tpl" hidden>
+        <div class="block"><h2>Model templates</h2><p class="hint">Templates create a complete model (scope, parameters, lines with formulas) and link each line to the best dataset in your library. Save any model as your own template in step 2.</p><div id="tplList"></div></div>
+      </div>
+      <div class="tt" id="tt-code" hidden>
+        <div class="block">
+          <h2>Use Cyclia from Python or R</h2>
+          <p class="hint">While Cyclia is open, scripts on this computer can open projects, change parameters, calculate and run Monte Carlo through the same engine. The clients find the running app by themselves.</p>
+          <div class="row"><button class="primary" id="btnClients">Save the Python and R clients</button></div>
+          <pre id="codePy"></pre><pre id="codeR"></pre>
+          <p class="hint" id="apiInfo"></p>
+        </div>
+        <div class="block">
+          <h2>Brightway and openLCA</h2>
+          <p class="hint">Export models in step 6. Import an activity sheet in the Brightway (bw2io) Excel layout as models; background exchanges are linked to your library by name, product, location and unit.</p>
+          <div class="row"><input id="bwPath" class="grow" placeholder="Full path of a Brightway Excel file"><button data-pick="file" data-target="bwPath" data-ext="xlsx">Browse</button><button class="primary" id="btnBwImport">Import as models</button></div>
+          <div id="bwOut"></div>
+        </div>
+      </div>
+      <div class="tt" id="tt-teach" hidden>
+        <div class="block">
+          <div class="row head-row"><h2 class="grow">Exercises</h2><label class="inline"><input type="checkbox" id="teacherMode"> Teacher view (show answers)</label><button id="btnAnswerKey">Answer key (Word)</button></div>
+          <p class="hint">Exercises on the demo database. Answers are calculated by the engine from the installed data, so the key always matches. Students type their result and check it.</p>
+          <div id="teachOut"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<aside class="drawer" id="help" hidden aria-label="Help">
+  <div class="drawer-head"><h2>Help</h2><button class="ghost" id="btnHelpClose">Close</button></div>
+  <div class="tabs" id="helpTabs"><button class="on" data-ht="guide">Guided tutorial</button><button data-ht="tour">Feature tour</button><button data-ht="glossary">Glossary</button><button data-ht="about">About and support</button></div>
+  <div data-hp="guide"><p class="hint">Follow these steps once with the tutorial database; each ticks itself when done.</p><ol class="guide" id="guideList"></ol></div>
+  <div data-hp="tour" hidden><p class="hint">Every feature and where to find it. Load the demo in step 1 first so each one has data to work with.</p><ul class="tour" id="tourList"></ul></div>
+  <div data-hp="glossary" hidden><input id="glossSearch" type="search" placeholder="Search terms" aria-label="Search glossary"><dl id="glossary"></dl></div>
+  <div data-hp="about" hidden>
+    <div class="author-card" id="authorCard"></div>
+    <div class="support-box" id="supportBox" hidden>
+      <h3>Support Cyclia</h3>
+      <p id="supportNote"></p>
+      <div class="row" id="supportLinks"></div>
+    </div>
+    <h3>Cite Cyclia</h3>
+    <p class="hint">Cyclia is free. Citing it is how its author gets credit, and how other researchers find it.</p>
+    <div class="cite-box"><p id="citeApa"></p><div class="row"><button id="btnCopyApa">Copy citation</button><button class="ghost" id="btnCopyBib">Copy BibTeX</button><button class="ghost" id="btnCopyMethods">Copy a sentence for the methods section</button></div></div>
+    <h3>This copy</h3>
+    <p id="aboutText" class="hint"></p>
+    <div class="row"><label class="inline grow">Your name (for comments, versions and reviews)<input id="authorName" placeholder="First and last name"></label><button id="btnAuthor">Save</button></div>
+    <div class="row"><button id="btnDiag">Export diagnostics for support</button><button class="ghost" id="btnWelcomeAgain">Show the welcome screen again</button></div>
+    <p class="hint">The diagnostics file holds the error log and system information, no project data. Send it to <span data-support-mail>support@niellosoft.com</span>.</p>
+    <h3>Open source</h3><p class="hint">Cyclia is free and open-source software under the MIT licence: use it, study it, change it and share it. The source code, the validation suite and the methods documentation are public.</p>
+    <p class="hint" id="ackText" hidden></p>
+  </div>
+</aside>
+<div class="welcome" id="welcome" role="dialog" aria-modal="true" aria-labelledby="wTitle" hidden>
+  <div class="w-card">
+    <div class="w-hero">
+      <img src="icon.png" alt="" class="w-logo">
+      <div><h1 id="wTitle">Welcome to Cyclia</h1><p>Free, open-source life cycle assessment for students and researchers. It follows ISO 14040 and 14044 and needs no programming.</p></div>
+    </div>
+    <ol class="w-path" aria-label="The six steps of an LCA in Cyclia">
+      <li><b>1</b>Project and data</li><li><b>2</b>Goal and scope</li><li><b>3</b>Inventory</li><li><b>4</b>Impact assessment</li><li><b>5</b>Interpretation</li><li><b>6</b>Report</li>
+    </ol>
+    <div class="w-page" data-wp="1">
+      <h2>How much LCA have you done before?</h2>
+      <div class="w-choices">
+        <button data-level="new"><b>I am new to LCA</b><span>Every step explains what it means, shows a checklist and points to the next button.</span></button>
+        <button data-level="some"><b>I have done an LCA before</b><span>Short guidance you can open when needed. You can switch it on or off at any time.</span></button>
+        <button data-level="teach"><b>I teach LCA</b><span>Exercises with automatic checking, answer keys and a demo for class.</span></button>
+      </div>
+    </div>
+    <div class="w-page" data-wp="2" hidden>
+      <h2>How would you like to start?</h2>
+      <div class="w-choices">
+        <button data-start="learn"><b>Learn with a first study</b><span>Creates the project "My first LCA" with the free tutorial database (16 building materials and their impact methods) and guides you through the six steps. About 20 minutes.</span></button>
+        <button data-start="demo"><b>Explore the full demo</b><span>Seven ready-made models that show every feature: scenarios, EPD modules, uncertainty, toxicity and more. Nothing to type.</span></button>
+        <button data-start="own"><b>Start my own study</b><span>An empty project. Then connect ecoinvent with your licence, or import openLCA, SimaPro or ILCD data.</span></button>
+      </div>
+      <div class="row"><button class="ghost" data-wback>Back</button><span class="grow"></span><button class="ghost" data-wskip>Skip, I will look around</button></div>
+    </div>
+    <div class="w-page" data-wp="3" hidden>
+      <h2 id="wBusyTitle">Preparing your project</h2>
+      <p class="hint" id="wBusyText">This takes a few seconds.</p>
+      <progress id="wBusyBar" max="100" value="5"></progress>
+    </div>
+    <footer class="w-credit">
+      <span class="avatar" data-avatar></span>
+      <div class="grow"><small>Created by</small><b data-credit-name>Naeem Ur Rehman</b><span id="wRole"></span></div>
+      <p class="w-thanks">Shared for free so that more people can do good environmental science. If Cyclia helps your work, please cite it.</p>
+    </footer>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="credits.js"></script>
+<script src="glossary.js"></script>
+<script src="app.js"></script>
+<script src="features.js"></script>
+<script src="coach.js"></script>
+</body>
+</html>

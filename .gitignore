@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+.buildenv/
+engine/build/
+engine/dist/
+app/node_modules/
+app/dist/
+app/ui/world.json
+*.lca
+*.lca-wal
+*.lca-shm
+.DS_Store
+Thumbs.db
+node_modules/
+*.log
+# never publish licensed database content or benchmark files containing ecoinvent values
+*ecoinvent*.xlsx
+*benchmark*.xlsx
+*.7z
+*.spold

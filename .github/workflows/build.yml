@@ -1,0 +1,75 @@
+# Builds Cyclia installers for Windows, macOS and Linux.
+#  - Run by hand from the Actions tab: installers appear as downloadable artifacts.
+#  - Push a tag such as v1.1.0: installers are also published as a GitHub Release, which the app's
+#    auto-updater reads. Set "owner" in app/package.json (build.publish) to your GitHub user first.
+# Optional repository secrets for signed builds (unsigned builds work without them):
+#   WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD           Windows code-signing certificate (.pfx as base64) and password
+#   MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD           Apple Developer ID certificate and password
+#   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID   for notarization (then set mac.notarize to true)
+name: Build installers
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: --win nsis
+            csc_link: WIN_CSC_LINK
+            csc_pass: WIN_CSC_KEY_PASSWORD
+          - os: macos-latest
+            target: --mac dmg zip
+            csc_link: MAC_CSC_LINK
+            csc_pass: MAC_CSC_KEY_PASSWORD
+          - os: ubuntu-latest
+            target: --linux AppImage deb
+            csc_link: NONE
+            csc_pass: NONE
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build engine (runs the test suite first)
+        run: python engine/build-engine.py
+      - name: World map
+        run: |
+          python engine/tools/apply_credits.py
+          python engine/tools/fetch_world.py
+      - name: Install Electron and builder
+        working-directory: app
+        run: npm install
+      - name: Build installer
+        working-directory: app
+        shell: bash
+        run: npx electron-builder ${{ matrix.target }} --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets[matrix.csc_link] }}
+          CSC_KEY_PASSWORD: ${{ secrets[matrix.csc_pass] }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets[matrix.csc_link] != '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cyclia-${{ matrix.os }}
+          path: |
+            app/dist/*.exe
+            app/dist/*.dmg
+            app/dist/*.AppImage
+            app/dist/*.deb
+          if-no-files-found: error

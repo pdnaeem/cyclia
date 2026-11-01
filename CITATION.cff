@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use Cyclia in a thesis or publication, please cite it as below."
+title: "Cyclia: open-source life cycle assessment software for researchers"
+abstract: >-
+  Desktop software for life cycle assessment following ISO 14040/44, without programming. It reads the
+  user's own databases (ecoinvent, openLCA JSON-LD, SimaPro CSV, ILCD, ecoSpold1), solves the matrix model,
+  and provides uncertainty and sensitivity analysis, background scenarios, standards outputs (EN 15804+A2,
+  PEF, ISO 14067) and an automatic validation against ecoinvent's own results.
+type: software
+authors:
+  - family-names: "Rehman"
+    given-names: "Naeem Ur"
+    affiliation: "Founder of NielloSoft (Pvt) Ltd, Lahore, Pakistan"
+repository-code: "https://github.com/pdnaeem/cyclia"
+url: "https://niellosoft.com"
+license: MIT
+version: "1.2.0"
+keywords:
+  - life cycle assessment
+  - LCA
+  - ISO 14044
+  - ecoinvent
+  - environmental footprint

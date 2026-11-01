@@ -1,0 +1,130 @@
+{
+  "name": "cyclia",
+  "productName": "Cyclia",
+  "version": "1.2.0",
+  "description": "Cyclia: free, open-source life cycle assessment for researchers (ISO 14040/44, no code). Created by Naeem Ur Rehman.",
+  "author": {
+    "name": "Naeem Ur Rehman",
+    "email": "support@niellosoft.com"
+  },
+  "homepage": "https://niellosoft.com",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis --publish never",
+    "dist:mac": "electron-builder --mac dmg zip --publish never",
+    "dist:linux": "electron-builder --linux AppImage deb --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.niellosoft.cyclia",
+    "productName": "Cyclia",
+    "copyright": "Copyright (c) 2026 Naeem Ur Rehman and the Cyclia contributors (MIT licence)",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "splash.html",
+      "ui/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../engine/dist/cyclia-engine",
+        "to": "engine",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "ui",
+        "to": "ui",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico",
+      "artifactName": "Cyclia-Setup-${version}.${ext}",
+      "signtoolOptions": {
+        "publisherName": "NielloSoft (Pvt) Ltd"
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Cyclia",
+      "license": "build/license.txt",
+      "include": "build/installer.nsh",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/uninstallerSidebar.bmp",
+      "installerHeader": "build/installerHeader.bmp",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "runAfterFinish": true,
+      "menuCategory": false,
+      "uninstallDisplayName": "Cyclia ${version}"
+    },
+    "mac": {
+      "category": "public.app-category.education",
+      "icon": "build/icon.png",
+      "artifactName": "Cyclia-${version}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false,
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "linux": {
+      "category": "Science",
+      "icon": "build/icon.png",
+      "maintainer": "NielloSoft",
+      "artifactName": "Cyclia-${version}.${ext}",
+      "synopsis": "Open-source life cycle assessment for researchers",
+      "description": "Cyclia: free, open-source life cycle assessment software (ISO 14040/44) for students and researchers, created by Naeem Ur Rehman."
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "pdnaeem",
+        "repo": "cyclia",
+        "releaseType": "release"
+      }
+    ],
+    "dmg": {
+      "title": "Cyclia ${version}",
+      "contents": [
+        {
+          "x": 150,
+          "y": 190
+        },
+        {
+          "x": 410,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  }
+}

@@ -1,0 +1,1928 @@
+"""Cyclia engine: local HTTP API used by the desktop app.
+
+Listens on 127.0.0.1 only and requires a per-session token, so other programs and web pages cannot
+call it.   python server.py [--port 8765] [--data <folder>]
+"""
+import argparse
+import csv
+import io
+import json
+import logging
+import math
+import mimetypes
+import os
+import platform
+import re
+import secrets
+import sys
+import threading
+import time
+import uuid
+import zipfile
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, unquote, urlparse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import calc  # noqa: E402
+import formula as fm  # noqa: E402
+import interop  # noqa: E402
+import inventory_io  # noqa: E402
+import official  # noqa: E402
+import linking  # noqa: E402
+import productivity  # noqa: E402
+import report  # noqa: E402
+import science  # noqa: E402
+import standards  # noqa: E402
+import teaching  # noqa: E402
+import trust  # noqa: E402
+import units  # noqa: E402
+from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
+from store import Workspace  # noqa: E402
+
+VERSION = "1.2.0"
+APP = "Cyclia"
+trust.APP_VERSION = VERSION
+UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
+log = logging.getLogger("cyclia")
+
+STAGE_PRESETS = {
+    "EN 15804 (construction products)": [
+        "A1 Raw material supply", "A2 Transport to manufacturer", "A3 Manufacturing", "A4 Transport to site",
+        "A5 Construction and installation", "B1 Use", "B2 Maintenance", "B3 Repair", "B4 Replacement",
+        "B5 Refurbishment", "B6 Operational energy use", "B7 Operational water use", "C1 Deconstruction",
+        "C2 Transport to waste processing", "C3 Waste processing", "C4 Disposal",
+        "D Benefits and loads beyond the system boundary"],
+    "General": ["Raw materials", "Manufacturing", "Distribution", "Use", "End of life"],
+    "Agriculture": ["Seeds and inputs", "Field operations", "Fertiliser and field emissions", "Harvest",
+                    "Drying and storage", "Processing", "Transport"],
+}
+BENCHMARK_TEMPLATE = ("activity,location,product,database,method,category,indicator,value\n"
+                      "\"market for electricity, medium voltage\",FR,\"electricity, medium voltage\",,EF v3.1,climate change,"
+                      "global warming potential (GWP100),0.0789\n")
+
+
+class ApiError(Exception):
+    def __init__(self, msg, code=400):
+        super().__init__(msg)
+        self.code = code
+
+
+class State:
+    def __init__(self, data_dir):
+        self.ws = Workspace(data_dir)
+        self.data_dir = data_dir
+        self.exports = os.path.join(data_dir, "exports")
+        os.makedirs(self.exports, exist_ok=True)
+        self.project_name = None
+        self.jobs = {}
+        self.import_lock = threading.Lock()
+        self.mc_results = {}
+        self.api_info = {}
+        self.last_validation = None
+        last = os.path.join(data_dir, "last_project.txt")
+        if os.path.exists(last):
+            name = open(last, encoding="utf-8").read().strip()
+            if name and any(p["name"] == name for p in self.ws.list()):
+                self.project_name = name
+
+    @property
+    def store(self):
+        if not self.project_name:
+            raise ApiError("Open or create a project first (step 1).", 409)
+        st = self.ws.open(self.project_name)
+        if not st.get_meta("builtin_installed"):
+            lcia.install_builtin(st)
+            st.set_meta("builtin_installed", True)
+        return st
+
+    @property
+    def settings(self):
+        try:
+            with open(os.path.join(self.data_dir, "settings.json"), encoding="utf-8") as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            return {}
+
+    def save_settings(self, data):
+        cur = self.settings
+        cur.update({k: v for k, v in data.items() if k in ("author",)})
+        with open(os.path.join(self.data_dir, "settings.json"), "w", encoding="utf-8") as fh:
+            json.dump(cur, fh)
+        return cur
+
+    @property
+    def author(self):
+        return self.settings.get("author") or ""
+
+    def set_project(self, name):
+        self.project_name = name
+        with open(os.path.join(self.data_dir, "last_project.txt"), "w", encoding="utf-8") as fh:
+            fh.write(name or "")
+        self.mc_results.clear()
+        calc.invalidate()
+
+    def start_job(self, label, fn, exclusive=True):
+        job_id = uuid.uuid4().hex[:12]
+        job = {"id": job_id, "label": label, "status": "running", "progress": 0, "message": "Starting",
+               "result": None, "error": None, "started": time.time(), "cancel": False}
+        self.jobs[job_id] = job
+
+        def progress(p, msg=""):
+            job["progress"], job["message"] = max(0, min(100, int(p))), msg
+
+        def runner():
+            if exclusive and not self.import_lock.acquire(blocking=False):
+                job.update(status="error", error="Another import is running. Wait until it finishes.")
+                return
+            try:
+                job["result"] = fn(progress, lambda: job["cancel"])
+                job.update(status="done", progress=100, message="Finished")
+            except calc.Cancelled:
+                job.update(status="cancelled", message="Cancelled")
+            except Exception as e:
+                log.exception("job %s failed", label)
+                job.update(status="error", error=str(e) or e.__class__.__name__)
+            finally:
+                if exclusive:
+                    self.import_lock.release()
+                    calc.invalidate()
+        threading.Thread(target=runner, daemon=True).start()
+        return {k: v for k, v in job.items() if k != "result"}
+
+
+def _need(body, *keys):
+    out = []
+    for k in keys:
+        if body.get(k) in (None, "", []):
+            raise ApiError(f"Missing field: {k}")
+        out.append(body[k])
+    return out
+
+
+def _num(v, field="Amount"):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        raise ApiError(f"{field} must be a number.")
+    if not math.isfinite(x):
+        raise ApiError(f"{field} must be a finite number.")
+    return x
+
+
+def _check_path(p, must_exist=True):
+    p = os.path.expanduser(str(p or "").strip().strip('"'))
+    if not p:
+        raise ApiError("Choose a file or folder first.")
+    if must_exist and not os.path.exists(p):
+        raise ApiError(f"Path not found: {p}")
+    return p
+
+
+ROUTES = []
+
+
+def route(method, pattern):
+    def deco(fn):
+        ROUTES.append((method, re.compile("^" + pattern + "$"), fn))
+        return fn
+    return deco
+
+
+def _has_module(name):
+    try:
+        __import__(name)
+        return True
+    except ImportError:
+        return False
+
+
+def _calc_error(fn, *a, **k):
+    try:
+        return fn(*a, **k)
+    except calc.LCAError as e:
+        raise ApiError(str(e))
+
+
+def _unlocked(store, model_id):
+    lk = store.lock_info(int(model_id)) if model_id else None
+    if lk:
+        raise ApiError(f"This model is locked{' by ' + lk['by'] if lk.get('by') else ''}"
+                       f"{': ' + lk['reason'] if lk.get('reason') else ''}. Unlock it in step 2 (Versions and lock) to edit.", 423)
+
+
+def _bg(body):
+    if body.get("bg_id"):
+        return {"id": int(body["bg_id"]), "year": float(body["bg_year"]) if body.get("bg_year") not in (None, "") else None}
+    return None
+
+
+# ------------------------------------------------------------------ status and projects
+@route("GET", "/api/status")
+def status(st, body, q):
+    store = st.store if st.project_name else None
+    return {"app": APP, "version": VERSION, "project": st.project_name, "data_dir": st.data_dir,
+            "databases": store.databases() if store else [],
+            "n_methods": len(store.methods()) if store else 0, "nw_sets": store.nw_sets() if store else [],
+            "scenarios": store.scenarios() if store else [],
+            "ecoinvent_interface": _has_module("ecoinvent_interface"), "stage_presets": STAGE_PRESETS,
+            "licence": "MIT", "settings": st.settings,
+            "bg_scenarios": store.bg_scenarios() if store else [], "demo": bool(store.get_meta("demo")) if store else False}
+
+
+@route("GET", "/api/projects")
+def projects(st, body, q):
+    return {"projects": st.ws.list(), "current": st.project_name}
+
+
+@route("POST", "/api/projects")
+def project_create(st, body, q):
+    (name,) = _need(body, "name")
+    try:
+        st.ws.create(name)
+    except ValueError as e:
+        raise ApiError(str(e))
+    st.set_project(Workspace.clean_name(name))
+    return {"current": st.project_name}
+
+
+@route("POST", "/api/projects/open")
+def project_open(st, body, q):
+    (name,) = _need(body, "name")
+    if not any(p["name"] == name for p in st.ws.list()):
+        raise ApiError("Project not found.", 404)
+    st.ws.open(name)
+    st.set_project(name)
+    return {"current": name}
+
+
+@route("POST", "/api/projects/delete")
+def project_delete(st, body, q):
+    (name,) = _need(body, "name")
+    if st.import_lock.locked() and st.project_name == name:
+        raise ApiError("An import is running in this project. Wait until it finishes.")
+    st.ws.delete(name)
+    if st.project_name == name:
+        st.set_project(None)
+    return {"ok": True}
+
+
+@route("POST", "/api/projects/export")
+def project_export(st, body, q):
+    name = body.get("name") or st.project_name
+    if not name:
+        raise ApiError("No project to export.")
+    dest = _check_path(body.get("path") or os.path.join(st.exports, f"{name}.lca"), must_exist=False)
+    info = st.ws.export(name, dest)
+    return {"path": dest, "file": os.path.basename(dest), "databases": info["databases"]}
+
+
+@route("POST", "/api/projects/import")
+def project_import(st, body, q):
+    (path,) = _need(body, "path")
+    try:
+        name = st.ws.import_file(_check_path(path))
+    except ValueError as e:
+        raise ApiError(str(e))
+    st.set_project(name)
+    missing = st.store.q("SELECT DISTINCT ref_db FROM main.model_inputs WHERE kind='activity' AND ref_id IS NULL")
+    return {"current": name, "missing_databases": [m["ref_db"] for m in missing if m["ref_db"]]}
+
+
+# ------------------------------------------------------------------ library: databases and imports
+@route("GET", "/api/databases")
+def dbs(st, body, q):
+    return {"databases": st.store.databases()}
+
+
+@route("DELETE", r"/api/databases/(\d+)")
+def db_delete(st, body, q, db_id):
+    if st.import_lock.locked():
+        raise ApiError("An import is running. Wait until it finishes.")
+    store = st.store
+    d = store.one("SELECT name FROM databases WHERE id=?", (int(db_id),))
+    if not d:
+        raise ApiError("Database not found.", 404)
+    usage = st.ws.database_usage(d["name"])
+    if usage and not body.get("force") and not q.get("force"):
+        raise ApiError("Used by: " + ", ".join(f"{u['project']} ({u['lines']} lines)" for u in usage) +
+                       ". Remove those lines first; the database is shared by all projects.")
+    store.delete_database(int(db_id))
+    calc.invalidate()
+    return {"ok": True}
+
+
+def _import_job(st, label, fn):
+    store = st.store
+    return {"job": st.start_job(label, lambda p, c: fn(store, p))}
+
+
+@route("POST", "/api/import/tutorial")
+def imp_tutorial(st, body, q):
+    return _import_job(st, "Tutorial database", lambda s, p: tutorial.install(s, p))
+
+
+@route("POST", "/api/import/ecospold")
+def imp_ecospold(st, body, q):
+    folder, name = _need(body, "folder", "name")
+    folder = _check_path(folder)
+    if not os.path.isdir(folder):
+        raise ApiError("Select the extracted folder, not a file. Extract the .7z download first.")
+    return _import_job(st, f"Import {name}", lambda s, p: ecospold2.import_folder(
+        s, folder, name, body.get("version", ""), body.get("system_model", ""), p))
+
+
+@route("POST", "/api/import/jsonld")
+def imp_jsonld(st, body, q):
+    path, name = _need(body, "path", "name")
+    path = _check_path(path)
+    return _import_job(st, f"Import {name}", lambda s, p: jsonld.import_jsonld(s, path, name, p))
+
+
+@route("POST", "/api/import/ecospold1")
+def imp_es1(st, body, q):
+    path, name = _need(body, "path", "name")
+    path = _check_path(path)
+    return _import_job(st, f"Import {name}", lambda s, p: other_formats.import_ecospold1(s, path, name, p))
+
+
+@route("POST", "/api/import/simapro")
+def imp_sp(st, body, q):
+    path, name = _need(body, "path", "name")
+    path = _check_path(path)
+    return _import_job(st, f"Import {name}", lambda s, p: other_formats.import_simapro_csv(s, path, name, p))
+
+
+@route("POST", "/api/import/ilcd")
+def imp_ilcd(st, body, q):
+    path, name = _need(body, "path", "name")
+    path = _check_path(path)
+    return _import_job(st, f"Import {name}", lambda s, p: other_formats.import_ilcd(s, path, name, p))
+
+
+@route("POST", "/api/import/lcia-xlsx")
+def imp_lcia(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    return _import_job(st, "Import impact methods", lambda s, p: lcia.import_ecoinvent_lcia_xlsx(s, path, p))
+
+
+@route("POST", "/api/import/cf-csv")
+def imp_csv(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    return _import_job(st, "Import impact methods (CSV)", lambda s, p: lcia.import_cf_csv(s, path, p))
+
+
+@route("POST", "/api/import/nw-csv")
+def imp_nw(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    return _import_job(st, "Import normalisation & weighting", lambda s, p: lcia.import_nw_csv(s, path, p))
+
+
+@route("POST", "/api/import/mapping")
+def imp_mapping(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    return _import_job(st, "Import flow mapping", lambda s, p: lcia.import_mapping_csv(s, path, p))
+
+
+@route("POST", "/api/methods/builtin")
+def methods_builtin(st, body, q):
+    ids = lcia.install_builtin(st.store)
+    return {"methods": len(ids)}
+
+
+@route("GET", "/api/templates")
+def templates(st, body, q):
+    return {"cf_csv": lcia.CSV_TEMPLATE, "nw_csv": lcia.NW_TEMPLATE, "mapping_csv": lcia.MAPPING_TEMPLATE,
+            "benchmark_csv": BENCHMARK_TEMPLATE}
+
+
+@route("POST", "/api/ecoinvent/releases")
+def ei_releases(st, body, q):
+    user, pw = _need(body, "username", "password")
+    try:
+        return {"releases": ecoinvent_login.list_releases(user, pw)}
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/ecoinvent/install")
+def ei_install(st, body, q):
+    user, pw, version, model = _need(body, "username", "password", "version", "system_model")
+    name = body.get("name") or f"ecoinvent {version} {model}"
+    validate = bool(body.get("validate", True))
+    sample = int(body.get("sample") or 100)
+
+    def job(store, progress):
+        scale = 0.7 if validate else 1.0
+        res = {"warnings": []}
+        if store.one("SELECT id FROM databases WHERE name=?", (name,)):
+            res["warnings"].append(f"'{name}' was already in the library; it was not imported again.")
+        else:
+            folder, lcia_file = ecoinvent_login.download(user, pw, version, model, lambda pc, m: progress(pc * scale * 0.45, m))
+            res = ecospold2.import_folder(store, folder, name, version, model,
+                                          lambda pc, m: progress((45 + pc * 0.45) * scale, m))
+            if lcia_file:
+                r2 = lcia.import_ecoinvent_lcia_xlsx(store, lcia_file, lambda pc, m: progress((90 + pc * 0.1) * scale, m))
+                res["methods"] = r2["methods"]
+                res["warnings"] += r2["warnings"]
+            else:
+                res["warnings"].append("The LCIA file could not be downloaded automatically. Download it from ecoquery "
+                                       "and import it under 'Impact assessment methods'.")
+        calc.invalidate()
+        if validate:
+            res["benchmark"] = _ei_validate(st, store, user, pw, version, model, name, sample,
+                                            lambda pc, m: progress(70 + pc * 0.3, m))
+        return res
+    return _import_job(st, f"Install {name}", job)
+
+
+def _ei_validate(st, store, user, pw, version, model, db_name, sample, progress):
+    """Download ecoinvent's own LCIA results and compare Cyclia with them. Never fails the installation."""
+    try:
+        path = ecoinvent_login.download_cumulative_lcia(user, pw, version, model, lambda pc, m: progress(pc * 0.3, m))
+        st.last_bench = trust.benchmark_ecoinvent(store, path, trust.preferred_family(store), sample,
+                                                  progress=lambda pc, m: progress(30 + pc * 0.7, m), db_name=db_name)
+        out = dict(st.last_bench)
+        out["rows"] = []
+        return out
+    except Exception as e:  # validation is an extra; the database stays installed
+        log.exception("automatic validation failed")
+        return {"error": str(e)}
+
+
+@route("POST", "/api/ecoinvent/validate")
+def ei_validate(st, body, q):
+    """Validate an installed ecoinvent release against ecoinvent's own results (downloaded with the user's login)."""
+    user, pw, version, model = _need(body, "username", "password", "version", "system_model")
+    db_name = body.get("db_name") or f"ecoinvent {version} {model}"
+    store = st.store
+    if not store.one("SELECT id FROM databases WHERE name=?", (db_name,)):
+        raise ApiError(f"'{db_name}' is not in the library. Install it first, or choose the database it was imported as.")
+
+    def job(progress, cancelled):
+        r = _ei_validate(st, store, user, pw, version, model, db_name, int(body.get("sample") or 100), progress)
+        if r.get("error"):
+            raise ValueError(r["error"])
+        return r
+    return {"job": st.start_job("Validate against ecoinvent", job, exclusive=False)}
+
+
+@route("GET", r"/api/jobs/(\w+)")
+def job_status(st, body, q, job_id):
+    job = st.jobs.get(job_id)
+    if not job:
+        raise ApiError("Job not found.", 404)
+    out = dict(job)
+    out.pop("cancel", None)
+    return {"job": out}
+
+
+@route("POST", r"/api/jobs/(\w+)/cancel")
+def job_cancel(st, body, q, job_id):
+    job = st.jobs.get(job_id)
+    if not job:
+        raise ApiError("Job not found.", 404)
+    job["cancel"] = True
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ linking, validation, benchmark
+@route("GET", r"/api/databases/(\d+)/unlinked")
+def unlinked(st, body, q, db_id):
+    return {"groups": linking.groups(st.store, int(db_id))}
+
+
+@route("POST", r"/api/databases/(\d+)/suggest")
+def unlinked_suggest(st, body, q, db_id):
+    return {"suggestions": linking.suggest(st.store, int(db_id), body.get("product", ""), body.get("unit", ""))}
+
+
+@route("POST", r"/api/databases/(\d+)/link")
+def unlinked_link(st, body, q, db_id):
+    target = _need(body, "target_id")[0]
+    try:
+        r = linking.link(st.store, int(db_id), body.get("product", ""), body.get("unit", ""), int(target), body.get("factor"))
+    except ValueError as e:
+        raise ApiError(str(e))
+    calc.invalidate()
+    return r
+
+
+@route("POST", r"/api/databases/(\d+)/unlink")
+def unlinked_unlink(st, body, q, db_id):
+    r = linking.unlink(st.store, int(db_id), body.get("product", ""), body.get("unit", ""))
+    calc.invalidate()
+    return r
+
+
+@route("POST", r"/api/databases/(\d+)/autolink")
+def unlinked_auto(st, body, q, db_id):
+    r = linking.auto_link(st.store, int(db_id))
+    calc.invalidate()
+    return r
+
+
+@route("POST", "/api/validate")
+def validate(st, body, q):
+    db = body.get("db_id")
+    return _calc_error(calc.validate_database, st.store, int(db) if db else None)
+
+
+def _read_table(path):
+    if path.lower().endswith((".xlsx", ".xlsm")):
+        from openpyxl import load_workbook
+        ws = load_workbook(path, read_only=True, data_only=True).worksheets[0]
+        it = ws.iter_rows(values_only=True)
+        head = [str(h or "").strip().lower() for h in next(it)]
+        return [dict(zip(head, ["" if v is None else v for v in r])) for r in it if r and any(v not in (None, "") for v in r)]
+    with open(path, newline="", encoding="utf-8-sig") as fh:
+        text = fh.read()
+    try:
+        dialect = csv.Sniffer().sniff(text[:4000], delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    return [{(k or "").strip().lower(): v for k, v in r.items()} for r in csv.DictReader(io.StringIO(text), dialect=dialect)]
+
+
+@route("POST", "/api/benchmark")
+def benchmark(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    rows = _read_table(path)
+    need = {"activity", "method", "category", "value"}
+    if not rows or not need <= set(rows[0]):
+        raise ApiError("The benchmark file needs the columns: " + BENCHMARK_TEMPLATE.splitlines()[0])
+    store = st.store
+
+    def job(progress, cancelled):
+        return calc.benchmark(store, rows)
+    return {"job": st.start_job("Benchmark", job, exclusive=False)}
+
+
+# ------------------------------------------------------------------ browse
+@route("GET", "/api/search")
+def search(st, body, q):
+    db = q.get("db", [""])[0]
+    return {"results": st.store.search_activities(q.get("q", [""])[0], int(db) if db.isdigit() else None,
+                                                  q.get("loc", [""])[0])}
+
+
+@route("GET", "/api/flows")
+def flows(st, body, q):
+    return {"results": st.store.search_flows(q.get("q", [""])[0])}
+
+
+@route("GET", r"/api/activity/(\d+)")
+def activity(st, body, q, act_id):
+    a = st.store.activity(int(act_id))
+    if not a:
+        raise ApiError("Not found.", 404)
+    a["units"] = units.compatible(a["unit"])
+    return {"activity": a}
+
+
+@route("POST", r"/api/activity/(\d+)/copy")
+def activity_copy(st, body, q, act_id):
+    """Create an editable process (a model) from a database dataset."""
+    store = st.store
+    a = store.activity(int(act_id))
+    if not a:
+        raise ApiError("Not found.", 404)
+    full_in = store.q("SELECT input_id, SUM(amount) AS amount FROM tech WHERE output_id=? AND input_id!=? GROUP BY input_id",
+                      (a["id"], a["id"]))
+    full_bio = store.q("SELECT flow_id, SUM(amount) AS amount FROM bio WHERE activity_id=? GROUP BY flow_id", (a["id"],))
+    prod = a["production"] or 1.0
+    name = body.get("name") or f"{a['name']} [{a['location']}] (editable copy)"
+    mid = store.save_model({"name": name, "product": a["product"], "unit": a["unit"], "amount": 1.0,
+                            "scope": {"kind": "process", "copied_from": f"{a['db']}: {a['name']} [{a['location']}]"}})
+    for t in full_in:
+        u = store.one("SELECT unit FROM activities WHERE id=?", (t["input_id"],))["unit"]
+        amt = t["amount"] / prod
+        store.add_input(mid, "activity", t["input_id"], abs(amt), comment=f"from {a['db']}", input_unit=u,
+                        avoided=amt < 0, pedigree=[2, 2, 2, 2, 2])
+    for b in full_bio:
+        u = store.one("SELECT unit FROM flows WHERE id=?", (b["flow_id"],))["unit"]
+        amt = b["amount"] / prod
+        f = store.flow(b["flow_id"])
+        store.add_input(mid, "flow", b["flow_id"], abs(amt), label=f["name"], comment=f"from {a['db']}", input_unit=u,
+                        avoided=amt < 0, pedigree=[2, 2, 2, 2, 2])
+    return {"model": store.model(mid)}
+
+
+@route("GET", "/api/units")
+def unit_list(st, body, q):
+    return {"units": units.compatible(q.get("unit", [""])[0])}
+
+
+@route("GET", "/api/methods")
+def methods(st, body, q):
+    return {"methods": st.store.methods(), "nw_sets": st.store.nw_sets()}
+
+
+@route("POST", "/api/methods/delete")
+def methods_delete(st, body, q):
+    (family,) = _need(body, "family")
+    st.store.delete_method_family(family)
+    calc.invalidate()
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ models, inputs, undo
+@route("GET", "/api/models")
+def models(st, body, q):
+    return {"models": st.store.models()}
+
+
+@route("POST", "/api/models")
+def model_save(st, body, q):
+    store = st.store
+    if body.get("id"):
+        _unlocked(store, body["id"])
+        store.snapshot(int(body["id"]), "edit goal & scope")
+        if isinstance(body.get("scope"), dict):
+            body["scope"].pop("locked", None)
+    try:
+        mid = store.save_model(body)
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"model": store.model(mid)}
+
+
+@route("GET", r"/api/models/(\d+)")
+def model_get(st, body, q, mid):
+    m = st.store.model(int(mid))
+    if not m:
+        raise ApiError("Model not found.", 404)
+    return {"model": m}
+
+
+@route("POST", r"/api/models/(\d+)/duplicate")
+def model_dup(st, body, q, mid):
+    try:
+        nid = st.store.duplicate_model(int(mid), body.get("name"))
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"model": st.store.model(nid)}
+
+
+@route("DELETE", r"/api/models/(\d+)")
+def model_delete(st, body, q, mid):
+    _unlocked(st.store, mid)
+    try:
+        st.store.delete_model(int(mid))
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"ok": True}
+
+
+@route("POST", r"/api/models/(\d+)/undo")
+def model_undo(st, body, q, mid):
+    _unlocked(st.store, mid)
+    try:
+        label = st.store.undo(int(mid))
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"undone": label, "model": st.store.model(int(mid))}
+
+
+def _target_unit(store, kind, ref_id):
+    table = {"activity": "activities", "flow": "flows", "model": "main.models"}[kind]
+    r = store.one(f"SELECT unit FROM {table} WHERE id=?", (ref_id,))
+    if not r:
+        raise ApiError("The selected dataset or flow no longer exists.")
+    return r["unit"] or ""
+
+
+def _convert(store, kind, ref_id, amount, unit):
+    if kind == "fixed":
+        return amount, unit
+    target = _target_unit(store, kind, ref_id)
+    unit = unit or target
+    fac = units.factor(unit, target)
+    if fac is None:
+        raise ApiError(f"'{unit}' cannot be converted to the dataset unit '{target}'.")
+    return amount * fac, unit
+
+
+def _check_formula(store, model_id, text):
+    if not text:
+        return None
+    text = str(text).strip()
+    try:
+        names = fm.names_in(text)
+        known = {p["name"] for p in store.parameters(model_id, include_project=True)}
+        unknown = names - known
+        if unknown:
+            raise ApiError(f"Unknown parameter(s) in the formula: {', '.join(sorted(unknown))}. Define them first.")
+        vals = calc.Context(store).params(model_id) if known else {}
+        return text, fm.evaluate(text, vals)
+    except fm.FormulaError as e:
+        raise ApiError(str(e))
+    except calc.LCAError as e:
+        raise ApiError(str(e))
+
+
+def _fixed(body):
+    fx = body.get("fixed")
+    if not fx:
+        return None
+    impacts = []
+    for x in fx.get("impacts", []):
+        if x.get("value") in (None, ""):
+            continue
+        impacts.append({"family": x["family"], "category": x["category"], "indicator": x["indicator"],
+                        "value": _num(x["value"], f"Value for {x['category']}")})
+    if not impacts:
+        raise ApiError("Enter at least one value from the EPD.")
+    return {"name": str(fx.get("name") or "EPD").strip(), "unit": str(fx.get("unit") or "").strip(),
+            "location": str(fx.get("location") or "").strip(), "source": str(fx.get("source") or "").strip(),
+            "impacts": impacts}
+
+
+@route("POST", r"/api/models/(\d+)/inputs")
+def input_add(st, body, q, mid):
+    kind = _need(body, "kind")[0]
+    if kind not in ("activity", "flow", "model", "fixed"):
+        raise ApiError("kind must be activity, flow, model or fixed")
+    store = st.store
+    mid = int(mid)
+    _unlocked(store, mid)
+    ref_id = int(body["ref_id"]) if body.get("ref_id") not in (None, "") else None
+    if kind != "fixed" and ref_id is None:
+        raise ApiError("Missing field: ref_id")
+    formula = None
+    if body.get("formula"):
+        formula, amount = _check_formula(store, mid, body["formula"])
+    else:
+        if body.get("amount") in (None, ""):
+            raise ApiError("Enter an amount.")
+        amount = _num(body["amount"])
+    if amount < 0:
+        raise ApiError("Enter a positive amount. For a credit, tick 'avoided product'.")
+    fixed = _fixed(body) if kind == "fixed" else None
+    unit = body.get("unit") or (fixed["unit"] if fixed else None)
+    conv, unit = _convert(store, kind, ref_id, amount, unit)
+    year = _num(body.get("year") or 0, "Year")
+    store.snapshot(mid, "add line")
+    try:
+        store.add_input(mid, kind, ref_id, conv, body.get("label", ""), body.get("comment", ""), body.get("stage", ""),
+                        amount, unit, bool(body.get("avoided")), body.get("pedigree"), formula, year, fixed)
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"model": store.model(mid)}
+
+
+@route("PATCH", r"/api/inputs/(\d+)")
+def input_update(st, body, q, iid):
+    store = st.store
+    row = store.get_input(int(iid))
+    if not row:
+        raise ApiError("That line no longer exists.", 404)
+    _unlocked(store, row["model_id"])
+    fields = {k: body[k] for k in ("label", "comment", "stage", "avoided", "pedigree") if k in body}
+    if "pedigree" in fields:
+        try:
+            ped = [int(x) for x in fields["pedigree"]]
+        except (TypeError, ValueError):
+            raise ApiError("Data-quality scores must be whole numbers 1 to 5.")
+        if len(ped) != 5 or not all(1 <= x <= 5 for x in ped):
+            raise ApiError("Five data-quality scores from 1 to 5 are needed.")
+        fields["pedigree"] = ped
+    if "year" in body:
+        fields["year"] = _num(body["year"] or 0, "Year")
+    if "fixed" in body and row["kind"] == "fixed":
+        fields["fixed"] = _fixed(body)
+    if "formula" in body:
+        if body["formula"]:
+            f, val = _check_formula(store, row["model_id"], body["formula"])
+            if val < 0:
+                raise ApiError("The formula gives a negative amount. Use 'avoided product' for credits.")
+            conv, unit = _convert(store, row["kind"], row["ref_id"], val, body.get("input_unit") or row["input_unit"])
+            fields.update(formula=f, amount=conv, input_amount=val, input_unit=unit)
+        else:
+            fields["formula"] = None
+    if ("input_amount" in body or "input_unit" in body) and "formula" not in fields:
+        amount = _num(body.get("input_amount", row["input_amount"] if row["input_amount"] is not None else row["amount"]))
+        if amount < 0:
+            raise ApiError("Enter a positive amount. For a credit, tick 'avoided product'.")
+        conv, unit = _convert(store, row["kind"], row["ref_id"], amount, body.get("input_unit") or row["input_unit"])
+        fields.update(amount=conv, input_amount=amount, input_unit=unit, formula=None)
+    store.snapshot(row["model_id"], "edit line")
+    store.update_input(int(iid), fields)
+    r = store.get_input(int(iid))
+    return {"input": {k: r[k] for k in ("id", "amount", "input_amount", "input_unit", "formula")}}
+
+
+@route("POST", r"/api/inputs/(\d+)/replace")
+def input_replace(st, body, q, iid):
+    """Swap the dataset of a line (e.g. another electricity mix), keeping amount, stage and notes."""
+    store = st.store
+    row = store.get_input(int(iid))
+    if not row or row["kind"] != "activity":
+        raise ApiError("Only dataset lines can be replaced.")
+    _unlocked(store, row["model_id"])
+    new_id = int(_need(body, "ref_id")[0])
+    a = store.one("SELECT a.unit, a.key, d.name FROM activities a JOIN databases d ON d.id=a.db_id WHERE a.id=?", (new_id,))
+    if not a:
+        raise ApiError("The chosen dataset does not exist.")
+    fac = units.factor(row["input_unit"], a["unit"])
+    if fac is None:
+        raise ApiError(f"The new dataset's unit '{a['unit']}' does not match '{row['input_unit']}'.")
+    store.snapshot(row["model_id"], "replace dataset")
+    store.update_input(int(iid), {"ref_id": new_id, "ref_db": a["name"], "ref_key": a["key"],
+                                  "amount": (row["input_amount"] or 0) * fac})
+    return {"model": store.model(row["model_id"])}
+
+
+@route("DELETE", r"/api/inputs/(\d+)")
+def input_delete(st, body, q, iid):
+    store = st.store
+    row = store.get_input(int(iid))
+    if row:
+        _unlocked(store, row["model_id"])
+        store.snapshot(row["model_id"], "remove line")
+        store.delete_input(int(iid))
+    return {"ok": True}
+
+
+@route("POST", r"/api/models/(\d+)/inventory-template")
+def inv_template(st, body, q, mid):
+    path = _check_path(body.get("path") or os.path.join(st.exports, "Cyclia inventory template.xlsx"), False)
+    inventory_io.template(path)
+    return {"path": path, "file": os.path.basename(path)}
+
+
+@route("POST", r"/api/models/(\d+)/inventory-export")
+def inv_export(st, body, q, mid):
+    m = st.store.model(int(mid))
+    if not m:
+        raise ApiError("Model not found.", 404)
+    safe = re.sub(r"[^\w\-]+", "_", m["name"]).strip("_") or "model"
+    path = _check_path(body.get("path") or os.path.join(st.exports, f"{safe}_inventory.xlsx"), False)
+    inventory_io.export(st.store, int(mid), path)
+    return {"path": path, "file": os.path.basename(path)}
+
+
+@route("POST", r"/api/models/(\d+)/inventory-import")
+def inv_import(st, body, q, mid):
+    (path,) = _need(body, "path")
+    store = st.store
+    _unlocked(store, mid)
+    store.snapshot(int(mid), "Excel import")
+    try:
+        res = inventory_io.import_rows(store, int(mid), _check_path(path))
+    except ValueError as e:
+        raise ApiError(str(e))
+    except Exception as e:
+        raise ApiError(f"Could not read that Excel file: {e}")
+    res["model"] = store.model(int(mid))
+    return res
+
+
+# ------------------------------------------------------------------ parameters and scenarios
+@route("GET", "/api/parameters")
+def params_list(st, body, q):
+    mid = q.get("model_id", [""])[0]
+    store = st.store
+    out = {"project": store.parameters(None)}
+    if mid.isdigit():
+        out["model"] = store.parameters(int(mid))
+        try:
+            out["values"] = calc.Context(store).params(int(mid))
+        except calc.LCAError as e:
+            out["error"] = str(e)
+    return out
+
+
+@route("POST", "/api/parameters")
+def params_save(st, body, q):
+    store = st.store
+    if body.get("model_id"):
+        _unlocked(store, body["model_id"])
+    try:
+        pid = store.save_parameter(body)
+        mid = body.get("model_id")
+        calc.Context(store).params(int(mid)) if mid else fm.resolve(store.parameters(None))
+    except (ValueError, calc.LCAError) as e:
+        if "pid" in locals() and not body.get("id"):
+            store.delete_parameter(pid)
+        raise ApiError(str(e))
+    return {"id": pid}
+
+
+@route("DELETE", r"/api/parameters/(\d+)")
+def params_delete(st, body, q, pid):
+    store = st.store
+    p = store.one("SELECT name, model_id FROM main.parameters WHERE id=?", (int(pid),))
+    if p and p["model_id"]:
+        _unlocked(store, p["model_id"])
+    if p:
+        users = store.q("SELECT id FROM main.model_inputs WHERE formula LIKE ?", (f"%{p['name']}%",))
+        users = [u for u in users if p["name"] in fm.names_in(store.get_input(u["id"])["formula"])]
+        if users:
+            raise ApiError(f"'{p['name']}' is used in {len(users)} formula(s). Change those first.")
+    store.delete_parameter(int(pid))
+    return {"ok": True}
+
+
+@route("GET", "/api/scenarios")
+def scen_list(st, body, q):
+    return {"scenarios": st.store.scenarios()}
+
+
+@route("POST", "/api/scenarios")
+def scen_save(st, body, q):
+    try:
+        return {"id": st.store.save_scenario(body)}
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+@route("DELETE", r"/api/scenarios/(\d+)")
+def scen_delete(st, body, q, sid):
+    st.store.delete_scenario(int(sid))
+    return {"ok": True}
+
+
+@route("POST", "/api/compare-scenarios")
+def scen_compare(st, body, q):
+    mid, mids = _need(body, "model_id", "method_ids")
+    return _calc_error(calc.compare_scenarios, st.store, int(mid), [int(x) for x in mids], body.get("scenario_ids") or [],
+                       bg=_bg(body))
+
+
+# ------------------------------------------------------------------ calculate, analyses, export
+def _mc_key(model_id, method_ids, scenario, bg=None):
+    return (int(model_id), tuple(sorted(int(x) for x in method_ids)), scenario or None,
+            (bg or {}).get("id"), (bg or {}).get("year"))
+
+
+def _calc(st, body, top=12):
+    mid, mids = _need(body, "model_id", "method_ids")
+    scen = int(body["scenario"]) if body.get("scenario") else None
+    bg = _bg(body)
+    res = _calc_error(calc.run, st.store, int(mid), [int(x) for x in mids], top=top,
+                      mc_iterations=int(body.get("mc_iterations") or 0),
+                      sensitivity_pct=_num(body.get("sensitivity_pct") or 10, "Sensitivity range"),
+                      nw_set=body.get("nw_set") or None, scenario=scen,
+                      horizon=_num(body.get("horizon") or 100, "Time horizon"), bg=bg)
+    if scen:
+        res["scenario_name"] = st.store.one("SELECT name FROM main.scenarios WHERE id=?", (scen,))["name"]
+    full = st.mc_results.get(_mc_key(mid, mids, scen, bg))
+    if full and body.get("use_full_mc", True):
+        res["uncertainty"] = full
+    return res
+
+
+@route("POST", "/api/calculate")
+def calculate(st, body, q):
+    t = time.time()
+    res = _calc(st, {**body, "use_full_mc": False})
+    res["seconds"] = round(time.time() - t, 2)
+    res["lci_total"] = len(res["lci"])
+    res["lci"] = res["lci"][:300]
+    return res
+
+
+@route("POST", "/api/uncertainty")
+def uncertainty(st, body, q):
+    ids, mids = _need(body, "model_ids", "method_ids")
+    ids, mids = [int(x) for x in ids], [int(x) for x in mids]
+    scen = int(body["scenario"]) if body.get("scenario") else None
+    iterations = int(_num(body.get("iterations") or 200, "Iterations"))
+    store = st.store
+    bg = _bg(body)
+
+    def job(progress, cancelled):
+        try:
+            out = calc.full_mc(store, ids, mids, iterations, progress=progress, cancelled=cancelled, scenario=scen, bg=bg)
+        except calc.LCAError as e:
+            raise ValueError(str(e))
+        for m in out["models"]:
+            st.mc_results[_mc_key(m["id"], mids, scen, bg)] = {"mode": out["mode"], "iterations": out["iterations"],
+                                                           "methods": m["methods"], "note": out["note"]}
+        return out
+    return {"job": st.start_job("Monte Carlo simulation", job, exclusive=False)}
+
+
+@route("POST", "/api/sobol")
+def sobol(st, body, q):
+    mid, mids = _need(body, "model_id", "method_ids")
+    store = st.store
+    n = int(_num(body.get("n") or 512, "Sample size"))
+    scen = int(body["scenario"]) if body.get("scenario") else None
+
+    def job(progress, cancelled):
+        try:
+            return calc.sobol(store, int(mid), [int(x) for x in mids], n=n, scenario=scen, bg=_bg(body))
+        except calc.LCAError as e:
+            raise ValueError(str(e))
+    return {"job": st.start_job("Global sensitivity (Sobol)", job, exclusive=False)}
+
+
+@route("GET", "/api/tree")
+def supply_tree(st, body, q):
+    g = lambda k: q.get(k, [""])[0]
+    if not g("model_id").isdigit() or not g("method_id").isdigit():
+        raise ApiError("model_id and method_id are needed.")
+    return _calc_error(calc.tree, st.store, int(g("model_id")), int(g("method_id")), g("node") or None,
+                       float(g("amount")) if g("amount") else None, int(g("scenario")) if g("scenario").isdigit() else None)
+
+
+@route("POST", "/api/compare")
+def compare(st, body, q):
+    ids, mids = _need(body, "model_ids", "method_ids")
+    return _calc_error(calc.compare, st.store, [int(x) for x in ids], [int(x) for x in mids],
+                       int(body["scenario"]) if body.get("scenario") else None, bg=_bg(body))
+
+
+def _export_path(st, body, model, ext):
+    if body.get("path"):
+        return _check_path(body["path"], must_exist=False)
+    safe = re.sub(r"[^\w\-]+", "_", model["name"]).strip("_") or "lca"
+    return os.path.join(st.exports, f"{safe}_{time.strftime('%Y%m%d-%H%M%S')}.{ext}")
+
+
+def _writable(path):
+    try:
+        with open(path, "ab"):
+            pass
+    except PermissionError:
+        raise ApiError("Cannot write the file. Close it in Word/Excel if it is open, then try again.")
+
+
+@route("POST", "/api/export/word")
+def export_word(st, body, q):
+    res = _calc(st, body)
+    model = st.store.model(int(body["model_id"]))
+    path = _export_path(st, body, model, "docx")
+    _writable(path)
+    report.word_report(path, model, res, st.store.databases(), VERSION)
+    return {"path": path, "file": os.path.basename(path)}
+
+
+@route("POST", "/api/export/excel")
+def export_excel(st, body, q):
+    res = _calc(st, body)
+    model = st.store.model(int(body["model_id"]))
+    path = _export_path(st, body, model, "xlsx")
+    _writable(path)
+    report.excel_results(path, model, res, VERSION)
+    return {"path": path, "file": os.path.basename(path)}
+
+
+@route("POST", "/api/methods-text")
+def methods_text(st, body, q):
+    res = _calc(st, body)
+    model = st.store.model(int(body["model_id"]))
+    return {"text": report.methods_paragraph(model, res, st.store.databases(), VERSION)}
+
+
+@route("POST", "/api/diagnostics")
+def diagnostics(st, body, q):
+    """Zip of logs and system information for support. Contains no project data."""
+    path = os.path.join(st.exports, f"cyclia-diagnostics-{time.strftime('%Y%m%d-%H%M%S')}.zip")
+    info = {"app": APP, "version": VERSION, "python": sys.version, "platform": platform.platform(),
+            "frozen": bool(getattr(sys, "frozen", False)), "projects": len(st.ws.list())}
+    try:
+        info["databases"] = [{k: d[k] for k in ("name", "source", "version", "system_model", "n_activities")}
+                             for d in st.store.databases()] if st.project_name else []
+    except Exception as e:  # diagnostics must never fail
+        info["databases_error"] = str(e)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("system.json", json.dumps(info, indent=2))
+        logf = os.path.join(st.data_dir, "cyclia.log")
+        if os.path.exists(logf):
+            z.write(logf, "cyclia.log")
+        if body.get("app_log") and os.path.exists(str(body["app_log"])):
+            z.write(str(body["app_log"]), "desktop.log")
+    return {"path": path, "file": os.path.basename(path)}
+
+
+# ------------------------------------------------------------------ settings, API access, examples
+@route("GET", "/api/settings")
+def settings_get(st, body, q):
+    return {"settings": st.settings}
+
+
+@route("POST", "/api/settings")
+def settings_set(st, body, q):
+    return {"settings": st.save_settings(body)}
+
+
+@route("GET", "/api/api-info")
+def api_info(st, body, q):
+    return dict(st.api_info, file=os.path.join(st.data_dir, "api.json"))
+
+
+@route("POST", "/api/export/clients")
+def export_clients(st, body, q):
+    out = []
+    for name, text in (("cyclia_client.py", interop.PYTHON_CLIENT), ("cyclia.R", interop.R_CLIENT)):
+        path = os.path.join(st.exports, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        out.append({"path": path, "file": name})
+    return {"files": out}
+
+
+@route("GET", "/api/examples")
+def examples(st, body, q):
+    return {"literature": demo.LITERATURE_EXAMPLE, "external": demo.EXTERNAL_EXAMPLE, "external_template": science.EXT_TEMPLATE}
+
+
+# ------------------------------------------------------------------ demo and teaching
+@route("POST", "/api/demo")
+def demo_load(st, body, q):
+    base = "Cyclia feature demo"
+    name, i = base, 2
+    while st.ws.exists(name):
+        name = f"{base} {i}"
+        i += 1
+    author = st.author or "Demo author"
+
+    def job(progress, cancelled):
+        store = st.ws.create(name)
+        lcia.install_builtin(store)
+        store.set_meta("builtin_installed", True)
+        progress(5, "Demo database")
+        demo.install_database(store, lambda p, m: progress(5 + p * 0.3, m))
+        calc.invalidate()
+        res = demo.build_project(store, author, lambda p, m: progress(40 + p * 0.6, m))
+        st.set_project(name)
+        res["project"] = name
+        return res
+    return {"job": st.start_job("Load the full demo", job)}
+
+
+@route("GET", "/api/teaching/exercises")
+def teach_list(st, body, q):
+    return {"exercises": teaching.listing(), "demo_ready": bool(demo.act_id(st.store, "concrete"))}
+
+
+@route("POST", "/api/teaching/check")
+def teach_check(st, body, q):
+    ex, ans = _need(body, "id", "answer")
+    try:
+        return _calc_error(teaching.check, st.store, ex, ans)
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/teaching/key")
+def teach_key(st, body, q):
+    try:
+        return {"key": _calc_error(teaching.answer_key, st.store)}
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/export/answer-key")
+def teach_key_doc(st, body, q):
+    path = _check_path(body.get("path") or os.path.join(st.exports, "Cyclia exercises answer key.docx"), False)
+    _writable(path)
+    try:
+        _calc_error(teaching.answer_key_docx, st.store, path)
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"path": path, "file": os.path.basename(path)}
+
+
+# ------------------------------------------------------------------ trust: validation suite and bundles
+@route("POST", "/api/validation-suite")
+def validation_suite(st, body, q):
+    def job(progress, cancelled):
+        st.last_validation = trust.validation_suite(progress)
+        return st.last_validation
+    return {"job": st.start_job("Validation suite", job)}
+
+
+@route("POST", "/api/export/validation")
+def validation_doc(st, body, q):
+    if not st.last_validation:
+        raise ApiError("Run the validation suite first.")
+    path = _check_path(body.get("path") or os.path.join(st.exports, f"Cyclia validation {time.strftime('%Y%m%d-%H%M')}.docx"), False)
+    _writable(path)
+    trust.validation_report(path, st.last_validation)
+    return {"path": path, "file": os.path.basename(path)}
+
+
+@route("POST", "/api/bundle/export")
+def bundle_export(st, body, q):
+    ids, mids = _need(body, "model_ids", "method_ids")
+    path = _check_path(body.get("path") or os.path.join(st.exports, f"{st.project_name} reproducibility "
+                                                         f"{time.strftime('%Y%m%d-%H%M')}.zip"), False)
+    settings = {"model_ids": ids, "method_ids": mids, "scenario": int(body["scenario"]) if body.get("scenario") else None,
+                "bg": _bg(body), "nw_set": body.get("nw_set") or None, "mc_iterations": int(body.get("mc_iterations") or 0),
+                "seed": 42}
+    project = st.project_name
+
+    def job(progress, cancelled):
+        try:
+            return trust.export_bundle(st.ws, project, settings, path, progress)
+        except calc.LCAError as e:
+            raise ValueError(str(e))
+    return {"job": st.start_job("Reproducibility bundle", job, exclusive=False)}
+
+
+@route("POST", "/api/bundle/verify")
+def bundle_verify(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    st.store  # a project must be open (the library is shared)
+
+    def job(progress, cancelled):
+        try:
+            return trust.verify_bundle(st.ws, path, progress)
+        except calc.LCAError as e:
+            raise ValueError(str(e))
+    return {"job": st.start_job("Verify bundle", job, exclusive=False)}
+
+
+# ------------------------------------------------------------------ science: background scenarios, site factors,
+# chemicals, external model emissions, map
+@route("GET", "/api/bg-scenarios")
+def bg_list(st, body, q):
+    return {"scenarios": st.store.bg_scenarios(), "rule_types": science.RULE_TYPES}
+
+
+@route("POST", "/api/bg-scenarios")
+def bg_save(st, body, q):
+    try:
+        sid = st.store.save_bg_scenario(body)
+    except ValueError as e:
+        raise ApiError(str(e))
+    calc.invalidate()
+    return {"id": sid}
+
+
+@route("DELETE", r"/api/bg-scenarios/(\d+)")
+def bg_delete(st, body, q, sid):
+    st.store.delete_bg_scenario(int(sid))
+    calc.invalidate()
+    return {"ok": True}
+
+
+@route("POST", r"/api/bg-scenarios/(\d+)/test")
+def bg_test(st, body, q, sid):
+    """Apply the rules and report what they change, without a model."""
+    year = body.get("year")
+    mc = _calc_error(calc.get_mc, st.store, {"id": int(sid), "year": float(year) if year not in (None, "") else None})
+    return {"changes": mc.bg_report}
+
+
+@route("GET", r"/api/models/(\d+)/markets")
+def markets(st, body, q, mid):
+    try:
+        return {"markets": science.markets(st.store, int(mid))}
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+@route("GET", "/api/site-cfs")
+def site_list(st, body, q):
+    return {"factors": st.store.site_cfs()}
+
+
+@route("POST", "/api/site-cfs")
+def site_save(st, body, q):
+    try:
+        sid = st.store.save_site_cf(body)
+    except ValueError as e:
+        raise ApiError(str(e))
+    calc.invalidate()
+    return {"id": sid}
+
+
+@route("DELETE", r"/api/site-cfs/(\d+)")
+def site_delete(st, body, q, sid):
+    st.store.delete_site_cf(int(sid))
+    calc.invalidate()
+    return {"ok": True}
+
+
+@route("GET", "/api/chemicals")
+def chem_list(st, body, q):
+    return {"chemicals": st.store.chemicals(), "fields": {k: {"label": v[0], "unit": v[1], "required": v[2]}
+                                                         for k, v in science.CHEM_FIELDS.items()},
+            "landscape": science.EQC, "exposure": science.EXPOSURE, "example": demo.SUBSTANCE_X}
+
+
+@route("POST", "/api/chemicals/preview")
+def chem_preview(st, body, q):
+    try:
+        r = science.toxicity_factors(body.get("props") or {})
+    except (ValueError, ZeroDivisionError, OverflowError) as e:
+        raise ApiError(str(e) or "The properties give no solution; check the values.")
+    except Exception as e:  # singular matrices from extreme inputs
+        raise ApiError(f"The fate model could not be solved with these properties ({e}).")
+    return r
+
+
+@route("POST", "/api/chemicals")
+def chem_save(st, body, q):
+    (name,) = _need(body, "name")
+    try:
+        r = science.install_chemical(st.store, name, body.get("cas", ""), body.get("props") or {})
+    except ValueError as e:
+        raise ApiError(str(e))
+    calc.invalidate()
+    return {"factors": r["factors"], "fate": r["fate"]}
+
+
+@route("DELETE", r"/api/chemicals/(\d+)")
+def chem_delete(st, body, q, cid):
+    store = st.store
+    c = store.one("SELECT name FROM lib.chemicals WHERE id=?", (int(cid),))
+    if c:
+        from canon import canon_name
+        ids = [m["id"] for m in store.q("SELECT id FROM methods WHERE family=?", (science.SCREEN_FAMILY,))]
+        for mid in ids:
+            store.x("DELETE FROM cf_raw WHERE method_id=? AND c_name=?", (mid, canon_name(c["name"])))
+            store.x("DELETE FROM cfs WHERE method_id=?", (mid,))
+        if ids:
+            lcia.rematch(store, ids)
+        store.delete_chemical(int(cid))
+    calc.invalidate()
+    return {"ok": True}
+
+
+@route("POST", r"/api/models/(\d+)/external")
+def external(st, body, q, mid):
+    store = st.store
+    _unlocked(store, mid)
+    try:
+        if body.get("text"):
+            rows = science.read_external(str(body["text"]))
+        else:
+            rows = science.read_external(_check_path(_need(body, "path")[0]))
+        store.snapshot(int(mid), "external model emissions")
+        res = science.import_external(store, int(mid), rows, scale=_num(body.get("scale") or 1, "Scale factor"),
+                                      aggregate=bool(body.get("aggregate")), stage=body.get("stage", ""),
+                                      source=body.get("source") or "external model",
+                                      create_missing=bool(body.get("create_missing")))
+    except ValueError as e:
+        raise ApiError(str(e))
+    res["model"] = store.model(int(mid))
+    return res
+
+
+@route("GET", "/api/coords")
+def coords(st, body, q):
+    return {"coords": science.COORDS, "continents": science.CONTINENTS}
+
+
+# ------------------------------------------------------------------ productivity
+@route("POST", "/api/literature/parse")
+def lit_parse(st, body, q):
+    text = body.get("text")
+    if not text:
+        path = _check_path(_need(body, "path")[0])
+        try:
+            text = productivity.read_document(path)
+        except ValueError as e:
+            raise ApiError(str(e))
+        except Exception as e:
+            raise ApiError(f"Could not read that file: {e}")
+    rows, skipped = productivity.parse_table(text)
+    if not rows:
+        raise ApiError("No rows with a name and a number were found. Paste the table with one row per line.")
+    return {"rows": productivity.match_rows(st.store, rows[:200], body.get("location", "")), "skipped": skipped[:20]}
+
+
+@route("POST", r"/api/models/(\d+)/literature")
+def lit_add(st, body, q, mid):
+    store = st.store
+    _unlocked(store, mid)
+    res = productivity.add_rows(store, int(mid), body.get("rows") or [], body.get("source", ""))
+    res["model"] = store.model(int(mid))
+    return res
+
+
+def _sweep_args(body):
+    mid, mids, params = _need(body, "model_id", "method_ids", "params")
+    return int(mid), [int(x) for x in mids], params, int(body["scenario"]) if body.get("scenario") else None, _bg(body)
+
+
+@route("POST", "/api/sweep")
+def sweep(st, body, q):
+    mid, mids, params, scen, bg = _sweep_args(body)
+    try:
+        return _calc_error(productivity.sweep, st.store, mid, mids, params, scen, bg)
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/optimise")
+def optimise(st, body, q):
+    mid, mids, params, scen, bg = _sweep_args(body)
+    store = st.store
+
+    def job(progress, cancelled):
+        progress(10, "Searching the parameter space")
+        try:
+            return productivity.optimise(store, mid, mids, params, objective=int(body.get("objective") or 0),
+                                         constraints=body.get("constraints"), second_objective=body.get("second_objective"),
+                                         samples=int(body.get("samples") or 400), scenario=scen, bg=bg)
+        except calc.LCAError as e:
+            raise ValueError(str(e))
+    return {"job": st.start_job("Optimisation", job, exclusive=False)}
+
+
+@route("GET", "/api/model-templates")
+def tpl_list(st, body, q):
+    return {"templates": productivity.templates(st.store)}
+
+
+@route("POST", "/api/model-templates/apply")
+def tpl_apply(st, body, q):
+    (tid,) = _need(body, "id")
+    tpl = next((t for t in productivity.templates(st.store) if str(t["id"]) == str(tid)), None)
+    if not tpl:
+        raise ApiError("Template not found.", 404)
+    try:
+        res = _calc_error(productivity.apply_template, st.store, tpl, body.get("name") or None, body.get("location", ""))
+    except ValueError as e:
+        raise ApiError(str(e))
+    res["model"] = st.store.model(res["model_id"])
+    return res
+
+
+@route("POST", "/api/model-templates/save")
+def tpl_save(st, body, q):
+    mid, name = _need(body, "model_id", "name")
+    try:
+        spec = productivity.template_from_model(st.store, int(mid))
+        st.store.save_template(name, body.get("category") or "My templates", body.get("description", ""), spec)
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"ok": True}
+
+
+@route("DELETE", r"/api/model-templates/(\d+)")
+def tpl_delete(st, body, q, tid):
+    st.store.delete_template(int(tid))
+    return {"ok": True}
+
+
+@route("GET", r"/api/models/(\d+)/comments")
+def comments(st, body, q, mid):
+    return {"comments": st.store.comments(int(mid))}
+
+
+@route("POST", r"/api/models/(\d+)/comments")
+def comment_add(st, body, q, mid):
+    try:
+        st.store.add_comment(int(mid), body.get("input_id"), body.get("author") or st.author, body.get("text"))
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"comments": st.store.comments(int(mid))}
+
+
+@route("PATCH", r"/api/comments/(\d+)")
+def comment_patch(st, body, q, cid):
+    st.store.resolve_comment(int(cid), bool(body.get("resolved")))
+    return {"ok": True}
+
+
+@route("DELETE", r"/api/comments/(\d+)")
+def comment_delete(st, body, q, cid):
+    st.store.delete_comment(int(cid))
+    return {"ok": True}
+
+
+@route("GET", r"/api/models/(\d+)/versions")
+def versions(st, body, q, mid):
+    return {"versions": st.store.versions(int(mid)), "lock": st.store.lock_info(int(mid))}
+
+
+@route("POST", r"/api/models/(\d+)/versions")
+def version_save(st, body, q, mid):
+    try:
+        st.store.save_version(int(mid), body.get("name"), st.author)
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"versions": st.store.versions(int(mid))}
+
+
+@route("POST", r"/api/versions/(\d+)/restore")
+def version_restore(st, body, q, vid):
+    store = st.store
+    try:
+        v, snap = store.version_snapshot(int(vid))
+    except ValueError as e:
+        raise ApiError(str(e))
+    _unlocked(store, v["model_id"])
+    store.snapshot(v["model_id"], f"restore version '{v['name']}'")
+    store.save_version(v["model_id"], f"Before restoring '{v['name']}'", st.author)
+    store.restore_snapshot(v["model_id"], snap)
+    return {"model": store.model(v["model_id"])}
+
+
+@route("GET", "/api/versions/diff")
+def version_diff(st, body, q):
+    store = st.store
+    g = lambda k: q.get(k, [""])[0]
+    if not g("model_id").isdigit():
+        raise ApiError("model_id is needed.")
+    mid = int(g("model_id"))
+
+    def side(x):
+        if x in ("", "current"):
+            return store._snapshot_data(mid), "Current model"
+        v, snap = store.version_snapshot(int(x))
+        if v["model_id"] != mid:
+            raise ApiError("That version belongs to another model.")
+        return snap, v["name"]
+    try:
+        a, la = side(g("a"))
+        b, lb = side(g("b") or "current")
+    except ValueError as e:
+        raise ApiError(str(e))
+    return productivity.diff_snapshots(store, a, b, la, lb)
+
+
+@route("POST", r"/api/models/(\d+)/lock")
+def model_lock(st, body, q, mid):
+    try:
+        st.store.set_lock(int(mid), bool(body.get("locked")), st.author, body.get("reason", ""))
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"model": st.store.model(int(mid))}
+
+
+# ------------------------------------------------------------------ standards
+@route("POST", "/api/epd/check")
+def epd_check(st, body, q):
+    res = _calc(st, body)
+    model = st.store.model(int(body["model_id"]))
+    return {"checklist": standards.epd_checklist(model, res), "modules": standards.by_module(res),
+            "declared": standards.declared_modules(model, res), "columns": standards.COLUMNS}
+
+
+@route("POST", r"/api/models/(\d+)/epd-info")
+def epd_info(st, body, q, mid):
+    store = st.store
+    _unlocked(store, mid)
+    m = store.model(int(mid))
+    if not m:
+        raise ApiError("Model not found.", 404)
+    sc = m["scope"]
+    keep = ("manufacturer", "site", "programme", "number", "pcr", "issued", "valid_until", "rsl", "type", "verification",
+            "verifier", "biogenic_product", "biogenic_packaging", "description", "declared")
+    sc["epd"] = {k: body.get(k) for k in keep if body.get(k) not in (None, "")}
+    store.save_model({"id": m["id"], "name": m["name"], "product": m["product"], "unit": m["unit"], "amount": m["amount"],
+                      "scope": sc})
+    return {"model": store.model(int(mid))}
+
+
+def _std_export(st, body, ext, fn, label):
+    res = _calc(st, body, top=60)
+    model = st.store.model(int(body["model_id"]))
+    path = _export_path(st, dict(body, path=body.get("path")), dict(model, name=f"{model['name']} {label}"), ext)
+    _writable(path)
+    try:
+        fn(path, model, res)
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"path": path, "file": os.path.basename(path)}
+
+
+@route("POST", "/api/export/epd")
+def export_epd(st, body, q):
+    return _std_export(st, body, "docx", lambda p, m, r: standards.epd_word(p, m, r, st.store.databases(), VERSION), "EPD")
+
+
+@route("POST", "/api/export/epd-excel")
+def export_epd_x(st, body, q):
+    return _std_export(st, body, "xlsx", standards.epd_excel, "EPD data")
+
+
+@route("POST", "/api/pef")
+def pef(st, body, q):
+    res = _calc(st, body, top=60)
+    try:
+        return standards.pef(res)
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+def _gwp_body(st, body):
+    ids = [m["id"] for m in st.store.methods() if m["family"] == lcia.BUILTIN_FAMILY]
+    if not ids:
+        ids = lcia.install_builtin(st.store)
+    return dict(body, method_ids=ids)
+
+
+@route("POST", "/api/export/iso14067")
+def export_14067(st, body, q):
+    b = _gwp_body(st, body)
+    return _std_export(st, b, "docx", lambda p, m, r: standards.iso14067_word(p, m, r, st.store.databases(), VERSION),
+                       "ISO 14067")
+
+
+@route("POST", "/api/export/ghg")
+def export_ghg(st, body, q):
+    return _std_export(st, _gwp_body(st, body), "xlsx", standards.ghg_protocol_excel, "GHG Protocol")
+
+
+@route("POST", "/api/review")
+def review(st, body, q):
+    model = st.store.model(int(_need(body, "model_id")[0]))
+    res = None
+    if body.get("method_ids"):
+        try:
+            res = _calc(st, body)
+        except ApiError:
+            res = None
+    return standards.review_checklist(model, res)
+
+
+@route("POST", r"/api/models/(\d+)/review")
+def review_save(st, body, q, mid):
+    store = st.store
+    m = store.model(int(mid))
+    if not m:
+        raise ApiError("Model not found.", 404)
+    sc = m["scope"]
+    items = sc.get("review_items") or {}
+    for k, v in (body.get("items") or {}).items():
+        items[k] = {"status": v.get("status", ""), "comment": v.get("comment", ""), "reviewer": st.author}
+    sc["review_items"] = items
+    store.x("UPDATE main.models SET scope=? WHERE id=?", (json.dumps(sc), int(mid)))
+    return {"ok": True}
+
+
+@route("POST", "/api/export/review")
+def export_review(st, body, q):
+    model = st.store.model(int(_need(body, "model_id")[0]))
+    res = _calc(st, body) if body.get("method_ids") else None
+    chk = standards.review_checklist(model, res)
+    path = _export_path(st, body, dict(model, name=f"{model['name']} critical review"), "xlsx")
+    _writable(path)
+    standards.review_excel(path, model, chk)
+    return {"path": path, "file": os.path.basename(path)}
+
+
+# ------------------------------------------------------------------ interoperability
+@route("POST", "/api/export/brightway")
+def export_bw(st, body, q):
+    (ids,) = _need(body, "model_ids")
+    path = _check_path(body.get("path") or os.path.join(st.exports, f"{st.project_name} for Brightway.xlsx"), False)
+    _writable(path)
+    return interop.brightway_excel(st.store, ids, path, body.get("db_name") or f"Cyclia {st.project_name}")
+
+
+@route("POST", "/api/export/openlca")
+def export_olca(st, body, q):
+    (ids,) = _need(body, "model_ids")
+    path = _check_path(body.get("path") or os.path.join(st.exports, f"{st.project_name} for openLCA.zip"), False)
+    _writable(path)
+    return interop.openlca_jsonld(st.store, ids, path)
+
+
+@route("POST", "/api/import/brightway")
+def import_bw(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    try:
+        return interop.import_brightway_excel(st.store, path)
+    except ValueError as e:
+        raise ApiError(str(e))
+    except Exception as e:
+        raise ApiError(f"Could not read that Excel file: {e}")
+
+
+@route("POST", "/api/benchmark-ecoinvent")
+def bench_ei(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    store = st.store
+    sample = int(body.get("sample") or 0)
+
+    def job(progress, cancelled):
+        try:
+            st.last_bench = trust.benchmark_ecoinvent(store, path, body.get("family") or "", sample, progress=progress,
+                                                      db_name=body.get("db_name") or None)
+        except calc.LCAError as e:
+            raise ValueError(str(e))
+        out = dict(st.last_bench)
+        out["rows"] = out["rows"][:0]
+        return out
+    return {"job": st.start_job("Benchmark against ecoinvent", job, exclusive=False)}
+
+
+@route("POST", "/api/export/benchmark")
+def bench_export(st, body, q):
+    if not getattr(st, "last_bench", None):
+        raise ApiError("Run the benchmark first.")
+    path = _check_path(body.get("path") or os.path.join(st.exports, f"Cyclia benchmark {time.strftime('%Y%m%d-%H%M')}.xlsx"), False)
+    _writable(path)
+    trust.benchmark_excel(path, st.last_bench)
+    return {"path": path, "file": os.path.basename(path)}
+
+
+# ------------------------------------------------------------------ official reference data
+@route("GET", "/api/ef31")
+def ef31_info(st, body, q):
+    return {"families": official.ef_families(st.store), "set": official.EF31_SET, "source": official.EF31_SOURCE,
+            "factors": [{"category": k, "normalisation": nf, "weighting_percent": wf, "unit": u}
+                        for k, nf, wf, u, _ in official.EF31]}
+
+
+@route("POST", "/api/ef31/install")
+def ef31_install(st, body, q):
+    (family,) = _need(body, "family")
+    try:
+        r = official.install_ef31_nw(st.store, family)
+    except ValueError as e:
+        raise ApiError(str(e))
+    calc.invalidate()
+    return r
+
+
+@route("POST", "/api/cf-table/preview")
+def cf_table_preview(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    try:
+        return official.preview_table(path, body.get("sheet") or None)
+    except ValueError as e:
+        raise ApiError(str(e))
+    except Exception as e:
+        raise ApiError(f"Could not read that file: {e}")
+
+
+@route("POST", "/api/import/cf-table")
+def cf_table_import(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    mapping = body.get("mapping") or {}
+    return _import_job(st, f"Import {mapping.get('family') or 'factors'}",
+                       lambda s, p: official.import_cas_table(s, path, mapping, p))
+
+
+@route("POST", "/api/import/scenario-file")
+def scenario_file(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    store = st.store
+
+    def job(progress, cancelled):
+        try:
+            return science.import_scenario_file(store, path, body.get("prefix", ""), progress)
+        finally:
+            calc.invalidate()
+    return {"job": st.start_job("Import scenario file", job, exclusive=False)}
+
+
+# ------------------------------------------------------------------ HTTP plumbing
+def make_handler(st, token):
+    ui_root = os.path.normpath(UI_DIR)
+
+    class Handler(BaseHTTPRequestHandler):
+        server_version = f"{APP}/{VERSION}"
+
+        def log_message(self, fmt, *args):
+            if os.environ.get("CYCLIA_DEBUG"):
+                sys.stderr.write(fmt % args + "\n")
+
+        def _send(self, code, payload, ctype="application/json"):
+            data = payload if isinstance(payload, bytes) else json.dumps(payload, allow_nan=False, default=str).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _static(self, path):
+            if path in ("", "/"):
+                path = "/index.html"
+            full = os.path.normpath(os.path.join(ui_root, unquote(path).lstrip("/")))
+            if not full.startswith(ui_root) or not os.path.isfile(full):
+                msg = "Not found"
+                if path == "/index.html":
+                    msg += f": the interface folder {ui_root} has no index.html"
+                return self._send(404, msg.encode("utf-8"), "text/plain; charset=utf-8")
+            with open(full, "rb") as fh:
+                data = fh.read()
+            if full.endswith("index.html"):
+                data = data.replace(b"__API_TOKEN__", token.encode())
+            ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
+            if ctype.startswith("text/") or ctype.endswith("javascript"):
+                ctype += "; charset=utf-8"
+            self._send(200, data, ctype)
+
+        def _download(self, name):
+            full = os.path.normpath(os.path.join(st.exports, os.path.basename(unquote(name))))
+            if not os.path.isfile(full):
+                return self._send(404, {"error": "File not found"})
+            with open(full, "rb") as fh:
+                data = fh.read()
+            self.send_response(200)
+            self.send_header("Content-Type", mimetypes.guess_type(full)[0] or "application/octet-stream")
+            self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(full)}"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _handle(self, method):
+            url = urlparse(self.path)
+            if not url.path.startswith("/api/"):
+                return self._static(url.path) if method == "GET" else self._send(404, {"error": "Not found"})
+            q = parse_qs(url.query)
+            if not secrets.compare_digest(self.headers.get("X-Token") or q.get("token", [""])[0], token):
+                return self._send(403, {"error": "Forbidden"})
+            if url.path.startswith("/api/download/") and method == "GET":
+                return self._download(url.path[len("/api/download/"):])
+            body = {}
+            if method in ("POST", "PATCH", "PUT", "DELETE"):
+                n = int(self.headers.get("Content-Length") or 0)
+                if n > 20_000_000:
+                    return self._send(413, {"error": "Request too large"})
+                if n:
+                    try:
+                        body = json.loads(self.rfile.read(n) or b"{}")
+                    except json.JSONDecodeError:
+                        return self._send(400, {"error": "Invalid JSON"})
+                if not isinstance(body, dict):
+                    return self._send(400, {"error": "Expected a JSON object"})
+            for m, rx, fn in ROUTES:
+                if m != method:
+                    continue
+                hit = rx.match(url.path)
+                if hit:
+                    try:
+                        return self._send(200, _clean(fn(st, body, q, *hit.groups())))
+                    except ApiError as e:
+                        return self._send(e.code, {"error": str(e)})
+                    except (ValueError, KeyError, TypeError) as e:
+                        log.exception("bad request %s", url.path)
+                        return self._send(400, {"error": f"Invalid request: {e}"})
+                    except Exception as e:
+                        log.exception("error in %s", url.path)
+                        return self._send(500, {"error": f"Unexpected error: {e}. Details are in cyclia.log "
+                                                         "(Help > Export diagnostics)."})
+            return self._send(404, {"error": "Unknown API route"})
+
+        def do_GET(self):
+            self._handle("GET")
+
+        def do_POST(self):
+            self._handle("POST")
+
+        def do_PATCH(self):
+            self._handle("PATCH")
+
+        def do_DELETE(self):
+            self._handle("DELETE")
+    return Handler
+
+
+def _clean(obj):
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _clean(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_clean(v) for v in obj]
+    return obj
+
+
+def default_data_dir():
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(base, APP)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=f"{APP} LCA engine")
+    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--data", default=os.environ.get("CYCLIA_DATA") or default_data_dir())
+    ap.add_argument("--token", default=os.environ.get("CYCLIA_TOKEN") or "")
+    args = ap.parse_args()
+    token = args.token or secrets.token_hex(16)
+    os.makedirs(args.data, exist_ok=True)
+    logging.basicConfig(filename=os.path.join(args.data, "cyclia.log"), level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(message)s")
+    st = State(args.data)
+    httpd = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(st, token))
+    httpd.daemon_threads = True
+    st.api_info = {"url": f"http://127.0.0.1:{httpd.server_address[1]}", "token": token, "pid": os.getpid()}
+    try:  # lets the Python and R clients find the running engine; readable by this user only
+        info_path = os.path.join(args.data, "api.json")
+        with open(info_path, "w", encoding="utf-8") as fh:
+            json.dump(st.api_info, fh)
+        os.chmod(info_path, 0o600)
+    except OSError:
+        pass
+    print(f"CYCLIA_READY port={httpd.server_address[1]}", flush=True)
+    if not args.token:
+        print(f"Open http://127.0.0.1:{httpd.server_address[1]}/ in a browser.", flush=True)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

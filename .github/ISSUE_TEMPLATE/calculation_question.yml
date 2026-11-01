@@ -1,0 +1,29 @@
+name: Result differs from another tool
+description: A Cyclia result differs from openLCA, SimaPro, Brightway or ecoinvent's published values
+labels: [validation]
+body:
+  - type: markdown
+    attributes:
+      value: Report aggregate numbers only (for example the deviation in %). Do not paste ecoinvent's dataset values.
+  - type: input
+    id: version
+    attributes:
+      label: Cyclia version
+    validations:
+      required: true
+  - type: input
+    id: database
+    attributes:
+      label: Database and version
+      placeholder: "ecoinvent 3.11 cut-off"
+  - type: input
+    id: method
+    attributes:
+      label: Impact method and category
+      placeholder: "EF 3.1, climate change"
+  - type: textarea
+    id: diff
+    attributes:
+      label: What differs and by how much?
+    validations:
+      required: true

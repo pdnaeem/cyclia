@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest something that would help your LCA work
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What do you need to do?
+      description: Describe the task in your study, not only the feature.
+    validations:
+      required: true
+  - type: textarea
+    id: now
+    attributes:
+      label: How do you do it today?
+  - type: dropdown
+    id: role
+    attributes:
+      label: You are
+      options: [Student, Researcher, Lecturer, Consultant or practitioner, Other]
