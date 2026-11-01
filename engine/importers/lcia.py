@@ -62,13 +62,8 @@ def rematch(store, method_ids=None):
         c.execute("INSERT OR IGNORE INTO cfs SELECT r.method_id, f.id, r.value FROM cf_raw r JOIN flows f "
                   "ON f.c_name=r.c_name AND (r.c_comp='' OR f.c_comp=r.c_comp) "
                   "WHERE r.c_sub='' AND r.location=''" + where, args)
-        # 3b. ecoinvent/SimaPro convention: a factor for the subcompartment "unspecified" also applies to every other
-        #     subcompartment of that compartment that has no factor of its own
-        c.execute("INSERT OR IGNORE INTO cfs SELECT r.method_id, f.id, r.value FROM cf_raw r JOIN flows f "
-                  "ON f.c_name=r.c_name AND f.c_comp=r.c_comp "
-                  "WHERE r.c_sub='unspecified' AND r.c_comp!='' AND r.location='' AND NOT EXISTS (SELECT 1 FROM cf_raw r2 "
-                  "WHERE r2.method_id=r.method_id AND r2.c_name=r.c_name AND r2.c_comp=r.c_comp AND r2.c_sub=f.c_sub "
-                  "AND r2.location='')" + where, args)
+        # No fallback from "unspecified" to other subcompartments: ecoinvent's own results give no factor to, e.g.,
+        # long-term or ocean emissions when the method lists only "unspecified" (checked against ecoinvent 3.x).
         # 4. regional factors
         c.execute("INSERT OR IGNORE INTO cfs_regional SELECT r.method_id, f.id, r.location, r.value FROM cf_raw r JOIN flows f "
                   "ON (f.uuid=r.flow_uuid) OR (r.flow_uuid IS NULL AND f.c_name=r.c_name AND (r.c_comp='' OR f.c_comp=r.c_comp) "

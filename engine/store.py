@@ -154,7 +154,7 @@ class ProjectStore:
         self.relink()
         self._refresh_matching()
 
-    MATCH_RULES = "2"  # bump when the factor-matching rules in importers/lcia.py change
+    MATCH_RULES = "3"  # bump when the factor-matching rules in importers/lcia.py change
 
     def _refresh_matching(self):
         """Re-apply the factor-matching rules once after an update that changed them."""
@@ -164,6 +164,10 @@ class ProjectStore:
                 return
             if self.one("SELECT 1 FROM lib.cf_raw LIMIT 1"):
                 from importers import lcia
+                with self.lock:  # rebuild from scratch so factors added by older rules disappear
+                    self.conn.execute("DELETE FROM lib.cfs WHERE method_id IN (SELECT DISTINCT method_id FROM lib.cf_raw)")
+                    self.conn.execute("DELETE FROM lib.cfs_regional WHERE method_id IN (SELECT DISTINCT method_id FROM lib.cf_raw)")
+                    self.conn.commit()
                 lcia.rematch_all(self)
             with self.lock:
                 self.conn.execute("INSERT OR REPLACE INTO lib.lmeta(key,value) VALUES('match_rules', ?)", (self.MATCH_RULES,))

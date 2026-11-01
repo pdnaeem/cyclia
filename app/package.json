@@ -1,7 +1,7 @@
 {
   "name": "cyclia",
   "productName": "Cyclia",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Cyclia: free, open-source life cycle assessment for researchers (ISO 14040/44, no code). Created by Naeem Ur Rehman.",
   "author": {
     "name": "Naeem Ur Rehman",

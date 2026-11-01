@@ -47,8 +47,8 @@ definitions are rejected.
 
 Characterisation factors are stored as given and matched to library flows by, in order: flow UUID;
 canonical name + compartment + subcompartment; canonical name + compartment (when the factor has no
-subcompartment); and, following the ecoinvent and SimaPro convention, the factor of the subcompartment
-"unspecified" for every other subcompartment of that compartment that has no factor of its own. Canonical names are lower case with "x (y)" read as "x, y"; compartments from ILCD,
+subcompartment). A factor for the subcompartment "unspecified" applies to that subcompartment only, as in
+ecoinvent's own results (long-term and ocean emissions keep no factor when the method gives none). Canonical names are lower case with "x (y)" read as "x, y"; compartments from ILCD,
 openLCA, FEDEFL and SimaPro vocabularies are mapped to the ecoinvent terms *air, water, soil,
 natural resource* and their subcompartments (`engine/canon.py`). Flow mapping files (FEDEFL/GLAD
 format or the Cyclia template) add factors for flows of another nomenclature, multiplied by the

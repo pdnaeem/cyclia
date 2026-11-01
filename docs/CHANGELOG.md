@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.3 (2026-11-01)
+
+- Reverted the 1.2.2 rule that applied "unspecified" factors to other subcompartments. The benchmark showed
+  that ecoinvent does not do this (long-term and ocean emissions keep no factor), and it caused large
+  deviations in the toxicity and freshwater eutrophication categories
+- Matched factors are rebuilt once after the update, so nothing from the 1.2.2 rule stays in the library
+- Factor finder considers only flows the method knows by name, which removes implausible suggestions
+
 ## 1.2.2 (2026-11-01)
 
 - Impact assessment: a factor for the subcompartment "unspecified" now also applies to the other

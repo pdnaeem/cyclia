@@ -40,7 +40,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.2.2"
+VERSION = "1.2.3"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")

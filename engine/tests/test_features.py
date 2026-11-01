@@ -618,11 +618,13 @@ class TestOfficial(unittest.TestCase):
         from openpyxl import load_workbook
         self.assertIn("Factor finder", load_workbook(self.api("POST", "/api/export/benchmark", {})["path"]).sheetnames)
 
-    def test_unspecified_subcompartment_fallback(self):
-        """ecoinvent convention: the 'unspecified' factor applies to subcompartments without a factor of their own."""
+    def test_unspecified_is_not_a_fallback(self):
+        """ecoinvent convention (checked against its published results): a factor for 'unspecified' applies to that
+        subcompartment only, not to long-term or ocean emissions of the same substance."""
         from importers import lcia
         st = self.st
-        fid_sw = st.add_flow("t-sw-0001", "Testium-230", "water", "surface water", "kBq")
+        fid_un = st.add_flow("t-un-0001", "Testium-230", "water", "unspecified", "kBq")
+        fid_lt = st.add_flow("t-lt-0001", "Testium-230", "water", "ground-, long-term", "kBq")
         fid_oc = st.add_flow("t-oc-0001", "Testium-230", "water", "ocean", "kBq")
         st.conn.commit()
         mid = st.get_or_create_method("Fallback test", "radiation", "x", "kBq U235-Eq", "test")
@@ -630,8 +632,9 @@ class TestOfficial(unittest.TestCase):
                                  ("Testium-230", "water", "ocean", "", None, 0.5)])
         lcia.rematch(st, [mid])
         got = {r["flow_id"]: r["value"] for r in st.q("SELECT flow_id, value FROM cfs WHERE method_id=?", (mid,))}
-        self.assertEqual(got.get(fid_sw), 2.0)
+        self.assertEqual(got.get(fid_un), 2.0)
         self.assertEqual(got.get(fid_oc), 0.5)
+        self.assertIsNone(got.get(fid_lt))
 
     def test_ecoinvent_one_click_validation(self):
         """Login download is replaced by a local results file; the rest of the pipeline is the real one."""

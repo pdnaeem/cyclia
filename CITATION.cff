@@ -15,7 +15,7 @@ repository-code: "https://github.com/pdnaeem/cyclia"
 url: "https://niellosoft.com"
 doi: "10.5281/zenodo.23853748"
 license: MIT
-version: "1.2.2"
+version: "1.2.3"
 keywords:
   - life cycle assessment
   - LCA

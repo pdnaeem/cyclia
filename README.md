@@ -144,7 +144,7 @@ login or to check for updates.
 
 If Cyclia helps your research, please cite it. Citing is how free scientific software gets credit.
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.2.2)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.2.3)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853748
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [`CITATION.cff`](CITATION.cff). Inside
@@ -176,7 +176,7 @@ python -m unittest discover -s engine/tests -v
 ```
 
 On Windows, `build-windows.bat` runs the tests, builds the engine and produces the installer in
-`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.2.2` makes GitHub
+`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.2.3` makes GitHub
 Actions build Windows, macOS and Linux installers and publish them as a release.
 
 ```

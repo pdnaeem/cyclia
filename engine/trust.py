@@ -676,7 +676,10 @@ def factor_finder(store, mc, M, mcols, out, G, max_flows=6):
         w = np.array([1.0 / abs(x["reference"]) for x in items])
         y = np.array([x["reference"] - x["cyclia"] for x in items]) * w
         Gm = np.array([G[x["act_id"]] for x in items]) * w[:, None]
-        cols = np.where(np.abs(Gm).sum(axis=0) > 0)[0]
+        # candidates: flows the method knows by name (a factor that differs, or one that did not match)
+        names = {r["c_name"] for r in store.q("SELECT DISTINCT c_name FROM cf_raw WHERE method_id=?", (m["id"],))}
+        known = np.array([mc.flow_cname[i][0] in names or M.C[k, i] != 0 for i in range(Gm.shape[1])], dtype=bool)
+        cols = np.where((np.abs(Gm).sum(axis=0) > 0) & known)[0]
         if not len(cols):
             continue
         X = Gm[:, cols]
