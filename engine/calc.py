@@ -190,7 +190,7 @@ def get_mc(store, bg=None):
 class Methods:
     """Characterisation data for a list of selected impact categories."""
 
-    def __init__(self, store, mc, method_ids):
+    def __init__(self, store, mc, method_ids, regional=True):
         self.ids = [int(m) for m in method_ids]
         self.rows = []
         for mid in self.ids:
@@ -209,7 +209,7 @@ class Methods:
         self.Q = (sp.csr_matrix(self.C) @ mc.B).toarray() if mc.n else np.zeros((k, 0))
         self.regional = 0
         reg = store.q(f"SELECT method_id, flow_id, location, value FROM cfs_regional WHERE method_id IN "
-                      f"({','.join('?' * k)})", self.ids) if k else []
+                      f"({','.join('?' * k)})", self.ids) if k and regional else []
         if reg:
             Bc = mc.B.tocsr()
             loc_of = mc.act_loc

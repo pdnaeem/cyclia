@@ -614,7 +614,9 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
     else:
         chosen = [(g,) + it for g, items in groups.items() for it in items]
     mc = calc._cache.get(store)
-    M = calc.Methods(store, mc, [c["method"]["id"] for c in mcols])
+    # ecoinvent's cumulative LCIA results are not regionalised: compare with global factors only
+    M = calc.Methods(store, mc, [c["method"]["id"] for c in mcols], regional=False)
+    G = {}  # elementary flows of each compared dataset, for the factor finder
     scale_of = {}
     for c in mcols:  # typical magnitude per category, to recognise values that are numerically zero
         v = [abs(r["values"][c["id"]]) for _, r, _ in chosen if r["values"].get(c["id"])]
@@ -626,7 +628,9 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
             continue
         f = np.zeros(mc.n)
         f[j] = 1.0 if mc.diag[j] >= 0 else -1.0  # waste treatment: per unit treated, as ecoinvent reports it
-        h = M.Q @ mc.solve(f)
+        x_s = mc.solve(f)
+        h = M.Q @ x_s
+        G[a["id"]] = mc.B @ x_s
         for k, c in enumerate(mcols):
             ref = r["values"].get(c["id"])
             if ref is None:
@@ -653,7 +657,67 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
     res["database"] = db_name
     progress(99, "Looking for the causes of deviations")
     res["diagnosis"] = diagnose(store, mc, M, mcols, out)
+    res["factor_finder"] = factor_finder(store, mc, M, mcols, out, G)
     return res
+
+
+def factor_finder(store, mc, M, mcols, out, G, max_flows=6):
+    """For categories where many results deviate: which elementary flows, given a different factor, would explain the
+    deviations of all compared datasets at once. Greedy sparse least squares (orthogonal matching pursuit) on
+    gap_d = sum_f g_df * delta_f, rows weighted by 1/|ecoinvent result|. Reports the factor ecoinvent appears to use."""
+    found = []
+    for k, c in enumerate(mcols):
+        m = c["method"]
+        items = [x for x in out if x["category"] == m["category"] and x["indicator"] == m["indicator"]
+                 and x["note"] == "" and x["reference"] and x["act_id"] in G]
+        bad = [x for x in items if x["deviation_percent"] is not None and abs(x["deviation_percent"]) > 0.1]
+        if len(items) < 5 or len(bad) < max(2, 0.05 * len(items)):
+            continue
+        w = np.array([1.0 / abs(x["reference"]) for x in items])
+        y = np.array([x["reference"] - x["cyclia"] for x in items]) * w
+        Gm = np.array([G[x["act_id"]] for x in items]) * w[:, None]
+        cols = np.where(np.abs(Gm).sum(axis=0) > 0)[0]
+        if not len(cols):
+            continue
+        X = Gm[:, cols]
+        norms = np.linalg.norm(X, axis=0)
+        norms[norms == 0] = 1
+        y0 = float(y @ y)
+        if y0 == 0:
+            continue
+        sel, resid, coef = [], y.copy(), np.zeros(0)
+        for _ in range(max_flows):
+            score = np.abs(X.T @ resid) / norms
+            score[sel] = -1
+            j = int(np.argmax(score))
+            if score[j] <= 0:
+                break
+            trial = sel + [j]
+            cf_, *_ = np.linalg.lstsq(X[:, trial], y, rcond=None)
+            r_new = y - X[:, trial] @ cf_
+            if float(resid @ resid) - float(r_new @ r_new) < 0.02 * y0:
+                break
+            sel, coef, resid = trial, cf_, r_new
+            if float(resid @ resid) < 1e-4 * y0:
+                break
+        if not sel:
+            continue
+        explained = 1 - float(resid @ resid) / y0
+        flows = []
+        for j, d in zip(sel, coef):
+            i = int(cols[j])
+            fr = store.one("SELECT name, compartment, subcompartment, unit, c_name FROM flows WHERE id=?", (int(mc.flow_ids[i]),))
+            raw = store.q("SELECT c_comp, c_sub, location, value FROM cf_raw WHERE method_id=? AND c_name=? LIMIT 12",
+                          (m["id"], fr["c_name"]))
+            cy = float(M.C[k, i])
+            flows.append({"flow": fr["name"], "flow_context": "/".join(x for x in (fr["compartment"], fr["subcompartment"]) if x),
+                          "unit": fr["unit"], "cyclia_factor": cy, "implied_factor": cy + float(d),
+                          "method_has": "; ".join(f"{r['c_comp'] or 'any'}/{r['c_sub'] or 'any'}"
+                                                  f"{' @' + r['location'] if r['location'] else ''} = {r['value']:.4g}" for r in raw)
+                                        or "no factor for this name"})
+        found.append({"category": m["category"], "indicator": m["indicator"], "results": len(items), "deviating": len(bad),
+                      "explained_percent": 100 * explained, "flows": flows})
+    return found
 
 
 def diagnose(store, mc, M, mcols, out, per_cat=2, top=12):
@@ -694,7 +758,7 @@ def diagnose(store, mc, M, mcols, out, per_cat=2, top=12):
                               "canonical_sub": fr["c_sub"], "amount": float(g[i]), "unit": fr["unit"],
                               "method_has": "; ".join(f"{r['c_comp'] or 'any'}/{r['c_sub'] or 'any'}"
                                                       f"{' @' + r['location'] if r['location'] else ''} = {r['value']:.4g}"
-                                                      for r in cands[:4]),
+                                                      for r in (same + [r for r in cands if r not in same])[:8]),
                               "missing_contribution": float(g[i] * v)})
             flows.sort(key=lambda r: -abs(r["missing_contribution"]))
             explained = sum(r["missing_contribution"] for r in flows)
@@ -794,6 +858,17 @@ def benchmark_excel(path, res):
                                fl["missing_contribution"]])
     for c in ws4[1]:
         c.font = b
+    ws5 = wb.create_sheet("Factor finder")
+    ws5.append(["Category", "Indicator", "Results compared", "Deviating > 0.1 %", "Deviation explained %", "Flow",
+                "Compartment", "Unit", "Factor in Cyclia", "Factor ecoinvent appears to use", "Factors in the method file"])
+    for d in res.get("factor_finder") or []:
+        for fl in d["flows"]:
+            ws5.append([d["category"], d["indicator"], d["results"], d["deviating"], d["explained_percent"], fl["flow"],
+                        fl["flow_context"], fl["unit"], fl["cyclia_factor"], fl["implied_factor"], fl["method_has"]])
+    for c in ws5[1]:
+        c.font = b
+    ws5.column_dimensions["F"].width = 40
+    ws5.column_dimensions["K"].width = 60
     for w in (ws, ws2, ws3, ws4):
         w.column_dimensions["A"].width = 34
         w.column_dimensions["B"].width = 40

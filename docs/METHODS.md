@@ -47,7 +47,8 @@ definitions are rejected.
 
 Characterisation factors are stored as given and matched to library flows by, in order: flow UUID;
 canonical name + compartment + subcompartment; canonical name + compartment (when the factor has no
-subcompartment). Canonical names are lower case with "x (y)" read as "x, y"; compartments from ILCD,
+subcompartment); and, following the ecoinvent and SimaPro convention, the factor of the subcompartment
+"unspecified" for every other subcompartment of that compartment that has no factor of its own. Canonical names are lower case with "x (y)" read as "x, y"; compartments from ILCD,
 openLCA, FEDEFL and SimaPro vocabularies are mapped to the ecoinvent terms *air, water, soil,
 natural resource* and their subcompartments (`engine/canon.py`). Flow mapping files (FEDEFL/GLAD
 format or the Cyclia template) add factors for flows of another nomenclature, multiplied by the
@@ -55,7 +56,8 @@ conversion factor. Matching is repeated after every import, so the order of impo
 Factors that match no flow are kept and listed.
 
 **Regional factors** (a location column) replace the global factor for processes located there:
-**Q**[k, j] += (CF_reg − CF_glob) × **B**[f, j] for each process *j* in that location.
+**Q**[k, j] += (CF_reg − CF_glob) × **B**[f, j] for each process *j* in that location. The ecoinvent
+benchmark switches regional factors off, because ecoinvent's published LCIA results are not regionalised.
 
 **Normalisation and weighting** (optional): normalised = result / reference; weighted = normalised x weight;
 single score = Σ weighted, reported only when every selected category has a weight.
@@ -225,7 +227,13 @@ it recalculates every model and reports whether data, methods and results are id
 
 The **benchmark tool** (step 1) compares Cyclia with reference results for any list of datasets and
 categories (e.g. ecoinvent's published LCIA results or an openLCA export). Run it on your database before
-publishing.
+publishing. When results deviate, two diagnoses run automatically. The first lists, for the worst
+datasets, elementary flows without a factor although the method has one under the same name. The
+second, the factor finder, uses all compared datasets at once: with **g**_d the inventory of dataset *d*
+and gap_d its difference to the reference, it selects a few flows *f* and factor corrections Δ_f by
+orthogonal matching pursuit on gap_d / |ref_d| = Σ_f g_df Δ_f / |ref_d| and reports the factor the
+reference appears to use (CF + Δ_f), the share of the deviation it explains, and the factors the method
+file holds for that flow name.
 
 ## References
 

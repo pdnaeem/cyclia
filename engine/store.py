@@ -152,6 +152,24 @@ class ProjectStore:
             c.execute("INSERT OR REPLACE INTO main.meta(key,value) VALUES('schema_version', ?)", (json.dumps(SCHEMA_VERSION),))
             c.commit()
         self.relink()
+        self._refresh_matching()
+
+    MATCH_RULES = "2"  # bump when the factor-matching rules in importers/lcia.py change
+
+    def _refresh_matching(self):
+        """Re-apply the factor-matching rules once after an update that changed them."""
+        try:
+            r = self.one("SELECT value FROM lib.lmeta WHERE key='match_rules'")
+            if r and r["value"] == self.MATCH_RULES:
+                return
+            if self.one("SELECT 1 FROM lib.cf_raw LIMIT 1"):
+                from importers import lcia
+                lcia.rematch_all(self)
+            with self.lock:
+                self.conn.execute("INSERT OR REPLACE INTO lib.lmeta(key,value) VALUES('match_rules', ?)", (self.MATCH_RULES,))
+                self.conn.commit()
+        except Exception:
+            pass  # never block opening a project; the next import rematches anyway
 
     def _move_legacy_data(self):
         """Version 1/2 project files held their own databases. Move them into the shared library."""

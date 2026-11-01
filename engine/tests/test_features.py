@@ -506,7 +506,7 @@ class TestOfficial(unittest.TestCase):
         meths = [m for m in st.methods() if m["family"] == demo.FAMILY]
         acts = st.q("SELECT id, key, name, location, product, unit FROM activities")
         mc = c.get_mc(st)
-        M = c.Methods(st, mc, [m["id"] for m in meths])
+        M = c.Methods(st, mc, [m["id"] for m in meths], regional=False)  # ecoinvent publishes non-regionalised results
         wb = Workbook()
         ws = wb.active
         idh = ["Activity UUID_Product UUID", "Activity Name", "Geography", "Reference Product Name", "Reference Product Unit"]
@@ -593,6 +593,45 @@ class TestOfficial(unittest.TestCase):
         x = self.api("POST", "/api/export/benchmark", {})
         from openpyxl import load_workbook
         self.assertIn("Diagnosis", load_workbook(x["path"]).sheetnames)
+
+    def test_factor_finder(self):
+        """A factor with a wrong value (not a missing one) must be named by the factor finder, with the right value."""
+        st = self.st
+        path, n_acts, n_m = self._results_file("labels_above")
+        cc = next(m["id"] for m in st.methods() if m["family"] == demo.FAMILY and m["category"] == "climate change")
+        ch4 = st.one("SELECT f.id FROM flows f JOIN cfs c ON c.flow_id=f.id WHERE c.method_id=? AND f.name LIKE 'Methane%' "
+                     "ORDER BY c.value DESC LIMIT 1", (cc,))["id"]
+        old = st.one("SELECT value FROM cfs WHERE method_id=? AND flow_id=?", (cc, ch4))["value"]
+        st.x("UPDATE cfs SET value=? WHERE method_id=? AND flow_id=?", (old * 0.5, cc, ch4))
+        calc.invalidate()
+        try:
+            r = self.api.job("/api/benchmark-ecoinvent", {"path": path, "family": demo.FAMILY, "sample": 0})
+            ff = [x for x in r["factor_finder"] if x["category"] == "climate change"]
+            self.assertTrue(ff, r["factor_finder"])
+            top = ff[0]["flows"][0]
+            self.assertTrue(top["flow"].startswith("Methane"))
+            self.assertAlmostEqual(top["implied_factor"], old, delta=abs(old) * 0.02)
+            self.assertGreater(ff[0]["explained_percent"], 95)
+        finally:
+            st.x("UPDATE cfs SET value=? WHERE method_id=? AND flow_id=?", (old, cc, ch4))
+            calc.invalidate()
+        from openpyxl import load_workbook
+        self.assertIn("Factor finder", load_workbook(self.api("POST", "/api/export/benchmark", {})["path"]).sheetnames)
+
+    def test_unspecified_subcompartment_fallback(self):
+        """ecoinvent convention: the 'unspecified' factor applies to subcompartments without a factor of their own."""
+        from importers import lcia
+        st = self.st
+        fid_sw = st.add_flow("t-sw-0001", "Testium-230", "water", "surface water", "kBq")
+        fid_oc = st.add_flow("t-oc-0001", "Testium-230", "water", "ocean", "kBq")
+        st.conn.commit()
+        mid = st.get_or_create_method("Fallback test", "radiation", "x", "kBq U235-Eq", "test")
+        lcia.store_raw(st, mid, [("Testium-230", "water", "unspecified", "", None, 2.0),
+                                 ("Testium-230", "water", "ocean", "", None, 0.5)])
+        lcia.rematch(st, [mid])
+        got = {r["flow_id"]: r["value"] for r in st.q("SELECT flow_id, value FROM cfs WHERE method_id=?", (mid,))}
+        self.assertEqual(got.get(fid_sw), 2.0)
+        self.assertEqual(got.get(fid_oc), 0.5)
 
     def test_ecoinvent_one_click_validation(self):
         """Login download is replaced by a local results file; the rest of the pipeline is the real one."""

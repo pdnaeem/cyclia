@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.2 (2026-11-01)
+
+- Impact assessment: a factor for the subcompartment "unspecified" now also applies to the other
+  subcompartments of that compartment that have no factor of their own (ecoinvent and SimaPro convention).
+  This closes gaps to ecoinvent for, among others, radionuclides emitted to water
+- ecoinvent LCIA files with a location column are read with their regional factors
+- ecoinvent benchmark: compares with global factors only, as ecoinvent's published results are not regionalised
+- Benchmark: new factor finder that names the flows whose factor differs from the one ecoinvent uses,
+  with the factor that fits ecoinvent's results ("Factor finder" sheet in the Excel report)
+
 ## 1.2.1 (2026-11-01)
 
 - macOS installer (Apple silicon) now builds and is published with each release
