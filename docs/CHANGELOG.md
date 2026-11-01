@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1 (2026-11-01)
+
+- macOS installer (Apple silicon) now builds and is published with each release
+- DOI shown in the app, the citation and every report
+- Release tooling: `engine/tools/new_version.py`
+
 ## 1.2.0 (2026-11-01)
 
 A full feature demo (Step 1, "Load the full demo"); a validation suite with 34 exact reference cases and a

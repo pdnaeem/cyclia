@@ -55,12 +55,20 @@ jobs:
       - name: Build installer
         working-directory: app
         shell: bash
-        run: npx electron-builder ${{ matrix.target }} --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        run: |
+          EXTRA=""
+          if [ -z "$CSC_LINK" ]; then
+            # no certificate: build unsigned (an empty CSC_LINK makes electron-builder fail)
+            unset CSC_LINK CSC_KEY_PASSWORD
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            # macOS on Apple silicon needs at least an ad-hoc signature to start
+            if [ "$RUNNER_OS" = "macOS" ]; then EXTRA="-c.mac.identity=-"; fi
+          fi
+          npx electron-builder ${{ matrix.target }} $EXTRA --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets[matrix.csc_link] }}
           CSC_KEY_PASSWORD: ${{ secrets[matrix.csc_pass] }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets[matrix.csc_link] != '' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
