@@ -523,7 +523,7 @@ energy and steam, process waste.
 4. Run uncertainty and sensitivity, and use paired Monte Carlo for comparisons.
 5. Use the methods paragraph of the Word report, and state the software version.
 6. Cite Cyclia (Help > About copies the citation and BibTeX): Rehman, N. U. (2026). *Cyclia: open-source
-   life cycle assessment software for researchers* [Computer software]. https://doi.org/10.5281/zenodo.23853748
+   life cycle assessment software for researchers* [Computer software]. https://doi.org/10.5281/zenodo.23862359
 7. For a public comparison, organise a critical review panel (ISO 14044 6.3).
 
 ---

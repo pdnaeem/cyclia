@@ -13,7 +13,7 @@
   <a href="https://github.com/pdnaeem/cyclia/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/pdnaeem/cyclia?label=download&color=23574a"></a>
   <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-23574a"></a>
   <img alt="Windows, macOS, Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-5a6964">
-  <a href="https://doi.org/10.5281/zenodo.23853748"><img alt="DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.23853748.svg"></a>
+  <a href="https://doi.org/10.5281/zenodo.23862359"><img alt="DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.23862359.svg"></a>
   <a href="CITATION.cff"><img alt="Cite Cyclia" src="https://img.shields.io/badge/cite-CITATION.cff-b5821b"></a>
 </p>
 
@@ -145,7 +145,7 @@ login or to check for updates.
 If Cyclia helps your research, please cite it. Citing is how free scientific software gets credit.
 
 > Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.3.0)
-> [Computer software]. https://doi.org/10.5281/zenodo.23853748
+> [Computer software]. https://doi.org/10.5281/zenodo.23862359
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [`CITATION.cff`](CITATION.cff). Inside
 the app, Help > About copies the citation, BibTeX or a ready sentence for your methods section.
