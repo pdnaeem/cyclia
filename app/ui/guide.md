@@ -160,11 +160,19 @@ You have done a complete ISO-structured LCA. The tutorial numbers are simplified
 
 ## Step 1: Project and data
 
+### Layout of this step
+
+At the top, the **open project** card shows which project you are working in, how many models it has and
+when it was last saved. **Switch project** jumps to your list of projects; **Continue** takes you to the next
+step. Below are four tabs: **Projects**, **Databases**, **Impact methods** and **Check the software**. Cyclia
+opens the tab of whatever is still missing.
+
 ### Projects
 
-A **project** holds your models, parameters, scenarios, comments and versions. Create one with a name and
-**Create project**. **Open a project file** opens a `.lca` file someone sent you. **Delete** removes a
-project from this computer (back it up first). **Back up project file** (step 6) saves a copy.
+A **project** holds your models, parameters, scenarios, comments and versions. Press **New project**, type a
+name and press **Create**. Click any project card to open it; the open one is marked **Open**. **Open a
+project file** opens a `.lca` file someone sent you. The bin icon deletes a project from this computer (back
+it up first). **Back up project file** (step 6) saves a copy.
 
 ### The library
 
@@ -175,7 +183,7 @@ automatically once they import them.
 
 ### Adding a database
 
-Open one of the connectors under "Databases in the library".
+In the **Databases** tab, press **Add a database** and open one of the sources.
 
 **ecoinvent with your licence** (recommended if you have one)
 

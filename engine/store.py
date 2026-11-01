@@ -1005,7 +1005,15 @@ class Workspace:
         for f in sorted(os.listdir(self.dir)):
             if f.endswith(".lca"):
                 p = os.path.join(self.dir, f)
-                out.append({"name": f[:-4], "size_mb": round(os.path.getsize(p) / 1e6, 2)})
+                n = None
+                try:  # model count without opening the project (read-only, no lock on the library)
+                    con = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=1)
+                    n = con.execute("SELECT COUNT(*) FROM models").fetchone()[0]
+                    con.close()
+                except Exception:
+                    pass
+                out.append({"name": f[:-4], "size_mb": round(os.path.getsize(p) / 1e6, 2), "models": n,
+                            "modified": os.path.getmtime(p)})
         return out
 
     def exists(self, name):

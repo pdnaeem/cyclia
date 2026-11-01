@@ -17,7 +17,7 @@ const COACH = {
     what: "Every LCA needs three things before you start: a project that stores your work, a background database that says how materials and energy are produced, and an impact method that turns emissions into impacts such as climate change.",
     example: "A thesis comparing cotton and polyester T-shirts: project \"T-shirt study\", database ecoinvent 3.11 cut-off, method EF 3.1.",
     tasks: [
-      ["Create or open a project", (st) => !!st.project, "#newProjectName", "Type a name above and press Create project. Projects are saved automatically."],
+      ["Create or open a project", (st) => !!st.project, "#newProjectName", "Press New project, type a name and press Create. Projects are saved automatically."],
       ["Add a background database", (st) => (st.databases || []).length > 0, "#btnTutorial", "No ecoinvent licence? Open \"Tutorial database\" and press Add. It is free and built in."],
       ["Check that impact methods are installed", (st) => st.n_methods > 0, "#methodFamilies", "The tutorial database brings its own methods. With ecoinvent, import the LCIA file or use \"EF 3.1 from the JRC\"."],
     ],
@@ -114,7 +114,7 @@ function coachSlot(step) {
       const m = $(".coach-more", el);
       if (m) m.textContent = el.open ? "Hide" : "What to do here";
     });
-    const anchor = $(".lead", view) || $("h1", view);
+    const anchor = $(".coach-anchor", view) || $(".lead", view) || $("h1", view);
     anchor.insertAdjacentElement("afterend", el);
     const bar = document.createElement("div");
     bar.className = "next-bar";
@@ -148,6 +148,10 @@ function renderCoach() {
     el.open = ls.get("cyclia.coachOpen", level() === "new");
     el.dataset.init = "1";
   }
+  // a finished step folds its card away so the work area comes first; it can be opened again any time
+  const finished = total > 0 && n === total;
+  if (finished && el.dataset.done !== "1") el.open = false;
+  el.dataset.done = finished ? "1" : "0";
   const blocked = c.needs ? c.needs() : null;
   const nextTodo = blocked ? -1 : done.indexOf(false);
   el.innerHTML = `

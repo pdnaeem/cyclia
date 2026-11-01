@@ -46,27 +46,37 @@
       <h1>Project &amp; data</h1>
       <p class="lead">Databases and impact methods live in one library on this computer and are shared by all projects. A project file holds only your models, so it stays small and can be sent to a colleague.</p>
 
-      <div class="block">
-        <h2>Projects</h2>
-        <div class="row">
-          <input id="newProjectName" placeholder="New project name, e.g. Bread carbon footprint" maxlength="80">
-          <button class="primary" id="btnCreateProject">Create project</button>
-          <button id="btnImportProject">Open a project file</button>
+      <div class="cur-project coach-anchor" id="curProject"></div>
+      <div class="tabs setup-tabs" id="setupTabs" role="tablist">
+        <button data-setup-tab="projects" class="on">Projects <span class="tcount" id="tcProjects"></span></button>
+        <button data-setup-tab="databases">Databases <span class="tcount" id="tcDbs"></span></button>
+        <button data-setup-tab="methods">Impact methods <span class="tcount" id="tcMethods"></span></button>
+        <button data-setup-tab="validate">Check the software</button>
+      </div>
+
+      <div class="block" data-setup="projects">
+        <div class="sec-head"><div class="grow"><h2>Your projects</h2><p class="hint">Each project holds its own models. Click a project to open it.</p></div>
+          <button class="primary" id="btnNewProjectToggle">New project</button><button id="btnImportProject">Open a project file</button></div>
+        <div class="row new-project" id="newProjectRow" hidden>
+          <input id="newProjectName" class="grow" placeholder="Name of the new project, e.g. Bread carbon footprint" maxlength="80">
+          <button class="primary" id="btnCreateProject">Create</button>
         </div>
         <div class="row" id="importProjectRow" hidden>
           <input id="importProjectPath" class="grow" placeholder="Full path of a .lca file">
           <button id="btnImportProjectGo">Open file</button>
         </div>
-        <ul class="list" id="projectList"></ul>
-        <div class="demo-row"><div class="grow"><b>Try every feature with the demo</b><br><span class="hint">Creates the project "Cyclia feature demo": an illustrative database and methods, and seven models that use parameters, scenarios, EN 15804 modules, EPD values, allocation, dynamic GWP, background scenarios, external model emissions, toxicity factors, templates, comments, versions and a locked model. The data are for learning only.</span></div><button class="primary" id="btnDemo">Load the full demo</button></div>
+        <ul class="project-grid" id="projectList"></ul>
+        <div class="demo-row compact"><div class="grow"><b>Want to see everything Cyclia can do?</b> <span class="hint">The demo creates a separate project with seven ready-made models and illustrative data.</span></div><button id="btnDemo">Load the demo</button></div>
       </div>
 
-      <div class="block needs-project">
-        <h2>Databases in the library <button class="q" data-help="system model" aria-label="Help">?</button></h2>
-        <ul class="list" id="dbList"></ul>
+      <div class="block needs-project" data-setup="databases" hidden>
+        <div class="sec-head"><div class="grow"><h2>Databases in the library <button class="q" data-help="system model" aria-label="Help">?</button></h2>
+          <p class="hint">Shared by all projects on this computer. Import each database once.</p></div>
+          <button class="primary" data-addtoggle="dbConnectors">Add a database</button></div>
+        <ul class="item-list" id="dbList"></ul>
         <div id="linkPanel" class="subpanel" hidden></div>
         <div id="validatePanel" class="subpanel" hidden></div>
-        <div class="connectors">
+        <div class="connectors add-panel" id="dbConnectors" hidden><p class="add-title">Choose where your database comes from</p>
           <details class="connector">
             <summary><b>ecoinvent with your licence</b><span>Log in once; Cyclia downloads the release and its impact methods.</span></summary>
             <p class="hint" id="eiMissing" hidden>The ecoinvent connector is not installed in this engine. Use "ecoinvent folder you already downloaded".</p>
@@ -118,17 +128,19 @@
         </div>
       </div>
 
-      <div class="block needs-project">
-        <h2>Impact assessment methods <button class="q" data-help="characterisation factor" aria-label="Help">?</button></h2>
-        <ul class="list" id="methodFamilies"></ul>
-        <div class="connectors">
+      <div class="block needs-project" data-setup="methods" hidden>
+        <div class="sec-head"><div class="grow"><h2>Impact assessment methods <button class="q" data-help="characterisation factor" aria-label="Help">?</button></h2>
+          <p class="hint">Sets of characterisation factors, such as EF 3.1, ReCiPe or IPCC. Shared by all projects.</p></div>
+          <button class="primary" data-addtoggle="methodConnectors">Add methods</button></div>
+        <ul class="item-list" id="methodFamilies"></ul>
+        <div class="connectors add-panel" id="methodConnectors" hidden><p class="add-title">Choose where your methods come from</p>
           <details class="connector">
             <summary><b>ecoinvent LCIA file</b><span>"LCIA Implementation" Excel from ecoquery: EF 3.1, ReCiPe 2016, CML-IA, IPCC 2021 and more.</span></summary>
             <div class="form-grid"><label class="wide">Excel file<span class="pathpick"><input id="lcPath"><button data-pick="file" data-target="lcPath" data-ext="xlsx">Browse</button></span></label></div>
             <button class="primary" id="btnLcImport">Import methods</button>
           </details>
           <details class="connector">
-            <summary><b>Free method packages</b><span>EF 3.1, ReCiPe and others published for openLCA (JSON-LD zip). Use "Other formats" above with the zip; methods are recognised automatically.</span></summary>
+            <summary><b>Free method packages</b><span>EF 3.1, ReCiPe and others published for openLCA (JSON-LD zip). Import the zip under Databases &gt; Add a database &gt; "Other formats"; the methods are recognised automatically.</span></summary>
             <p class="hint">Download the method package from openLCA Nexus or the JRC, then import it with format "openLCA JSON-LD". Flows are matched by UUID and by name.</p>
           </details>
           <details class="connector">
@@ -161,6 +173,13 @@
             <div class="row"><button class="primary" id="btnNwImport">Import factors</button><button class="ghost" data-template="nw_csv">Show the CSV format</button></div>
             <pre data-template-out="nw_csv" hidden></pre>
           </details>
+        </div>
+      </div>
+
+      <div class="block needs-project" data-setup="validate" hidden>
+        <div class="sec-head"><div class="grow"><h2>Check the software</h2>
+          <p class="hint">Before you publish, compare Cyclia's results with ecoinvent's own results or with another LCA program.</p></div></div>
+        <div class="connectors">
           <details class="connector" id="eiBenchBox">
             <summary><b>Validate against ecoinvent (automatic)</b><span>Compares Cyclia with ecoinvent's own LCIA results for a sample of datasets and every category. One file, one click.</span></summary>
             <ol class="howto">
@@ -736,5 +755,6 @@
 <script src="features.js"></script>
 <script src="coach.js"></script>
 <script src="guide.js"></script>
+<script src="setup.js"></script>
 </body>
 </html>
