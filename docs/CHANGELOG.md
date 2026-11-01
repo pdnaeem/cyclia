@@ -1,11 +1,16 @@
 # Changelog
 
-## 1.3.0 (2026-11-01)
+## 1.3.1 (2026-11-01)
 
 - Step 1 redesigned: an "open project" card at the top, then tabs for projects, databases, impact methods and
   checks; projects as cards with the open one clearly marked; databases and methods as cards with chips;
-  the list of sources appears only after "Add a database" / "Add methods". A finished step folds its
-  guidance card away
+  the list of sources appears only after "Add a database" / "Add methods"
+- A finished step folds its guidance card away, so the work area comes first
+- The project list shows the number of models and when each project was last saved
+- Citation and DOI updated to 10.5281/zenodo.23862359 in the app and the reports
+
+## 1.3.0 (2026-11-01)
+
 - **Automatic updates fixed on Windows**: the build no longer asks the updater to verify a code signature
   that unsigned installers cannot have. Help > About shows the update state with "Check for updates";
   checks run at start and every six hours. Copies of 1.2.x must install 1.3.0 once by hand

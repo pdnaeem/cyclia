@@ -17,7 +17,6 @@ Copies of Cyclia 1.2 did not update themselves on Windows: the updater expected 
 - **User guide inside the app**: Help > User guide covers everything from installation to publishing, with an LCA primer, a 20-minute first study, every step, recipes for each sector, troubleshooting and limitations. It has a search box, and every step has a **Guide** link that opens the right section.
 - **For every sector**: the tutorial database now has 33 simplified processes (building materials, food, textiles, plastics, solar electricity, waste and wastewater), new templates for a cotton T-shirt, wastewater treatment and a chemical product, and guidance examples from many sectors.
 - **Easier steps**: "Select climate change" for a quick start, main indicators listed before their parts, a notice when a dataset is a waste treatment, a transport helper (kg and km to t*km), and data quality requirements in goal and scope.
-- **Clearer first step**: the open project is shown at the top, and projects, databases, impact methods and checks each have their own tab.
 - **New look**: softer cards, pill-shaped tabs, a calmer header, smooth page changes and icons on the welcome screen; decorative yellow lines removed.
 
 The tutorial data are illustrative and must not be published.
