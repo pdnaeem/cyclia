@@ -28,6 +28,9 @@ import analysis  # noqa: E402
 import crosscheck  # noqa: E402
 import epd_profiles  # noqa: E402
 import factormatch  # noqa: E402
+import ilcd_epd  # noqa: E402
+import compare_kit  # noqa: E402
+import staging  # noqa: E402
 import mfa  # noqa: E402
 import regional  # noqa: E402
 import slca  # noqa: E402
@@ -48,7 +51,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.3.6"
+VERSION = "1.3.8"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -343,15 +346,8 @@ def _fingerprint(path):
 
 
 def _integrity(store, db_id):
-    """Critical problems that make a fresh import unusable (then it is rolled back): non-finite amounts and
-    exchanges that point to datasets that do not exist."""
-    bad = store.one("SELECT COUNT(*) AS n FROM tech t JOIN activities a ON a.id=t.output_id WHERE a.db_id=? AND "
-                    "(t.amount IS NULL OR t.amount != t.amount OR abs(t.amount) > 1e300)", (db_id,))["n"]
-    bad += store.one("SELECT COUNT(*) AS n FROM bio b JOIN activities a ON a.id=b.activity_id WHERE a.db_id=? AND "
-                     "(b.amount IS NULL OR b.amount != b.amount OR abs(b.amount) > 1e300)", (db_id,))["n"]
-    dangling = store.one("SELECT COUNT(*) AS n FROM tech t JOIN activities a ON a.id=t.output_id WHERE a.db_id=? AND "
-                         "t.input_id NOT IN (SELECT id FROM activities)", (db_id,))["n"]
-    return bad, dangling
+    """Critical problems that make a fresh import unusable (then it is rolled back): see staging.integrity."""
+    return staging.integrity(store, db_id)
 
 
 def _import_job(st, label, fn, path=None, body=None):
@@ -361,18 +357,24 @@ def _import_job(st, label, fn, path=None, body=None):
     store = st.store
     body = body or {}
 
+    name = str(body.get("name") or "").strip()
+    if path and name and store.one("SELECT id FROM databases WHERE name=?", (name,)):
+        raise ApiError(f"A database called '{name}' is already in the library. Use another name or remove it first.")
+
     def job(p, c):
         before = {d["id"] for d in store.databases()}
-        res = fn(store, p)
+        if path:   # format imports go through a staging library and are merged only after the checks
+            res = staging.staged(store, st.data_dir, fn, p)
+        else:
+            res = fn(store, p)
         new = [d for d in store.databases() if d["id"] not in before]
         if new and isinstance(res, dict):
             d = new[0]
-            bad, dangling = _integrity(store, d["id"])
-            if bad or dangling:
+            problems = _integrity(store, d["id"])
+            if problems:
                 store.delete_database(d["id"])
                 calc.invalidate()
-                raise ValueError(f"The import was rolled back: {bad} exchanges have no valid number and {dangling} point "
-                                 "to datasets that do not exist.")
+                raise ValueError("The import was rolled back: " + "; ".join(f"{v} {k} not valid" for k, v in problems.items()) + ".")
             p(97, "Recording the source fingerprint")
             meta = {k: str(body.get(k) or "").strip() for k in store_mod.DB_META_COLUMNS
                     if k not in ("source_path", "source_sha256", "importer_version", "import_report")}
@@ -671,20 +673,74 @@ def explore(st, body, q, act_id):
 
 @route("GET", "/api/explore")
 def explore_search(st, body, q):
+    """Datasets of the library with filters, all applied in the database query (so a filter never only sees the first
+    page): text (every word in name, product or location), database, location, system model, version, datasets with
+    unresolved inputs, datasets with an elementary flow (name). Paged: offset, limit (at most 200); total is returned."""
     one = lambda k: (q.get(k) or [""])[0] if isinstance(q.get(k), list) else (q.get(k) or "")
-    db = int(one("db")) if one("db") else None
-    text = one("q").strip()
-    if not text:
-        rows = st.store.q("SELECT a.id, a.name, a.product, a.location, a.unit, d.name AS db FROM activities a JOIN databases d "
-                          "ON d.id=a.db_id" + (" WHERE a.db_id=?" if db else "") + " ORDER BY a.name LIMIT 100",
-                          (db,) if db else ())
-    else:
-        rows = st.store.search_activities(text, db, one("location") or None, limit=100)
-    unl = one("unresolved") == "1"
-    if unl:
-        ids = {r["output_id"] for r in st.store.q("SELECT DISTINCT output_id FROM unlinked WHERE linked_to IS NULL")}
-        rows = [r for r in rows if r["id"] in ids]
-    return {"results": rows}
+    where, args = [], []
+    for w in re.findall(r"[\w\-.,]+", one("q").lower())[:8]:
+        where.append("(lower(a.name) LIKE ? OR lower(a.product) LIKE ? OR lower(a.location) LIKE ?)")
+        args += [f"%{w}%"] * 3
+    if one("db"):
+        where.append("a.db_id=?")
+        args.append(int(one("db")))
+    if one("location"):
+        where.append("upper(a.location)=?")
+        args.append(one("location").strip().upper())
+    if one("system_model"):
+        where.append("lower(COALESCE(d.system_model,'')) LIKE ?")
+        args.append(f"%{one('system_model').strip().lower()}%")
+    if one("version"):
+        where.append("COALESCE(d.version,'')=?")
+        args.append(one("version").strip())
+    if one("unresolved") == "1":
+        where.append("a.id IN (SELECT output_id FROM unlinked WHERE linked_to IS NULL)")
+    if one("flow"):
+        where.append("a.id IN (SELECT b.activity_id FROM bio b JOIN flows f ON f.id=b.flow_id WHERE lower(f.name) LIKE ?)")
+        args.append(f"%{one('flow').strip().lower()}%")
+    sql = " FROM activities a JOIN databases d ON d.id=a.db_id" + (" WHERE " + " AND ".join(where) if where else "")
+    limit = max(1, min(200, int(one("limit") or 50)))
+    offset = max(0, int(one("offset") or 0))
+    total = st.store.one("SELECT COUNT(*) AS n" + sql, args)["n"]
+    rows = st.store.q("SELECT a.id, a.name, a.product, a.location, a.unit, d.name AS db, d.version, d.system_model, "
+                      "(SELECT COUNT(*) FROM unlinked u WHERE u.output_id=a.id AND u.linked_to IS NULL) AS unresolved"
+                      + sql + " ORDER BY a.name, a.location, a.id LIMIT ? OFFSET ?", args + [limit, offset])
+    return {"results": rows, "total": total, "offset": offset, "limit": limit}
+
+
+@route("POST", "/api/explore/export")
+def explore_export(st, body, q):
+    ids = [int(x) for x in (body.get("ids") or [])][:5000]
+    if not ids:
+        raise ApiError("Select datasets first.")
+    from openpyxl import Workbook
+    path = _export_path(st, body, {"name": "Cyclia datasets"}, "xlsx")
+    _writable(path)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Datasets"
+    ws.append(["Id", "Database", "Version", "System model", "Key", "Name", "Product", "Location", "Unit", "Production",
+               "Unresolved inputs"])
+    w2 = wb.create_sheet("Technosphere")
+    w2.append(["Dataset id", "Dataset", "Supplier id", "Supplier", "Supplier location", "Amount", "Unit"])
+    w3 = wb.create_sheet("Elementary flows")
+    w3.append(["Dataset id", "Dataset", "Flow", "Compartment", "Subcompartment", "UUID", "Amount", "Unit"])
+    w4 = wb.create_sheet("Unresolved inputs")
+    w4.append(["Dataset id", "Dataset", "Product", "Location", "Amount", "Unit", "Reason", "Linked to"])
+    for i in ids:
+        a = st.store.explore(i, limit=100000)
+        if not a:
+            continue
+        ws.append([a["id"], a["db"], a["db_version"], a["system_model"], a["key"], a["name"], a["product"], a["location"],
+                   a["unit"], a["production"], len([u for u in a["unresolved"] if not u["linked_to"]])])
+        for x in a["inputs"]:
+            w2.append([a["id"], a["name"], x["id"], x["name"], x["location"], x["amount"], x["unit"]])
+        for x in a["emissions"]:
+            w3.append([a["id"], a["name"], x["name"], x["compartment"], x["subcompartment"], x["uuid"], x["amount"], x["unit"]])
+        for u in a["unresolved"]:
+            w4.append([a["id"], a["name"], u["product"], u["location"], u["amount"], u["unit"], u["reason"], u["linked_to"]])
+    wb.save(path)
+    return {"path": path, "file": os.path.basename(path), "datasets": len(ids)}
 
 
 @route("POST", r"/api/activity/(\d+)/copy")
@@ -1750,6 +1806,19 @@ def _std_export(st, body, ext, fn, label):
     return {"path": path, "file": os.path.basename(path)}
 
 
+@route("POST", "/api/export/ilcd-epd")
+def export_ilcd_epd(st, body, q):
+    res = _calc(st, body, top=60)
+    model = st.store.model(int(body["model_id"]))
+    path = _export_path(st, dict(body, path=body.get("path")), dict(model, name=f"{model['name']} ILCD+EPD"), "zip")
+    _writable(path)
+    try:
+        out = ilcd_epd.export(path, model, res, VERSION)
+    except ValueError as e:
+        raise ApiError(str(e))
+    return out
+
+
 def _profiles_dir(st):
     return os.path.join(st.data_dir, "epd_profiles")
 
@@ -2243,6 +2312,23 @@ def factor_match(st, body, q):
     return {"job": st.start_job("Factor matching validation", job, exclusive=False)}
 
 
+@route("POST", "/api/export/compare-kit")
+def export_compare_kit(st, body, q):
+    db = _need(body, "db_id")[0]
+    mids = body.get("method_ids") or []
+    d = st.store.one("SELECT name FROM databases WHERE id=?", (int(db),))
+    if not d:
+        raise ApiError("Database not found.", 404)
+    if re.search(r"ecoinvent", d["name"], re.I) and not body.get("confirm_licence"):
+        raise ApiError("This looks like ecoinvent: its licence does not allow sharing the data. Build the kit from data you may share.")
+    path = _export_path(st, body, {"name": f"Cyclia comparison kit {d['name']}"}, "zip")
+    _writable(path)
+    try:
+        return compare_kit.build(st.store, int(db), mids, path, VERSION)
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
 @route("POST", "/api/export/factor-match")
 def export_factor_match(st, body, q):
     res = getattr(st, "last_factor_match", None)
@@ -2266,6 +2352,36 @@ def marginal(st, body, q, mid):
 def regional_status(st, body, q):
     return {"status": regional.status(st.store), "templates": {"AWARE": regional.AWARE_TEMPLATE, "LANCA": regional.LANCA_TEMPLATE},
             "lanca_indicators": list(regional.LANCA_INDICATORS)}
+
+
+@route("POST", "/api/regional/geojson")
+def regional_geojson(st, body, q):
+    method = _need(body, "method")[0]
+    text = body.get("text")
+    if body.get("path"):
+        with open(_check_path(body["path"]), encoding="utf-8-sig") as fh:
+            text = fh.read()
+    try:
+        return regional.import_geojson(st.store, method, text or "", body.get("id_property") or "id", body.get("source", ""))
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/regional/locate")
+def regional_locate(st, body, q):
+    try:
+        return {"found": regional.locate(st.store, body.get("method") or "AWARE", float(body["lat"]), float(body["lon"]))}
+    except (KeyError, TypeError, ValueError):
+        raise ApiError("Give lat and lon in decimal degrees.")
+
+
+@route("POST", "/api/regional/sqi")
+def regional_sqi(st, body, q):
+    try:
+        return regional.sqi_aggregate(st.store, body.get("normalisation") or {}, body.get("weights"), body.get("source", ""),
+                                      body.get("replace", True) is not False)
+    except ValueError as e:
+        raise ApiError(str(e))
 
 
 @route("POST", "/api/regional/import")
@@ -2295,6 +2411,21 @@ def regional_assess(st, body, q):
         return regional.aware(st.store, int(mid)) if str(method).upper() == "AWARE" else regional.lanca(st.store, int(mid))
     except (ValueError, calc.LCAError) as e:
         raise ApiError(str(e))
+
+
+@route("POST", "/api/slca/import-olca")
+def slca_import_olca(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    mapping = ""
+    if body.get("mapping_path"):
+        with open(_check_path(body["mapping_path"]), encoding="utf-8-sig") as fh:
+            mapping = fh.read()
+    store = st.store
+
+    def job(p, c):
+        p(10, "Reading the social data")
+        return slca.import_olca_social(store, path, mapping, body.get("replace", True) is not False, body.get("source", ""))
+    return {"job": st.start_job("Import social data (openLCA)", job)}
 
 
 @route("POST", "/api/slca/import")
@@ -2349,6 +2480,14 @@ def mfa_run(st, body, q):
         return mfa.run(d or {})
     except (ValueError, KeyError, TypeError) as e:
         raise ApiError(f"MFA: {e}")
+
+
+@route("POST", "/api/mfa/lca")
+def mfa_lca(st, body, q):
+    try:
+        return mfa.lca(st.store, body.get("definition") or {}, body.get("method_ids") or [], body.get("links") or {})
+    except (ValueError, KeyError, TypeError) as e:
+        raise ApiError(str(e))
 
 
 @route("POST", "/api/mfa/mci")

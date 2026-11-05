@@ -69,6 +69,140 @@ AGRI_WORDS = ("irrigation", "irrigated")
 BACKGROUND_USES = ("by process", "unknown")
 
 
+def _month_profile(v):
+    """Share of the model's own water use in each month: a list of 12 numbers (normalised), a month number 1-12, or None."""
+    if v in (None, "", []):
+        return None
+    if isinstance(v, (int, float)) or (isinstance(v, str) and v.strip().isdigit()):
+        m = int(v)
+        return [1.0 if i == m - 1 else 0.0 for i in range(12)] if 1 <= m <= 12 else None
+    if isinstance(v, str):
+        v = [x for x in re.split(r"[;,\s]+", v.strip()) if x]
+    try:
+        vals = [max(0.0, float(x)) for x in v]
+    except (TypeError, ValueError):
+        return None
+    if len(vals) != 12 or not sum(vals):
+        return None
+    t = sum(vals)
+    return [x / t for x in vals]
+
+
+def _monthly_cf(monthly, use, loc, prof):
+    """Profile-weighted monthly factor; every month with use must have a factor (same location fallbacks)."""
+    total, hows = 0.0, set()
+    for i, sh in enumerate(prof):
+        if not sh:
+            continue
+        cf, how = _lookup(monthly, f"{use}|m{i + 1}", loc)
+        if cf is None and use != "unknown":
+            cf, how = _lookup(monthly, f"unknown|m{i + 1}", loc)
+        if cf is None:
+            return None, "none"
+        total += sh * cf
+        hows.add(how)
+    # completeness category: the least specific fallback used by any month
+    for h in ("global", "country", "exact"):
+        if h in hows:
+            return total, h
+    return total, "exact"
+
+
+# ---------------------------------------------------------------------------------------------- GIS (GeoJSON)
+def _rings(geom):
+    t = geom.get("type")
+    if t == "Polygon":
+        return [geom["coordinates"]]
+    if t == "MultiPolygon":
+        return geom["coordinates"]
+    raise ValueError(f"Geometry type {t} is not supported (Polygon or MultiPolygon).")
+
+
+def _in_ring(x, y, ring):
+    inside = False
+    n = len(ring)
+    for i in range(n):
+        x1, y1 = ring[i][0], ring[i][1]
+        x2, y2 = ring[(i + 1) % n][0], ring[(i + 1) % n][1]
+        if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / ((y2 - y1) or 1e-300) + x1:
+            inside = not inside
+    return inside
+
+
+def point_in(geom, lon, lat):
+    """Even-odd rule per polygon: inside the outer ring and in none of its holes."""
+    for poly in _rings(geom):
+        if poly and _in_ring(lon, lat, poly[0]) and not any(_in_ring(lon, lat, h) for h in poly[1:]):
+            return True
+    return False
+
+
+def import_geojson(store, method, text, id_property, source="", replace=True):
+    """Import watershed (or region) polygons, GeoJSON in WGS84 longitude/latitude, e.g. the AWARE 2.0 basin layer
+    converted from its shapefile (QGIS or ogr2ogr). id_property names the property that holds the location code used
+    in the factor table. If the features also carry the properties agri, non_agri, unknown, the factors are imported
+    with them."""
+    import json
+    method = method.upper()
+    try:
+        gj = json.loads(text)
+    except ValueError:
+        raise ValueError("The file is not valid GeoJSON.")
+    feats = gj.get("features") if gj.get("type") == "FeatureCollection" else [gj] if gj.get("type") == "Feature" else None
+    if not feats:
+        raise ValueError("Expected a GeoJSON FeatureCollection of polygons.")
+    shapes, factors, rejected = [], [], []
+    for n, f in enumerate(feats):
+        props = f.get("properties") or {}
+        loc = str(props.get(id_property) or "").strip().upper()
+        geom = f.get("geometry") or {}
+        if not loc:
+            rejected.append({"feature": n, "reason": f"no '{id_property}' property"})
+            continue
+        try:
+            pts = [p for poly in _rings(geom) for ring in poly for p in ring]
+        except (ValueError, KeyError, TypeError) as e:
+            rejected.append({"feature": n, "reason": str(e)})
+            continue
+        if not pts or any(not (-180 <= p[0] <= 180 and -90 <= p[1] <= 90) for p in pts[:50]):
+            rejected.append({"feature": n, "reason": "coordinates must be longitude/latitude (WGS84)"})
+            continue
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        shapes.append((method, loc, str(props.get("name") or loc), json.dumps(geom), min(xs), min(ys), max(xs), max(ys),
+                       source or "imported GeoJSON"))
+        if method == AWARE:
+            for use in ("agri", "non_agri", "unknown"):
+                v = _num(props.get(use))
+                if v is not None:
+                    if AWARE_RANGE[0] - 1e-9 <= v <= AWARE_RANGE[1] + 1e-9:
+                        factors.append((AWARE, "water scarcity", use, loc, v, "m3 world-eq/m3"))
+                    else:
+                        rejected.append({"feature": n, "reason": f"{use} factor {v:g} outside 0.1 to 100"})
+    if not shapes:
+        raise ValueError("No usable polygon was found." + (f" {len(rejected)} features were rejected." if rejected else ""))
+    with store.lock:
+        if replace:
+            store.conn.execute("DELETE FROM native_shapes WHERE method=?", (method,))
+        store.conn.executemany("INSERT INTO native_shapes(method,location,name,geometry,minx,miny,maxx,maxy,source) "
+                               "VALUES(?,?,?,?,?,?,?,?,?)", shapes)
+        if factors:
+            store.conn.executemany("INSERT INTO native_factors(method,indicator,key,location,value,unit,source) "
+                                   "VALUES(?,?,?,?,?,?,?)", [r + (source or "imported GeoJSON",) for r in factors])
+        store.conn.commit()
+    return {"shapes": len(shapes), "factors": len(factors), "rejected": rejected[:100], "n_rejected": len(rejected)}
+
+
+def locate(store, method, lat, lon):
+    """The imported polygon that contains a point (smallest bounding box first when polygons overlap)."""
+    import json
+    cands = store.q("SELECT location, name, geometry, (maxx-minx)*(maxy-miny) AS area FROM native_shapes WHERE method=? "
+                    "AND minx<=? AND maxx>=? AND miny<=? AND maxy>=? ORDER BY area", (method.upper(), lon, lon, lat, lat))
+    for c in cands:
+        if point_in(json.loads(c["geometry"]), lon, lat):
+            return {"location": c["location"], "name": c["name"], "lat": lat, "lon": lon}
+    return None
+
+
 def _use_key(u):
     u = (u or "unknown").strip().lower().replace("-", "_").replace(" ", "_")
     return {"agricultural": "agri", "non_agricultural": "non_agri", "nonagri": "non_agri"}.get(u, u)
@@ -113,6 +247,16 @@ def import_factors(store, method, text, source="", replace=True, demo=False):
             loc = str(r.get(cols["location"]) or "").strip()
             if not loc:
                 continue
+            month = ""
+            if "month" in cols and str(r.get(cols["month"]) or "").strip():
+                try:
+                    mo = int(float(str(r.get(cols["month"])).strip()))
+                except ValueError:
+                    mo = 0
+                if not 1 <= mo <= 12:
+                    rejected.append({"row": n, "location": loc, "reason": "month must be 1 to 12 (or empty for the annual factor)"})
+                    continue
+                month = f"|m{mo}"
             for use, col in (("agri", "agri"), ("non_agri", "non_agri"), ("unknown", "unknown")):
                 if col not in cols:
                     continue
@@ -122,7 +266,7 @@ def import_factors(store, method, text, source="", replace=True, demo=False):
                 if not AWARE_RANGE[0] - 1e-9 <= v <= AWARE_RANGE[1] + 1e-9:
                     rejected.append({"row": n, "location": loc, "reason": f"{use} factor {v:g} is outside 0.1 to 100"})
                     continue
-                rows.append((AWARE, "water scarcity", use, loc.upper(), v, "m3 world-eq/m3"))
+                rows.append((AWARE, "water scarcity", use + month, loc.upper(), v, "m3 world-eq/m3"))
     else:
         for need in ("indicator", "kind", "land_use", "location", "value"):
             if need not in cols:
@@ -282,12 +426,26 @@ def aware(store, model_id):
         raise ValueError("No AWARE factors in the library. Import the official AWARE 2.0 table (Toolbox > Regional methods).")
     # keys stored by 1.3.5 were 'non-agri'; the lookup uses 'non_agri' (before 1.3.6 the non-agricultural factor was
     # never found and the unknown factor was used instead)
-    table = {(_use_key(r["key"]), r["location"]): r["value"] for r in rows}
+    table = {(_use_key(r["key"]), r["location"]): r["value"] for r in rows if "|m" not in r["key"]}
+    monthly = {}
+    for r in rows:
+        if "|m" in r["key"]:
+            u, mo = r["key"].split("|m")
+            monthly[(_use_key(u) + f"|m{int(mo)}", r["location"])] = r["value"]
     src = rows[0]["source"]
     mc, m, G, direct, has_fixed = _process_inventory(store, model_id)
     info = _flowinfo(store, mc)
     sc = m["scope"] or {}
     site = (sc.get("aware_location") or sc.get("geography") or "").strip().upper()
+    gis = None
+    monthly_used = False
+    if sc.get("aware_lat") not in (None, "") and sc.get("aware_lon") not in (None, ""):
+        try:
+            gis = locate(store, AWARE, float(sc["aware_lat"]), float(sc["aware_lon"]))
+        except (TypeError, ValueError):
+            gis = None
+        if gis:
+            site = gis["location"]
     names = {r["id"]: r["name"] for r in store.q("SELECT id, name FROM activities")}
     wkind = {i: _water_kind(*info[i]) for i in range(len(info))}
     wflow = {i: (sg, k) for i, (kind, sg, k) in wkind.items()}
@@ -337,6 +495,12 @@ def aware(store, model_id):
         cf, how = _lookup(table, use, site or "GLO")
         if cf is None and use != "unknown":
             cf, how = _lookup(table, "unknown", site or "GLO")
+        prof = _month_profile(sc.get("aware_months"))
+        if prof and monthly:
+            mcf, mhow = _monthly_cf(monthly, use, site or "GLO", prof)
+            if mcf is not None:
+                cf, how = mcf, mhow
+                monthly_used = True
         how_share[how] += abs(dc)
         cons_total += dc
         if cf is None:
@@ -352,6 +516,8 @@ def aware(store, model_id):
     return {"method": "AWARE", "unit": "m3 world-eq", "source": src, "demo": src.startswith("demo"),
             "total": total, "consumption_m3": cons_total, "water_assessed_m3": water_abs, "empty": water_abs <= 0,
             "water_balance_m3": balance, "background_use": bg_default,
+            "site": site or "GLO", "site_from_gis": gis, "monthly_used": monthly_used,
+            "monthly_factors_available": bool(monthly),
             "completeness": {k: v / tot_abs for k, v in how_share.items()},
             "by_location": sorted([{"location": k, "impact": v} for k, v in by_loc.items()], key=lambda x: -abs(x["impact"])),
             "by_use": [{"use": k, "impact": v} for k, v in by_use.items()],
@@ -439,6 +605,58 @@ def lanca(store, model_id):
                     "model's own land flows at the study geography, times the LANCA factor of the land use type, kind "
                     "and location. Completeness is the share of land area (occupation and transformation together) "
                     "with an exact, country, global or no factor."}
+
+
+SQI_INDICATORS = ("erosion resistance", "mechanical filtration", "groundwater regeneration", "biotic production")
+
+
+def sqi_aggregate(store, normalisation, weights=None, source="", replace=True):
+    """Soil quality index factors from the LANCA indicator factors, by linear aggregation as in the EF method
+    (De Laurentiis et al. 2019): SQI_CF(kind, land use, location) = sum_i w_i * CF_i / N_i over erosion resistance,
+    mechanical filtration, groundwater regeneration and biotic production (physicochemical filtration is left out
+    because it correlates with mechanical filtration). N_i (normalisation references) must be given from the method
+    version followed; weights default to equal (1/4 each), which is an assumption to state. Only keys (kind, land
+    use, location) with all four indicators are aggregated; the others are listed. Where official SQI factors exist
+    for the same key, the relative difference to the aggregated factor is reported."""
+    norm = {k.strip().lower(): float(v) for k, v in (normalisation or {}).items() if v not in (None, "")}
+    miss = [i for i in SQI_INDICATORS if not norm.get(i)]
+    if miss:
+        raise ValueError("Give the normalisation reference N of every indicator (from the method version you follow): "
+                         + ", ".join(miss) + ".")
+    w = {i: float((weights or {}).get(i, 0.25)) for i in SQI_INDICATORS}
+    if abs(sum(w.values()) - 1) > 1e-6:
+        raise ValueError(f"The weights must add up to 1 (they add up to {sum(w.values()):g}).")
+    rows = store.q("SELECT indicator, key, location, value FROM native_factors WHERE method=?", (LANCA,))
+    by = {}
+    for r in rows:
+        by.setdefault((r["key"], r["location"]), {})[r["indicator"]] = r["value"]
+    out, incomplete, compare = [], [], []
+    for (key, loc), d in by.items():
+        if not all(i in d for i in SQI_INDICATORS):
+            if any(i in d for i in SQI_INDICATORS):
+                incomplete.append({"key": key, "location": loc, "missing": [i for i in SQI_INDICATORS if i not in d]})
+            continue
+        v = sum(w[i] * d[i] / norm[i] for i in SQI_INDICATORS)
+        out.append((LANCA, "soil quality index", key, loc, v, "dimensionless (aggregated)"))
+        if "soil quality index" in d and d["soil quality index"]:
+            o = d["soil quality index"]
+            compare.append({"key": key, "location": loc, "official": o, "aggregated": v,
+                            "relative_difference": (v - o) / abs(o)})
+    if not out:
+        raise ValueError("No land use type and location has factors for all four LANCA indicators.")
+    src = f"SQI aggregated by Cyclia from LANCA factors ({source or 'normalisation as given'}; weights " + \
+          ", ".join(f"{i} {w[i]:g}" for i in SQI_INDICATORS) + ")"
+    with store.lock:
+        if replace:
+            store.conn.execute("DELETE FROM native_factors WHERE method=? AND indicator='soil quality index'", (LANCA,))
+        store.conn.executemany("INSERT INTO native_factors(method,indicator,key,location,value,unit,source) "
+                               "VALUES(?,?,?,?,?,?,?)", [r + (src,) for r in out])
+        store.conn.commit()
+    compare.sort(key=lambda x: -abs(x["relative_difference"]))
+    return {"factors": len(out), "incomplete": incomplete[:100], "n_incomplete": len(incomplete),
+            "compared_with_official": compare[:100], "n_compared": len(compare),
+            "max_relative_difference": max((abs(x["relative_difference"]) for x in compare), default=None),
+            "source": src, "weights": w, "normalisation": norm}
 
 
 def demo_factors(store):

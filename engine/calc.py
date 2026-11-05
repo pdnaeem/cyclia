@@ -1329,6 +1329,15 @@ def validate_database(store, db_id=None, sample=25, seed=3):
     ids = [r["id"] for r in store.q("SELECT id FROM activities" + where, args)]
     rng = np.random.default_rng(seed)
     pick = list(rng.choice(ids, size=min(sample, len(ids)), replace=False)) if ids else []
+    if db_id:   # counts of the checked database only
+        out["datasets"] = len(ids)
+        out["exchanges"] = store.one("SELECT COUNT(*) AS n FROM tech t JOIN activities a ON a.id=t.output_id "
+                                     "WHERE a.db_id=?", (db_id,))["n"]
+        out["elementary_exchanges"] = store.one("SELECT COUNT(*) AS n FROM bio b JOIN activities a ON a.id=b.activity_id "
+                                                "WHERE a.db_id=?", (db_id,))["n"]
+    import staging as _staging
+    integ = _staging.integrity(store, db_id)
+    out["integrity_problems"] = integ
     worst, negative = 0.0, 0
     for aid in pick:
         f = np.zeros(mc.n)
@@ -1348,11 +1357,12 @@ def validate_database(store, db_id=None, sample=25, seed=3):
         statuses.append({"key": key, "label": label, "level": level, "message": message, **numbers})
 
     # 1 matrix
-    m_ok = worst < 1e-8 and out["zero_production"] == 0
+    m_ok = worst < 1e-8 and out["zero_production"] == 0 and not integ
     status("matrix", "Matrix consistency", "ok" if m_ok else "error",
-           f"Random solves of {len(pick)} datasets reproduce the demand to within {worst:.1e}; "
-           f"{out['zero_production']} datasets with zero production." if pick else "No datasets.",
-           residual=worst, zero_production=out["zero_production"])
+           (f"Random solves of {len(pick)} datasets reproduce the demand to within {worst:.1e}; "
+            f"{out['zero_production']} datasets with zero production." if pick else "No datasets.")
+           + ("" if not integ else " Not valid: " + "; ".join(f"{v} {k}" for k, v in integ.items()) + "."),
+           residual=worst, zero_production=out["zero_production"], integrity=integ)
     # 2 technosphere completeness
     reasons = store.q("SELECT COALESCE(reason,'no producer') AS reason, COUNT(*) AS n, COUNT(DISTINCT output_id) AS acts "
                       "FROM unlinked WHERE linked_to IS NULL" + (" AND db_id=?" if db_id else "") + " GROUP BY 1", args)
@@ -1366,24 +1376,33 @@ def validate_database(store, db_id=None, sample=25, seed=3):
             f"{n_unl} inputs of {acts_aff} datasets ({share * 100:.1f} %) have no single supplier: "
             + ", ".join(f"{r['n']} {r['reason']}" for r in reasons) + ". They add nothing to results until linked."),
            unresolved=n_unl, datasets_affected=acts_aff, by_reason={r["reason"]: r["n"] for r in reasons})
-    # 3 elementary-flow coverage
-    used = set(mc.b_rows.tolist())
+    # 3 elementary-flow coverage: the flows of the checked database only (the whole library when none is chosen)
+    if db_id:
+        used = {mc.flow_index[r["flow_id"]] for r in store.q(
+            "SELECT DISTINCT b.flow_id FROM bio b JOIN activities a ON a.id=b.activity_id WHERE a.db_id=?", (db_id,))
+            if r["flow_id"] in mc.flow_index}
+    else:
+        used = set(mc.b_rows.tolist())
     with_cf = {mc.flow_index[r["flow_id"]] for r in store.q("SELECT DISTINCT flow_id FROM cfs") if r["flow_id"] in mc.flow_index}
     out["flows_used"] = len(used)
     out["flows_without_any_factor"] = len(used - with_cf)
     cov = 1 - out["flows_without_any_factor"] / len(used) if used else 1.0
     status("flows", "Elementary-flow coverage", "ok" if cov >= 0.9 else "warning",
-           f"{len(used) - out['flows_without_any_factor']} of {len(used)} elementary flows used by the library have a "
+           f"{len(used) - out['flows_without_any_factor']} of {len(used)} elementary flows used by "
+           f"{'this database' if db_id else 'the library'} have a "
            f"factor in at least one installed category ({cov * 100:.1f} %). Flows without any factor count as zero in "
            "every category.", coverage=cov)
     # 4 unit consistency
     flows = store.q("SELECT id, name, compartment, subcompartment, unit, c_name, c_comp, c_sub FROM flows")
     unknown_units = sorted({f["unit"] or "(none)" for f in flows if f["id"] in {int(mc.flow_ids[i]) for i in used}
                             and _units.factor(f["unit"] or "", f["unit"] or "") is None})
+    used_ids = {int(mc.flow_ids[i]) for i in used}
     by_key = {}
     for f in flows:
-        by_key.setdefault((f["c_name"], f["c_comp"], f["c_sub"]), set()).add((f["unit"] or "").strip().lower())
-    mixed = [k for k, v in by_key.items() if len(v) > 1]
+        by_key.setdefault((f["c_name"], f["c_comp"], f["c_sub"]), []).append(f)
+    # a name/compartment with several units matters only if the checked database uses one of those flows
+    mixed = [k for k, v in by_key.items() if len({(f["unit"] or "").strip().lower() for f in v}) > 1
+             and any(f["id"] in used_ids for f in v)]
     no_unit = store.one("SELECT COUNT(*) AS n FROM activities" + (" WHERE db_id=? AND" if db_id else " WHERE")
                         + " COALESCE(unit,'')=''", args)["n"]
     u_ok = not unknown_units and not mixed and not no_unit

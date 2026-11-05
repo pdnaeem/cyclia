@@ -18,6 +18,7 @@ template below. The demo data are invented and only show the workflow.
 """
 import csv
 import io
+import os
 
 import numpy as np
 
@@ -195,6 +196,123 @@ def assess(store, model_id, factors=None):
                     "without data. Avoided products (credits) are listed separately and not subtracted. A screening of "
                     "social risk hotspots (UNEP 2020, ISO 14075:2024 stakeholder categories), not a full social LCA: "
                     "raw indicator values, reference scales and the PSILCA database format are not supported."}
+
+
+# openLCA risk levels (olca-schema RiskLevel) -> Cyclia risk levels; opportunities and missing data are not risks
+OLCA_RISK = {"NO_RISK": "no risk", "VERY_LOW_RISK": "very low", "LOW_RISK": "low", "MEDIUM_RISK": "medium",
+             "HIGH_RISK": "high", "VERY_HIGH_RISK": "very high"}
+OLCA_SKIP = ("NO_DATA", "NOT_APPLICABLE", "NO_OPPORTUNITY", "LOW_OPPORTUNITY", "MEDIUM_OPPORTUNITY", "HIGH_OPPORTUNITY")
+
+
+def _stakeholder(path):
+    p = (path or "").strip().strip("/").split("/")[0].strip().lower()
+    for st, words in (("workers", ("worker",)), ("local community", ("local communit", "community")),
+                      ("society", ("society",)), ("consumers", ("consumer",)),
+                      ("value chain actors", ("value chain", "actors")), ("children", ("child",))):
+        if any(w in p for w in words):
+            return st
+    return None
+
+
+def import_olca_social(store, path, mapping_text="", replace=True, source=""):
+    """Native import of social data in openLCA JSON-LD (zip or folder), as distributed by PSILCA (country-specific
+    sectors) and SOCA (ecoinvent processes): social indicators with their activity variable, and the social aspects of
+    each process (indicator, activity value, risk level, raw amount, quality).
+
+    - Activity variable: the activity value of the process (worker hours per unit of its reference product when the
+      indicator's activity variable is worker hours).
+    - Stakeholder category: the first level of the indicator's category path (Workers, Local community, Society,
+      Consumers, Value chain actors, Children).
+    - Risk level: openLCA levels mapped to Cyclia's; 'no data', 'not applicable' and opportunity levels are not
+      counted as risks (reported).
+    - Matching: each process is stored with its name and location, so SOCA data matches ecoinvent datasets of the same
+      name and location. PSILCA sectors do not have ecoinvent names: give a mapping table (CSV: cyclia_match,
+      cyclia_location, source_process, source_location) to assign sectors to the datasets of your library."""
+    import json as _json
+    from importers.jsonld import _Source
+    src = _Source(path)
+    locations = {}
+    for n in src.folder("locations"):
+        loc = src.load(n) or {}
+        locations[loc.get("@id")] = loc.get("code") or loc.get("name", "")
+    cats = {}
+    for n in src.folder("categories"):
+        c = src.load(n) or {}
+        cats[c.get("@id")] = c
+    inds = {}
+    for n in src.folder("social_indicators"):
+        d = src.load(n) or {}
+        cat = d.get("category")
+        if isinstance(cat, dict):
+            parts, cur = [], cats.get(cat.get("@id"))
+            while cur:
+                parts.insert(0, cur.get("name", ""))
+                cur = cats.get((cur.get("category") or {}).get("@id")) if isinstance(cur.get("category"), dict) else None
+            cat = "/".join(parts) or cat.get("name", "")
+        inds[d.get("@id")] = {"name": d.get("name", ""), "category": cat or "",
+                              "activity_variable": d.get("activityVariable", ""),
+                              "activity_unit": (d.get("activityUnit") or {}).get("name", ""),
+                              "unit": d.get("unitOfMeasurement", "")}
+    rows, skipped, no_stake, n_proc = [], {}, set(), 0
+    label = source or os.path.basename(str(path).rstrip("/\\")) or "openLCA social data"
+    for n in src.folder("processes"):
+        p = src.load(n) or {}
+        aspects = p.get("socialAspects") or []
+        if not aspects:
+            continue
+        n_proc += 1
+        loc = p.get("location") or {}
+        loc = (locations.get(loc.get("@id")) or loc.get("code") or loc.get("name", "")) if isinstance(loc, dict) else str(loc or "")
+        name = p.get("name", "")
+        for a in aspects:
+            ref = a.get("socialIndicator") or {}
+            ind = inds.get(ref.get("@id")) or {"name": ref.get("name", ""), "category": ref.get("category", ""),
+                                               "activity_variable": "", "activity_unit": "", "unit": ""}
+            rl = str(a.get("riskLevel") or "NO_DATA").upper()
+            if rl not in OLCA_RISK:
+                skipped[rl] = skipped.get(rl, 0) + 1
+                continue
+            st = _stakeholder(ind["category"]) or _stakeholder(ind["name"])
+            if not st:
+                no_stake.add(ind["category"] or ind["name"])
+                continue
+            try:
+                av = float(a.get("activityValue") or 0.0)
+            except (TypeError, ValueError):
+                av = 0.0
+            rows.append((name, (loc or "").upper(), av, st, ind["name"], OLCA_RISK[rl], f"{label}",
+                         str(a.get("rawAmount") or ""), ind["unit"], str(a.get("quality") or ""), ind["activity_unit"]))
+    if not rows:
+        raise ValueError("No social aspects with a risk level were found. Is this a PSILCA or SOCA export in openLCA JSON-LD?")
+    mapped = 0
+    if mapping_text.strip():
+        rdr = csv.DictReader(io.StringIO(mapping_text))
+        cols = {c.strip().lower(): c for c in (rdr.fieldnames or []) if c}
+        for need in ("cyclia_match", "source_process"):
+            if need not in cols:
+                raise ValueError("The mapping table needs the columns cyclia_match, cyclia_location, source_process, source_location.")
+        by_src = {}
+        for r in rows:
+            by_src.setdefault((r[0].lower(), r[1]), []).append(r)
+        extra = []
+        for m in rdr:
+            sp = str(m.get(cols["source_process"]) or "").strip().lower()
+            sl = str(m.get(cols.get("source_location", "")) or "").strip().upper() if "source_location" in cols else ""
+            cm = str(m.get(cols["cyclia_match"]) or "").strip()
+            cl = str(m.get(cols.get("cyclia_location", "")) or "").strip().upper() if "cyclia_location" in cols else ""
+            for r in by_src.get((sp, sl), []):
+                extra.append((cm, cl) + r[2:6] + (r[6] + f" (sector: {r[0]} [{r[1]}])",) + r[7:])
+                mapped += 1
+        rows += extra
+    with store.lock:
+        if replace:
+            store.conn.execute("DELETE FROM slca_data")
+        store.conn.executemany("INSERT INTO slca_data(match,location,worker_hours,stakeholder,indicator,risk,source,raw_value,"
+                               "raw_unit,quality,activity_unit) VALUES(?,?,?,?,?,?,?,?,?,?,?)", rows)
+        store.conn.commit()
+    return {"rows": len(rows), "processes": n_proc, "indicators": len(inds), "skipped_levels": skipped,
+            "without_stakeholder": sorted(no_stake)[:20], "mapped_rows": mapped,
+            "note": "Risk levels 'no data', 'not applicable' and opportunities are not counted as risks."}
 
 
 def demo_data(store):

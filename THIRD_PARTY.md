@@ -15,6 +15,7 @@ Cyclia's own code is under the MIT licence (LICENSE). The installers also contai
 | pypdf, pdfplumber | reading tables from PDF | BSD-3-Clause, MIT |
 | ecoinvent_interface (optional) | download with the user's ecoinvent login | see its repository |
 | Natural Earth 1:110m countries (downloaded at build time) | results map | public domain |
+| ILCD and ILCD+EPD XML schemas and indicator identifiers (InData working group, github.com/InDataWG/ILCD-EPD-Data-Format) | validation and identifiers of the ILCD+EPD export (engine/schemas/ilcd_epd) | Apache License 2.0 |
 
 Built-in reference data:
 * EF 3.1 normalisation factors: Andreasi Bassi et al. (2023), JRC130796; weighting factors: Sala et al.

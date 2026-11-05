@@ -36,19 +36,31 @@ def flow_key(prefix, name, comp, sub, unit):
 
 
 class _Builder:
-    """Collects activities and exchanges, links them, and writes them to the library in one go."""
+    """Writes an import to the library as it is read (Cyclia 1.3.8): every dataset is inserted when it is read and
+    elementary exchanges are written in batches, so the file and its parsed form are never held in memory as a whole.
+    Technosphere inputs are kept until the end in compact form, because a supplier can only be chosen once every
+    dataset of the import is known. Everything is one transaction: a failure removes the whole database."""
+
+    BATCH = 20000
 
     def __init__(self, store, name, source, version="", system_model=""):
         self.store = store
         self.db_id = store.create_database(name, source, version, system_model)
         self.name = name
-        self.acts = []      # (key, name, product, location, unit, production, comment)
-        self.tech = []      # (act index, link product key, amount, unc, product, unit, location)
-        self.bio = []       # (act index, flow uuid, name, comp, sub, unit, amount, unc)
+        self.ids = []       # library id of every dataset, by the index the importer uses
+        self.tech = []      # (act index, link, amount, unc, product, unit, location)
+        self.bio = []       # buffer: (act index, flow uuid, name, comp, sub, unit, amount, unc)
+        self.n_bio = 0
+        self._fid = {}      # flow uuid -> flow id
         self.by_product = {}  # product key -> every activity index that produces it
         self.keys = {}
         self.duplicates = []  # processes that came with the same identity as an earlier one: kept separate
         self.skipped = 0
+
+    @property
+    def acts(self):
+        """Kept for callers that only test whether datasets were read."""
+        return self.ids
 
     def activity(self, key, name, product, location, unit, production=1.0, comment=""):
         if key in self.keys:
@@ -57,8 +69,12 @@ class _Builder:
                 n += 1
             self.duplicates.append({"key": key, "name": name, "location": location or "", "kept_as": f"{key}#{n}"})
             key = f"{key}#{n}"
-        self.acts.append((key, name, product, location or "", unit or "", production or 1.0, comment or ""))
-        i = len(self.acts) - 1
+        with self.store.lock:
+            cur = self.store.conn.execute(
+                "INSERT INTO activities(db_id,key,name,product,location,unit,production,comment) VALUES(?,?,?,?,?,?,?,?)",
+                (self.db_id, key, name, product, location or "", unit or "", production or 1.0, (comment or "")[:3000]))
+        self.ids.append(cur.lastrowid)
+        i = len(self.ids) - 1
         self.keys[key] = i
         for k in self._product_keys(product, location, unit):
             lst = self.by_product.setdefault(k, [])
@@ -72,10 +88,30 @@ class _Builder:
         return [(p, (location or "").upper(), (unit or "").lower()), (p, "", (unit or "").lower()), (p, "", "")]
 
     def input(self, ai, product, unit, amount, location="", unc=(0, None, None, None), link=None):
-        self.tech.append((ai, link, amount, unc, product, unit, location))
+        self.tech.append((ai, link, amount, tuple(unc), product, unit, location))
 
     def emission(self, ai, uuid, name, comp, sub, unit, amount, unc=(0, None, None, None)):
-        self.bio.append((ai, uuid, name, comp, sub, unit, amount, unc))
+        self.bio.append((ai, uuid, name, comp, sub, unit, amount, tuple(unc)))
+        if len(self.bio) >= self.BATCH:
+            self._flush_bio()
+
+    def _flush_bio(self):
+        if not self.bio:
+            return
+        st = self.store
+        rows = []
+        with st.lock:
+            for ai, uuid, name, comp, sub, unit, amount, unc in self.bio:
+                fid = self._fid.get(uuid)
+                if fid is None:
+                    fid = self._fid[uuid] = st.add_flow(uuid, name, comp, sub, unit)
+                rows.append((self.ids[ai], fid, amount) + unc)
+            st.conn.executemany("INSERT INTO bio(activity_id,flow_id,amount,utype,p1,p2,p3) VALUES(?,?,?,?,?,?,?)", rows)
+        self.n_bio += len(rows)
+        self.bio = []
+
+    def abort(self):
+        self.store.abort_database(self.db_id)
 
     def resolve(self, product, unit, loc):
         """The producer of an input: the most specific product key (product, location, unit; then product and unit;
@@ -92,16 +128,15 @@ class _Builder:
 
     def write(self, progress):
         st, c = self.store, self.store.conn
+        ids = self.ids
         try:
             with st.lock:
-                ids = []
-                for key, name, product, loc, unit, prod, comment in self.acts:
-                    cur = c.execute("INSERT INTO activities(db_id,key,name,product,location,unit,production,comment) "
-                                    "VALUES(?,?,?,?,?,?,?,?)", (self.db_id, key, name, product, loc, unit, prod, comment[:3000]))
-                    ids.append(cur.lastrowid)
+                self._flush_bio()
                 progress(70, "Linking supply chains")
                 tech, unlinked = [], []
                 n_amb = 0
+                n_unl = 0
+                products = set()
                 for ai, link, amount, unc, product, unit, loc in self.tech:
                     target = link if isinstance(link, int) else None
                     reason, cands = "", []
@@ -109,28 +144,29 @@ class _Builder:
                         target, reason, cands = self.resolve(product, unit, loc)
                     if target is None:
                         n_amb += reason == "ambiguous"
-                        unlinked.append((self.db_id, ids[ai], product, unit, amount, loc or "", None) + tuple(unc)
+                        n_unl += 1
+                        products.add(product)
+                        unlinked.append((self.db_id, ids[ai], product, unit, amount, loc or "", None) + unc
                                         + (reason or "no producer", json.dumps([ids[x] for x in cands]) if cands else None))
                     else:
-                        tech.append((ids[ai], ids[target], amount) + tuple(unc))
+                        tech.append((ids[ai], ids[target], amount) + unc)
+                    if len(tech) >= self.BATCH:
+                        c.executemany("INSERT INTO tech(output_id,input_id,amount,utype,p1,p2,p3) VALUES(?,?,?,?,?,?,?)", tech)
+                        tech = []
                 c.executemany("INSERT INTO tech(output_id,input_id,amount,utype,p1,p2,p3) VALUES(?,?,?,?,?,?,?)", tech)
                 c.executemany("INSERT INTO unlinked(db_id,output_id,product,unit,amount,location,link_key,utype,p1,p2,p3,"
                               "reason,candidates) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", unlinked)
-                bio = []
-                for ai, uuid, name, comp, sub, unit, amount, unc in self.bio:
-                    fid = st.add_flow(uuid, name, comp, sub, unit)
-                    bio.append((ids[ai], fid, amount) + tuple(unc))
-                c.executemany("INSERT INTO bio(activity_id,flow_id,amount,utype,p1,p2,p3) VALUES(?,?,?,?,?,?,?)", bio)
+                self.tech = []
                 c.commit()
             progress(90, "Building search index")
             st.finish_database(self.db_id)
             lcia.rematch_all(st)
         except Exception:
-            st.abort_database(self.db_id)
+            self.abort()
             raise
         warnings = []
-        if unlinked:
-            warnings.append(f"{len(unlinked)} inputs ({len({u[2] for u in unlinked})} products) have no single producer in "
+        if n_unl:
+            warnings.append(f"{n_unl} inputs ({len(products)} products) have no single producer in "
                             f"this import ({n_amb} of them because several datasets produce the same product: Cyclia does "
                             "not guess). Link them under 'Link missing suppliers'.")
         if self.duplicates:
@@ -138,9 +174,9 @@ class _Builder:
                             f"'{self.duplicates[0]['key']}'). They were kept as separate datasets, not merged.")
         if self.skipped:
             warnings.append(f"{self.skipped} exchanges could not be read (non-numeric amounts or formulas) and were skipped.")
-        return {"database": self.name, "activities": len(ids), "warnings": warnings, "unlinked_inputs": len(unlinked),
+        return {"database": self.name, "activities": len(ids), "warnings": warnings, "unlinked_inputs": n_unl,
                 "ambiguous_inputs": n_amb, "duplicates": self.duplicates[:50], "n_duplicates": len(self.duplicates),
-                "skipped_exchanges": self.skipped}
+                "skipped_exchanges": self.skipped, "elementary_exchanges": self.n_bio}
 
 
 # ------------------------------------------------------------------------------------------- ecoSpold1
@@ -172,46 +208,52 @@ def import_ecospold1(store, path, name, progress=lambda *a: None):
     if not files:
         raise ValueError("No ecoSpold1 .xml files found.")
     b = _Builder(store, name, "ecoSpold1")
-    pending = []
-    for n, fpath in enumerate(sorted(files)):
-        try:
-            root = etree.parse(fpath, PARSER).getroot()
-        except etree.XMLSyntaxError:
-            b.skipped += 1
-            continue
-        for ds in root.iter(NS1 + "dataset"):
-            ref = ds.find(f".//{NS1}referenceFunction")
-            geo = ds.find(f".//{NS1}geography")
-            if ref is None:
-                continue
-            loc = geo.get("location", "") if geo is not None else ""
-            exs = ds.findall(f".//{NS1}exchange")
-            out_ref = next((e for e in exs if (e.findtext(NS1 + "outputGroup") or "").strip() == "0"), None)
-            amount = _f(out_ref.get("meanValue"), 1.0) if out_ref is not None else _f(ref.get("amount"), 1.0)
-            ai = b.activity(f"{ds.get('number', '')}_{ref.get('name')}_{loc}", ref.get("name"), ref.get("name"), loc,
-                            ref.get("unit"), amount or 1.0, ref.get("generalComment", ""))
-            pending.append((ai, exs, out_ref))
-        if n % 50 == 0:
-            progress(int(50 * n / len(files)), f"Reading files {n:,}/{len(files):,}")
-    for ai, exs, out_ref in pending:
-        for e in exs:
-            if e is out_ref:
-                continue
-            ig, og = (e.findtext(NS1 + "inputGroup") or "").strip(), (e.findtext(NS1 + "outputGroup") or "").strip()
-            amt = _f(e.get("meanValue"))
-            if amt is None:
+    try:
+        for n, fpath in enumerate(sorted(files)):
+            try:
+                root = etree.parse(fpath, PARSER).getroot()
+            except etree.XMLSyntaxError:
                 b.skipped += 1
                 continue
-            if amt == 0:
-                continue
-            unc = _es1_unc(e, amt)
-            if ig == "5":
-                b.input(ai, e.get("name"), e.get("unit"), amt, e.get("location", ""), unc)
-            elif ig == "4" or og == "4":
-                comp = "natural resource" if ig == "4" else (e.get("category") or "")
-                uuid = flow_key("es1", e.get("name"), comp, e.get("subCategory", ""), e.get("unit"))
-                b.emission(ai, uuid, e.get("name"), comp, e.get("subCategory", ""), e.get("unit"), amt, unc)
+            for ds in root.iter(NS1 + "dataset"):
+                ref = ds.find(f".//{NS1}referenceFunction")
+                geo = ds.find(f".//{NS1}geography")
+                if ref is None:
+                    continue
+                loc = geo.get("location", "") if geo is not None else ""
+                exs = ds.findall(f".//{NS1}exchange")
+                out_ref = next((e for e in exs if (e.findtext(NS1 + "outputGroup") or "").strip() == "0"), None)
+                amount = _f(out_ref.get("meanValue"), 1.0) if out_ref is not None else _f(ref.get("amount"), 1.0)
+                ai = b.activity(f"{ds.get('number', '')}_{ref.get('name')}_{loc}", ref.get("name"), ref.get("name"), loc,
+                                ref.get("unit"), amount or 1.0, ref.get("generalComment", ""))
+                _es1_exchanges(b, ai, exs, out_ref)
+            del root
+            if n % 50 == 0:
+                progress(int(50 * n / len(files)), f"Reading files {n:,}/{len(files):,}")
+    except Exception:
+        b.abort()
+        raise
     return b.write(progress)
+
+
+def _es1_exchanges(b, ai, exs, out_ref):
+    for e in exs:
+        if e is out_ref:
+            continue
+        ig, og = (e.findtext(NS1 + "inputGroup") or "").strip(), (e.findtext(NS1 + "outputGroup") or "").strip()
+        amt = _f(e.get("meanValue"))
+        if amt is None:
+            b.skipped += 1
+            continue
+        if amt == 0:
+            continue
+        unc = _es1_unc(e, amt)
+        if ig == "5":
+            b.input(ai, e.get("name"), e.get("unit"), amt, e.get("location", ""), unc)
+        elif ig == "4" or og == "4":
+            comp = "natural resource" if ig == "4" else (e.get("category") or "")
+            uuid = flow_key("es1", e.get("name"), comp, e.get("subCategory", ""), e.get("unit"))
+            b.emission(ai, uuid, e.get("name"), comp, e.get("subCategory", ""), e.get("unit"), amt, unc)
 
 
 # ------------------------------------------------------------------------------------------- SimaPro CSV
@@ -236,16 +278,38 @@ def _sp_unc(kind, v1, v2, v3, amount):
     return (0, None, None, None)
 
 
-def import_simapro_csv(store, path, name, progress=lambda *a: None):
-    with open(path, "rb") as fh:
-        raw = fh.read()
-    for enc in ("utf-8-sig", "cp1252", "latin-1"):
+def _sp_encoding(path):
+    """The text encoding of a SimaPro export, found by reading the file in chunks (never the whole file at once)."""
+    for enc in ("utf-8-sig", "cp1252"):
         try:
-            text = raw.decode(enc)
-            break
+            with open(path, encoding=enc, newline="") as fh:
+                while fh.read(1 << 20):
+                    pass
+            return enc
         except UnicodeDecodeError:
             continue
-    head = text[:3000]
+    return "latin-1"
+
+
+def _sp_blocks(fh, delim):
+    """Process blocks of a SimaPro CSV export, read row by row: only one process is in memory at a time."""
+    block = None
+    for r in csv.reader(fh, delimiter=delim):
+        first = r[0].strip() if r else ""
+        if block is None:
+            if first == "Process":
+                block = []
+        elif first == "End":
+            yield block
+            block = None
+        else:
+            block.append(r)
+
+
+def import_simapro_csv(store, path, name, progress=lambda *a: None):
+    enc = _sp_encoding(path)
+    with open(path, encoding=enc, newline="") as fh:
+        head = fh.read(3000)
     if "SimaPro" not in head:
         raise ValueError("This does not look like a SimaPro CSV export (the header line must mention SimaPro).")
     delim = ";" if "Separator: Semicolon" in head or "separator: Semicolon" in head.lower() or head.count(";") > head.count(",") else ","
@@ -253,23 +317,25 @@ def import_simapro_csv(store, path, name, progress=lambda *a: None):
         delim = "\t"
     comma_decimal = "Decimal separator: ," in head
     num = lambda v: _f(str(v).replace(",", ".") if comma_decimal else v)
-    rows = list(csv.reader(io.StringIO(text), delimiter=delim))
+    size = max(1, os.path.getsize(path))
     b = _Builder(store, name, "SimaPro CSV")
-    i, n = 0, len(rows)
     processes = 0
-    while i < n:
-        if rows[i] and rows[i][0].strip() == "Process":
-            block = []
-            i += 1
-            while i < n and not (rows[i] and rows[i][0].strip() == "End"):
-                block.append(rows[i])
-                i += 1
-            _sp_process(b, block, num)
-            processes += 1
-            if processes % 200 == 0:
-                progress(min(60, processes // 50), f"Reading processes ({processes:,})")
-        i += 1
-    if not b.acts:
+    try:
+        with open(path, encoding=enc, newline="") as fh:
+            for block in _sp_blocks(fh, delim):
+                _sp_process(b, block, num)
+                processes += 1
+                if processes % 200 == 0:
+                    try:
+                        pos = fh.buffer.tell()
+                    except (AttributeError, OSError):
+                        pos = 0
+                    progress(min(60, int(60 * pos / size)), f"Reading processes ({processes:,})")
+    except Exception:
+        b.abort()
+        raise
+    if not b.ids:
+        b.abort()
         raise ValueError("No processes were found in the SimaPro file.")
     return b.write(progress)
 
@@ -435,64 +501,45 @@ def import_ilcd(store, path, name, progress=lambda *a: None):
         flows[uid] = {"name": fname, "type": ftype, "comp": cats[0] if cats else "",
                       "sub": "/".join(cats[1:]), "unit": unit}
     b = _Builder(store, name, "ILCD")
-    loaded, ref_flow_owner = [], {}
+    ref_flow_owner = {}
     dq_rows = {}
-    for k, n in enumerate(procs):
-        r = files.parse(n)
-        if r is None:
-            b.skipped += 1
-            continue
-        pname = ", ".join(x for x in (_lang_text(r, f".//{NSP}baseName"), _lang_text(r, f".//{NSP}treatmentStandardsRoutes"),
-                                      _lang_text(r, f".//{NSP}mixAndLocationTypes")) if x)
-        loc_el = r.find(f".//{NSP}locationOfOperationSupplyOrProduction")
-        loc = loc_el.get("location", "") if loc_el is not None else ""
-        ref_ids = [x.text for x in r.iter(NSP + "referenceToReferenceFlow")]
-        exs = list(r.iter(NSP + "exchange"))
-        ref = next((e for e in exs if e.get("dataSetInternalID") in ref_ids), None)
-        if ref is None:
-            continue
-        fr = ref.find(NSP + "referenceToFlowDataSet")
-        fuid = fr.get("refObjectId") if fr is not None else ""
-        fl = flows.get(fuid, {"name": _lang_text(fr, NSC + "shortDescription") if fr is not None else "", "unit": ""})
-        amt = _f(_lang_text(ref, NSP + "resultingAmount")) or _f(_lang_text(ref, NSP + "meanAmount"), 1.0)
-        direction = _lang_text(ref, NSP + "exchangeDirection")
-        ai = b.activity(_lang_text(r, f".//{NSC}UUID") or pname, pname or fl["name"], fl["name"], loc, fl["unit"],
-                        (-amt if direction == "Input" else amt) or 1.0, "")
-        dq = dataset_dqr(r)
-        if dq:
-            dq_rows[_lang_text(r, f".//{NSC}UUID") or pname] = dq
-        ref_flow_owner.setdefault(fuid, ai)
-        loaded.append((ai, exs, ref))
-        if k % 100 == 0:
-            progress(5 + int(55 * k / len(procs)), f"Reading processes {k:,}/{len(procs):,}")
-    for ai, exs, ref in loaded:
-        for e in exs:
-            if e is ref:
-                continue
-            fr = e.find(NSP + "referenceToFlowDataSet")
-            fuid = fr.get("refObjectId") if fr is not None else ""
-            fl = flows.get(fuid)
-            amt = _f(_lang_text(e, NSP + "resultingAmount"))
-            if amt is None:
-                amt = _f(_lang_text(e, NSP + "meanAmount"))
-            if amt is None or fl is None:
+    pending = []   # (index in b.tech, flow uuid): suppliers are set once every reference flow is known
+    try:
+        for k, n in enumerate(procs):
+            r = files.parse(n)
+            if r is None:
                 b.skipped += 1
                 continue
-            if amt == 0:
+            pname = ", ".join(x for x in (_lang_text(r, f".//{NSP}baseName"), _lang_text(r, f".//{NSP}treatmentStandardsRoutes"),
+                                          _lang_text(r, f".//{NSP}mixAndLocationTypes")) if x)
+            loc_el = r.find(f".//{NSP}locationOfOperationSupplyOrProduction")
+            loc = loc_el.get("location", "") if loc_el is not None else ""
+            ref_ids = [x.text for x in r.iter(NSP + "referenceToReferenceFlow")]
+            exs = list(r.iter(NSP + "exchange"))
+            ref = next((e for e in exs if e.get("dataSetInternalID") in ref_ids), None)
+            if ref is None:
                 continue
-            is_input = _lang_text(e, NSP + "exchangeDirection") == "Input"
-            rsd = _f(_lang_text(e, NSP + "relativeStandardDeviation95In"))
-            unc = (0, None, None, None)
-            if _lang_text(e, NSP + "uncertaintyDistributionType") == "log-normal" and rsd and rsd > 1:
-                unc = (1, 0.5 * math.log(rsd), None, None) if rsd < 50 else (1, 0.5 * math.log(1 + rsd / 100.0), None, None)
-            if "elementary" in fl["type"].lower():
-                b.emission(ai, fuid, fl["name"], fl["comp"], fl["sub"], fl["unit"], amt, unc)
-                continue
-            waste = "waste" in fl["type"].lower()
-            if (not waste and not is_input) or (waste and is_input):
-                continue  # co-products
-            target = ref_flow_owner.get(fuid)
-            b.input(ai, fl["name"], fl["unit"], amt if not waste else -amt, "", unc, link=target)
+            fr = ref.find(NSP + "referenceToFlowDataSet")
+            fuid = fr.get("refObjectId") if fr is not None else ""
+            fl = flows.get(fuid, {"name": _lang_text(fr, NSC + "shortDescription") if fr is not None else "", "unit": ""})
+            amt = _f(_lang_text(ref, NSP + "resultingAmount")) or _f(_lang_text(ref, NSP + "meanAmount"), 1.0)
+            direction = _lang_text(ref, NSP + "exchangeDirection")
+            ai = b.activity(_lang_text(r, f".//{NSC}UUID") or pname, pname or fl["name"], fl["name"], loc, fl["unit"],
+                            (-amt if direction == "Input" else amt) or 1.0, "")
+            dq = dataset_dqr(r)
+            if dq:
+                dq_rows[_lang_text(r, f".//{NSC}UUID") or pname] = dq
+            ref_flow_owner.setdefault(fuid, ai)
+            _ilcd_exchanges(b, ai, exs, ref, flows, pending)
+            del r, exs
+            if k % 100 == 0:
+                progress(5 + int(55 * k / len(procs)), f"Reading processes {k:,}/{len(procs):,}")
+    except Exception:
+        b.abort()
+        raise
+    for idx, fuid in pending:
+        t = b.tech[idx]
+        b.tech[idx] = (t[0], ref_flow_owner.get(fuid)) + t[2:]
     res = b.write(progress)
     if dq_rows:
         with store.lock:
@@ -506,6 +553,36 @@ def import_ilcd(store, path, name, progress=lambda *a: None):
         if isinstance(res, dict):
             res["datasets_with_dqr"] = len(dq_rows)
     return res
+
+
+def _ilcd_exchanges(b, ai, exs, ref, flows, pending):
+    for e in exs:
+        if e is ref:
+            continue
+        fr = e.find(NSP + "referenceToFlowDataSet")
+        fuid = fr.get("refObjectId") if fr is not None else ""
+        fl = flows.get(fuid)
+        amt = _f(_lang_text(e, NSP + "resultingAmount"))
+        if amt is None:
+            amt = _f(_lang_text(e, NSP + "meanAmount"))
+        if amt is None or fl is None:
+            b.skipped += 1
+            continue
+        if amt == 0:
+            continue
+        is_input = _lang_text(e, NSP + "exchangeDirection") == "Input"
+        rsd = _f(_lang_text(e, NSP + "relativeStandardDeviation95In"))
+        unc = (0, None, None, None)
+        if _lang_text(e, NSP + "uncertaintyDistributionType") == "log-normal" and rsd and rsd > 1:
+            unc = (1, 0.5 * math.log(rsd), None, None) if rsd < 50 else (1, 0.5 * math.log(1 + rsd / 100.0), None, None)
+        if "elementary" in fl["type"].lower():
+            b.emission(ai, fuid, fl["name"], fl["comp"], fl["sub"], fl["unit"], amt, unc)
+            continue
+        waste = "waste" in fl["type"].lower()
+        if (not waste and not is_input) or (waste and is_input):
+            continue  # co-products
+        pending.append((len(b.tech), fuid))
+        b.input(ai, fl["name"], fl["unit"], amt if not waste else -amt, "", unc)
 
 
 DQ_LEVELS = {"very good": 1.0, "good": 2.0, "fair": 3.0, "poor": 4.0, "very poor": 5.0}

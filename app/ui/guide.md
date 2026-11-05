@@ -221,6 +221,9 @@ unlinked.
 licence, reference period and citation, next to the source file's SHA-256 fingerprint and the Cyclia version that
 imported it. Enter what you know: it is printed in reports and makes the study reproducible.
 
+Imports of ecoSpold, openLCA, SimaPro and ILCD files go into a separate staging library first and enter your
+library only after the checks pass; a failed import leaves the library as it was.
+
 **Check** tests the database in six parts: the matrix (can it be solved), the technosphere (inputs without a
 supplier, by reason), elementary-flow coverage, units, metadata and LCIA compatibility. A solvable matrix does
 not mean a complete database: read every line.
@@ -565,6 +568,9 @@ Compare before you claim that one product is better.
   indicators and maximum validity. These profiles are drafts built from EPDs the programmes have published; they
   are not approved by the programme operators, so check them against your programme's current instructions.
   Under **Your own programme profile** you can export a profile as JSON, edit it, and load it.
+  **ILCD+EPD dataset** writes the EPD as a machine-readable ILCD+EPD zip (the format of ÖKOBAUDAT and the InData
+  network), checked against the official schemas. Open it in the EPD Editor to add contacts and the review before
+  upload.
   Then an ISO
   14067 carbon footprint report and a GHG Protocol workbook.
 - **Critical review checklist**: the ISO 14044 items a reviewer checks, with your notes, exported to Excel.
@@ -578,7 +584,9 @@ Compare before you claim that one product is better.
 - **Validation**: the validation suite runs 35 small product systems with exact known answers and saves a
   Word report to attach to a thesis or paper. The **independent cross-check** recalculates datasets of your
   library and the models of your project with a second implementation (other solver, matrices rebuilt from the
-  tables) and shows the largest difference; save its Excel report for a reviewer. **Factor matching** compares
+  tables) and shows the largest difference; save its Excel report for a reviewer. The **comparison kit** exports a
+  database you may share, with Cyclia's results and scripts that calculate the same in Brightway and openLCA and
+  write a comparison report. **Factor matching** compares
   Cyclia's characterisation factors with another tool's, flow by flow: an openLCA JSON-LD export of the method,
   a Brightway export (script `engine/tools/brightway_export_factors.py`) or a CSV. It lists flows that differ, flows
   only one tool characterises and rows that match no flow, and shows what each difference does to the results of
@@ -601,12 +609,19 @@ Compare before you claim that one product is better.
   of your own water use (country, region code such as ES-AN, or watershed) and its type of use; it is saved with
   the model. Each result shows
   how much of the water or land was characterised exactly, with a fallback (country, then world), or not at all.
-- **Social LCA** (risk screening, not a full social LCA): a screening of social risks along the supply chain: worker hours per functional unit and
+  Monthly AWARE factors (a month column in the table) are used with a 12-month water use profile of the model;
+  watershed polygons (GeoJSON) find the basin from the site's latitude and longitude. The soil quality index can be
+  aggregated from the four LANCA indicators with the normalisation references of the method version you follow.
+- **Social LCA** (risk screening, not a full social LCA). PSILCA and SOCA data in openLCA JSON-LD are imported
+  directly (social aspects, activity values, risk levels, raw values); PSILCA sectors are assigned to your datasets
+  with a mapping table. A screening of social risks along the supply chain: worker hours per functional unit and
   risk hours per stakeholder and indicator, with the processes that cause them. Import your licensed PSILCA or
   SOCA extract or your own data with the template; Cyclia ships no social data. Process coverage shows how many
   processes of the supply chain have data; totals are lower bounds. Add a default row (match `*`) to estimate the
   worker hours of processes without data and get a worker-hour coverage. Avoided products are shown separately.
-- **Material flows**: dynamic material flow analysis (MFA) of a material system over years: processes, in-use stocks with
+- **Material flows**: build the system in tables and a diagram (drag the boxes), or edit the JSON. **Material flows
+  linked to the LCA** links MFA processes to datasets or models and gives the impacts of the material system year by
+  year. Dynamic material flow analysis (MFA) of a material system over years: processes, in-use stocks with
   lifetimes, sinks and recycling loops, with stocks, flows, losses, recycling rate and recycled content per
   year and a mass-balance check. Start from **Load example** (aluminium in buildings, invented numbers). The
   **Material Circularity Indicator** of the Ellen MacArthur Foundation is calculated for a product from its

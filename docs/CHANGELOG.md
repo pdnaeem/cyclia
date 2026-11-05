@@ -1,5 +1,54 @@
 # Changelog
 
+## 1.3.8 (2026-11-05)
+
+Database integrity release: the findings of the third database audit (of 1.3.6). Details, tests and limits:
+docs/ACCEPTANCE_1.3.8.md.
+
+- **Non-finite values are rejected** (audit P0 A): the import check now covers unresolved-input amounts,
+  uncertainty parameters p1 to p3, uncertainty types, production amounts and references to missing datasets and
+  flows, besides technosphere and elementary amounts. Linking refuses inputs with a non-finite amount. The Database
+  Check reports the same problems as an error.
+- **An explicit openLCA provider is kept** (audit P0 B): an input whose defaultProvider is not in the import stays
+  unresolved with the provider's name and id, and is never linked to another producer of the same product. Auto-link
+  leaves it alone; the suggestion list ranks the named provider first when it is in another database of the library.
+- **Database Check of one database** (audit P1 C): elementary-flow coverage, unit consistency, LCIA compatibility and
+  the counts use the flows and exchanges of the selected database only.
+- **Database Explorer**: every filter runs in the database query (unresolved-only no longer misses datasets beyond
+  the first 100), paging with the total, filters for location, system model, version and elementary flow, and
+  export of selected datasets to Excel (datasets, inputs, elementary flows, unresolved inputs).
+- **Streaming imports**: SimaPro CSV is read row by row with one process in memory at a time; SimaPro, ecoSpold1
+  and ILCD write datasets as they are read and elementary exchanges in batches; JSON-LD no longer keeps the process
+  documents. Measured on a synthetic SimaPro file of 200,000 processes (46 MB): peak memory 1,117 MB in 1.3.7,
+  360 MB in 1.3.8.
+- **Import integrity report**: after a format import, the counts of the staged database, the checks run and the
+  largest matrix residual are shown and stored in the database's import report.
+- **Rollback tests**: a failure while reading and a failure inside the merge transaction leave the library as it was.
+- 196 automated tests (12 new).
+
+## 1.3.7 (2026-11-05)
+
+The open items of 1.3.6. Details, tests and limits: docs/ACCEPTANCE_1.3.7.md.
+
+- **ILCD+EPD export**: the EPD as an ILCD+EPD 1.2 dataset with the authoritative EN 15804+A2 (EF 3.1) indicator
+  identifiers of the InData network, validated against the official XSD schemas (shipped with Cyclia).
+- **PSILCA and SOCA**: native import of social data in openLCA JSON-LD (indicators, activity values, risk levels,
+  raw values, quality), with a mapping table for PSILCA sectors.
+- **AWARE**: monthly factors with a monthly water use profile, and watershed polygons (GeoJSON) located from the
+  site's coordinates.
+- **LANCA**: soil quality index aggregated from the four LANCA indicators (normalisation references entered by the
+  user), compared with official SQI factors.
+- **MFA**: visual builder (tables and a diagram with draggable boxes) and MFA linked to the LCA: impacts of the
+  material system year by year from linked datasets or models.
+- **Staging imports**: format imports go into a separate staging library and are merged into the library only after
+  the checks pass, in one transaction.
+- **Comparison kit** for Brightway and openLCA: data as tables and JSON-LD, Cyclia's results, scripts for an
+  independent numpy solve, Brightway, openLCA 2 (IPC) and a comparison report.
+- 184 automated tests (17 new).
+
+Not done: the comparison with real Brightway and openLCA installations still has to be run (the kit is ready); the
+SQI normalisation references are not shipped; ILCD+EPD 1.3 (2024) elements are not written.
+
 ## 1.3.6 (2026-11-05)
 
 Database integrity and scientific reliability release, after two external audits of 1.3.5 and the user's

@@ -60,6 +60,10 @@ both results and the difference, and the software versions used.
   docs/METHODS.md 12.1; tests and demonstration: docs/ACCEPTANCE_1.3.5.md). The tool is tested with files built to
   the openLCA schema and with the shipped demonstration files. A published run of EF 3.1 exported from real
   openLCA and Brightway installations is still to be done; its reports will be added here.
+- **Brightway and openLCA calculations.** Since 1.3.7 the comparison kit (Toolbox > Validation) exports a database
+  with Cyclia's results and the scripts to calculate it in Brightway and openLCA. On the tutorial database the
+  kit's independent numpy/scipy solve agrees with Cyclia to 1.3e-10, and its openLCA JSON-LD imported back into
+  Cyclia reproduces all 132 results. The Brightway and openLCA runs are still to be done and published here.
 - **Land use.** In the ecoinvent benchmark, land use results of some datasets were up to about 5 % lower than
   ecoinvent's (median 0.4 %); other categories agreed. Since 1.3.4 the benchmark report has a "Land use
   reconciliation" sheet that splits each result into occupation, transformation-from and transformation-to,

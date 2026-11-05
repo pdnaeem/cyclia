@@ -655,7 +655,8 @@
             <label class="wide">Replace the profile's default statements (one per line; leave empty to keep them)<textarea name="statements_override" rows="3"></textarea></label>
             <div class="wide"><span class="hint">Modules declared in addition to those with inventory lines:</span><div class="modchecks" id="epdModules"></div></div>
           </form>
-          <div class="row"><button id="btnEpdSave">Save EPD details</button><button id="btnEpdCheck">Check requirements</button><button class="primary" id="btnEpdWord">Create EPD (Word)</button><button id="btnEpdExcel">EPD data for the verifier (Excel)</button></div>
+          <div class="row"><button id="btnEpdSave">Save EPD details</button><button id="btnEpdCheck">Check requirements</button><button class="primary" id="btnEpdWord">Create EPD (Word)</button><button id="btnEpdExcel">EPD data for the verifier (Excel)</button><button id="btnEpdIlcd">ILCD+EPD dataset (XML, for ÖKOBAUDAT and InData)</button></div>
+          <p class="hint" id="epdIlcdOut"></p>
           <div id="epdOut"></div>
         </details>
         <details class="connector">
@@ -710,6 +711,12 @@
           <div id="fmOut"></div>
         </div>
         <div class="block">
+          <h2>Comparison kit for Brightway and openLCA</h2>
+          <p class="hint">Exports one database with the categories chosen in step 4 as plain tables and as openLCA JSON-LD, Cyclia's results for every dataset, and scripts that calculate the same in Brightway (bw2calc) and openLCA 2 (IPC) and write a comparison report to publish. Only for data you may share: never ecoinvent or another licensed database.</p>
+          <div class="row"><select id="kitDb"></select><button class="primary" id="btnKit">Create comparison kit (zip)</button></div>
+          <p class="hint" id="kitOut"></p>
+        </div>
+        <div class="block">
           <h2>Independent cross-check</h2>
           <p class="hint">Recalculates datasets of your library and every model of the open project along a second code path: the matrices are assembled again from the library tables and solved with a different algorithm (iterative GMRES, or a dense solve for small libraries), and nested models are flattened by a separate routine. It checks matrix assembly, signs, the solver and nesting; the matching of characterisation factors is checked by the ecoinvent benchmark.</p>
           <div class="row"><label class="inline">Datasets <input id="xcN" type="number" min="5" max="5000" value="200"></label><button class="primary" id="btnXc">Run cross-check</button><button id="btnXcExport" disabled>Save report (Excel)</button></div>
@@ -756,12 +763,34 @@
           </div>
           <div class="row"><button data-pick="file" data-target="regPath" data-ext="csv">Browse</button><button class="primary" id="btnRegImport">Import factors</button><button id="btnRegTemplate">Show template</button><button class="ghost" id="btnRegDemo">Load demo factors</button></div>
           <pre id="regTemplate" class="code" hidden></pre>
+          <p class="hint">Monthly AWARE factors: add a column <code>month</code> (1 to 12) to the AWARE table; rows without a month are the annual factors.</p>
+          <details class="sub"><summary>Watershed polygons (GIS)</summary>
+            <p class="hint">GeoJSON in longitude/latitude (WGS84), e.g. the AWARE 2.0 basin layer converted from its shapefile with QGIS or ogr2ogr. The id property must hold the location code used in the factor table; features that carry agri, non_agri and unknown also bring their factors.</p>
+            <div class="row"><input id="geoPath" class="grow" placeholder="Full path of the .geojson file"><button data-pick="file" data-target="geoPath" data-ext="geojson">Browse</button>
+              <label>Id property<input id="geoId" value="id" size="10"></label><button class="primary" id="btnGeoImport">Import polygons</button></div>
+            <p id="geoOut" class="hint"></p>
+          </details>
+          <details class="sub"><summary>Soil quality index from the LANCA indicators</summary>
+            <p class="hint">Linear aggregation as in the EF method (De Laurentiis et al. 2019): SQI = sum of w x CF / N over erosion resistance, mechanical filtration, groundwater regeneration and biotic production. Enter the normalisation references N of the method version you follow; equal weights are an assumption to state. Official SQI factors already imported are compared with the result.</p>
+            <div class="form-grid" id="sqiForm">
+              <label>N erosion resistance<input data-sqin="erosion resistance" type="number" step="any"></label><label>w<input data-sqiw="erosion resistance" type="number" step="any" value="0.25"></label>
+              <label>N mechanical filtration<input data-sqin="mechanical filtration" type="number" step="any"></label><label>w<input data-sqiw="mechanical filtration" type="number" step="any" value="0.25"></label>
+              <label>N groundwater regeneration<input data-sqin="groundwater regeneration" type="number" step="any"></label><label>w<input data-sqiw="groundwater regeneration" type="number" step="any" value="0.25"></label>
+              <label>N biotic production<input data-sqin="biotic production" type="number" step="any"></label><label>w<input data-sqiw="biotic production" type="number" step="any" value="0.25"></label>
+              <label class="wide">Source of N and w<input id="sqiSource" placeholder="e.g. De Laurentiis et al. 2019, Table ..."></label>
+            </div>
+            <div class="row"><button class="primary" id="btnSqi">Aggregate SQI factors</button></div>
+            <div id="sqiOut"></div>
+          </details>
         </div>
         <div class="block">
           <h2>Assess the open model</h2>
           <div class="form-grid">
             <label>Site or watershed of the model's own water use (AWARE location code)<input id="awareLoc" placeholder="e.g. FR, or a basin id of your AWARE table"></label>
             <label>Type of use of the model's own water<select id="awareUse"><option value="unknown">unknown</option><option value="non_agri">non-agricultural</option><option value="agri">agricultural</option></select></label>
+            <label>Latitude of the site (for the watershed polygons)<input id="awareLat" type="number" step="any" placeholder="e.g. 48.85"></label>
+            <label>Longitude of the site<input id="awareLon" type="number" step="any" placeholder="e.g. 2.35"></label>
+            <label class="wide">Monthly water use profile of the model (12 shares, Jan to Dec; empty: annual factors)<input id="awareMonths" placeholder="e.g. 0 0 0 1 2 3 3 3 2 1 0 0"></label>
             <label>Type of use in the supply chain<select id="awareBg"><option value="by process">by process: irrigation agricultural, others non-agricultural</option><option value="unknown">unknown, except irrigation</option></select></label>
           </div>
           <div class="row"><button class="primary" id="btnAware">AWARE water scarcity</button><button class="primary" id="btnLanca">LANCA land use</button></div>
@@ -775,6 +804,12 @@
           <div id="slcaStatus"></div>
           <div class="row"><input id="slcaPath" class="grow" placeholder="Full path of the social data table (CSV)"><button data-pick="file" data-target="slcaPath" data-ext="csv">Browse</button><button class="primary" id="btnSlcaImport">Import</button><button id="btnSlcaTemplate">Show template</button><button class="ghost" id="btnSlcaDemo">Load demo data</button></div>
           <pre id="slcaTemplate" class="code" hidden></pre>
+          <details class="sub"><summary>PSILCA or SOCA (openLCA JSON-LD export)</summary>
+            <p class="hint">Reads the social indicators and the social aspects of every process (activity value, risk level, raw amount, quality). SOCA data are ecoinvent processes and match the datasets of the same name and location. PSILCA data are country sectors: add a mapping table (CSV: cyclia_match, cyclia_location, source_process, source_location) to assign sectors to the datasets you use. 'No data', 'not applicable' and opportunity levels are not counted as risks.</p>
+            <div class="row"><input id="olcaSocPath" class="grow" placeholder="Full path of the JSON-LD .zip or folder"><button data-pick="file" data-target="olcaSocPath" data-ext="zip">Browse</button></div>
+            <div class="row"><input id="olcaMapPath" class="grow" placeholder="Mapping table for PSILCA sectors (optional, CSV)"><button data-pick="file" data-target="olcaMapPath" data-ext="csv">Browse</button><button class="primary" id="btnOlcaSoc">Import social data</button></div>
+            <p id="olcaSocOut" class="hint"></p>
+          </details>
           <div class="row"><button class="primary" id="btnSlca">Assess the open model</button></div>
           <div id="slcaOut"></div>
         </div>
@@ -783,9 +818,34 @@
         <div class="block">
           <h2>Dynamic material flow analysis</h2>
           <p class="hint">A separate workspace for material stocks and flows over time: processes, in-use stocks with a lifetime (fixed, normal or Weibull), final sinks, transfer coefficients (each process's outgoing shares add up to 1), recycling loops, and external inflows per year. Edit the definition (JSON) and run.</p>
-          <div class="row"><button id="btnMfaExample">Load example</button><button class="primary" id="btnMfaRun">Run</button></div>
-          <textarea id="mfaDef" rows="16" class="code" spellcheck="false"></textarea>
+          <div class="row"><button id="btnMfaExample">Load example</button><button id="btnMfaNew">New system</button><button class="primary" id="btnMfaRun">Run</button></div>
+          <div id="mfaBuilder">
+            <p class="hint">Drag the boxes to arrange the diagram. Edit processes, flows and inflows in the tables; the diagram and the definition follow.</p>
+            <div class="mfa-canvas-wrap"><svg id="mfaCanvas" viewBox="0 0 900 360" role="img" aria-label="Material flow system"></svg></div>
+            <div class="row"><label>First year<input id="mfaY0" type="number" step="1"></label><label>Last year<input id="mfaY1" type="number" step="1"></label>
+              <label>Production process<select id="mfaProd"></select></label><label>Recycling processes (ids, comma separated)<input id="mfaRec"></label></div>
+            <h3>Processes</h3>
+            <div class="table-wrap"><table class="mfa-edit"><thead><tr><th>Id</th><th>Name</th><th>Type</th><th>Lifetime</th><th>Mean / shape</th><th>SD / scale</th><th></th></tr></thead><tbody id="mfaProcs"></tbody></table></div>
+            <div class="row"><button id="btnMfaAddProc">Add process</button></div>
+            <h3>Flows (transfer coefficients)</h3>
+            <div class="table-wrap"><table class="mfa-edit"><thead><tr><th>From</th><th>To</th><th class="num">Share</th><th></th></tr></thead><tbody id="mfaFlows"></tbody></table></div>
+            <div class="row"><button id="btnMfaAddFlow">Add flow</button><span class="hint" id="mfaShareCheck"></span></div>
+            <h3>External inflows</h3>
+            <div class="table-wrap"><table class="mfa-edit"><thead><tr><th>Into</th><th>Values by year (year: amount; ...)</th><th></th></tr></thead><tbody id="mfaInflows"></tbody></table></div>
+            <div class="row"><button id="btnMfaAddInflow">Add inflow</button></div>
+          </div>
+          <details class="sub"><summary>Advanced: the definition as JSON</summary>
+            <textarea id="mfaDef" rows="16" class="code" spellcheck="false"></textarea>
+            <div class="row"><button id="btnMfaFromJson">Apply JSON to the builder</button></div>
+          </details>
           <div id="mfaOut"></div>
+        </div>
+        <div class="block">
+          <h2>Material flows linked to the LCA</h2>
+          <p class="hint">Link MFA processes to datasets of the library or to your models; Cyclia multiplies each year's throughput by the impact per unit (categories chosen in step 4). The factor converts the MFA unit to the unit of the dataset (1 if both are kg; 0.001 if the MFA is in kg and the dataset in t).</p>
+          <div class="table-wrap"><table class="mfa-edit"><thead><tr><th>MFA process</th><th>Linked to</th><th class="num">Factor</th><th></th></tr></thead><tbody id="mfaLinks"></tbody></table></div>
+          <div class="row"><button class="primary" id="btnMfaLca">Impacts over time</button></div>
+          <div id="mfaLcaOut"></div>
         </div>
         <div class="block">
           <h2>Material Circularity Indicator</h2>
@@ -807,7 +867,9 @@
         <div class="block">
           <h2>Database explorer</h2>
           <p class="hint">Browse every dataset of the library: its identity, inputs and their suppliers, the datasets that use it, inputs without a supplier and why, elementary flows with their uncertainty, and data quality. Click a supplier or a user to move along the supply chain.</p>
-          <div class="row"><select id="exDb"></select><input id="exQ" class="grow" placeholder="Search name, product or location (empty: first 100)"><label class="inline"><input type="checkbox" id="exUnres"> only datasets with unresolved inputs</label><button class="primary" id="btnExSearch">Search</button></div>
+          <div class="row"><select id="exDb"></select><input id="exQ" class="grow" placeholder="Search name, product or location (empty: all)"><label class="inline"><input type="checkbox" id="exUnres"> only datasets with unresolved inputs</label><button class="primary" id="btnExSearch">Search</button></div>
+          <div class="row"><input id="exLoc" placeholder="Location (exact, e.g. DE)"><input id="exSys" placeholder="System model (e.g. cut-off)"><input id="exVer" placeholder="Database version"><input id="exFlow" class="grow" placeholder="Has elementary flow (name, e.g. methane)"></div>
+          <div class="row"><span class="hint grow" id="exCount"></span><button class="ghost" id="btnExPrev">Previous</button><button class="ghost" id="btnExNext">Next</button><button class="ghost" id="btnExAll">Select page</button><button id="btnExExport">Export selected (Excel)</button></div>
           <div class="ex-cols"><ul class="results" id="exResults"></ul><div id="exDetail"><p class="empty">Choose a dataset.</p></div></div>
         </div>
       </div>
@@ -976,5 +1038,6 @@
 <script src="pro.js"></script>
 <script src="v135.js"></script>
 <script src="v136.js"></script>
+<script src="v137.js"></script>
 </body>
 </html>

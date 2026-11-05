@@ -237,3 +237,67 @@ EXAMPLE = {
         {"from": "rec", "to": "prod", "share": 0.95}, {"from": "rec", "to": "loss", "share": 0.05},
     ],
 }
+
+
+# ---------------------------------------------------------------------------------------------- MFA linked to LCA
+def lca(store, defn, method_ids, links):
+    """Environmental impacts of the material system year by year.
+
+    links: {mfa process id: {"kind": "activity" | "model", "id": dataset or model id, "factor": amount of the linked
+    reference product per unit of MFA throughput (e.g. 1 when both are in kg; 0.001 when the MFA is in kg and the
+    dataset in t)}}. Impact of a process in year t = throughput_t x factor x impact per unit of the linked dataset
+    (whole supply chain, from the engine) or model (per unit of its functional unit). Throughput of a stock is its
+    inflow, of a sink what it receives. Returns per year and category the total and the share of every process."""
+    import calc
+    res = run(defn)
+    method_ids = [int(m) for m in method_ids or []]
+    if not method_ids:
+        raise ValueError("Pick impact categories in step 4 first.")
+    if not links:
+        raise ValueError("Link at least one MFA process to a dataset or a model.")
+    ids = [p["id"] for p in defn["processes"]]
+    mc = calc.get_mc(store)
+    M = calc.Methods(store, mc, method_ids)
+    unit = {}
+    for pid, ln in links.items():
+        if pid not in ids:
+            raise ValueError(f"'{pid}' is not a process of the MFA system.")
+        kind, ref = ln.get("kind", "activity"), int(ln["id"])
+        f = float(ln.get("factor", 1.0))
+        if kind == "activity":
+            if ref not in mc.act_index:
+                raise ValueError(f"Dataset {ref} is not in the library.")
+            h, _, _ = calc.impacts(mc, M, {ref: 1.0}, {}, [])
+            unit[pid] = np.asarray(h, dtype=float) * f
+        elif kind == "model":
+            m = store.model(ref)
+            if not m:
+                raise ValueError(f"Model {ref} does not exist.")
+            r = calc.run(store, ref, method_ids)
+            unit[pid] = np.array([x["total"] for x in r["results"]]) / (m["amount"] or 1.0) * f
+        else:
+            raise ValueError("A link is to an 'activity' or a 'model'.")
+    thr = {p["id"]: p["throughput"] for p in res["processes"]}
+    cats = [{k: x[k] for k in ("id", "family", "category", "unit")} for x in M.rows]
+    years = res["years"]
+    per_year, by_proc = [], {pid: np.zeros(len(cats)) for pid in unit}
+    for t, y in enumerate(years):
+        tot = np.zeros(len(cats))
+        parts = {}
+        for pid, u in unit.items():
+            v = thr[pid][t] * u
+            tot += v
+            parts[pid] = v.tolist()
+            by_proc[pid] += v
+        per_year.append({"year": y, "total": tot.tolist(), "by_process": parts})
+    cum = sum((np.array(r["total"]) for r in per_year), np.zeros(len(cats)))
+    return {"categories": cats, "years": years, "rows": per_year, "cumulative": cum.tolist(),
+            "cumulative_by_process": {k: v.tolist() for k, v in by_proc.items()},
+            "linked": {pid: {"kind": l.get("kind", "activity"), "id": int(l["id"]), "factor": float(l.get("factor", 1.0))}
+                       for pid, l in links.items()},
+            "unlinked_processes": [p for p in ids if p not in unit],
+            "mfa": {"mass_balance_ok": res["mass_balance_ok"]},
+            "note": "Impact of a process in a year = its throughput x the factor x the impact per unit of the linked dataset "
+                    "(cradle-to-gate of that dataset, with today's background data) or model. Processes without a link add "
+                    "nothing. Background data do not change over the years unless a prospective background scenario is "
+                    "used for the calculation."}

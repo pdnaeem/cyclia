@@ -374,6 +374,28 @@ class TestFeatures(unittest.TestCase):
         self.api("DELETE", f"/api/databases/{md['id']}")
         self.assertTrue(any(d["name"] == "SP 136" for d in db))
 
+    def test_v137_endpoints(self):
+        body = dict(self.calc_body(), path=os.path.join(self.dir, "wall_ilcd.zip"))
+        r = self.api("POST", "/api/export/ilcd-epd", body)
+        self.assertTrue(r["schema_valid"])
+        self.assertIn("GWP-total", r["indicators"])
+        ex = self.api("GET", "/api/mfa/example")["definition"]
+        steel = self.api("GET", "/api/search?q=cement")["results"][0]["id"]
+        lc = self.api("POST", "/api/mfa/lca", {"definition": ex, "method_ids": [self.gwp], "links": {"prod": {"kind": "activity", "id": steel}}})
+        self.assertEqual(len(lc["rows"]), len(lc["years"]))
+        mod = self.api("POST", "/api/mfa/lca", {"definition": ex, "method_ids": [self.gwp], "links": {"prod": {"kind": "model", "id": self.wall}}})
+        self.assertGreater(mod["cumulative"][0], 0)
+        self.api("POST", "/api/regional/demo")
+        sq = self.api("POST", "/api/regional/sqi", {"normalisation": {"erosion resistance": 1}}, ok=False)
+        self.assertIn("normalisation", sq["error"])
+        gj = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"id": "B1"},
+              "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]}}]}
+        self.assertEqual(self.api("POST", "/api/regional/geojson", {"method": "AWARE", "text": json.dumps(gj)})["shapes"], 1)
+        self.assertEqual(self.api("POST", "/api/regional/locate", {"lat": 0.5, "lon": 0.5})["found"]["location"], "B1")
+        db = self.api("GET", "/api/databases")["databases"][0]["id"]
+        kit = self.api("POST", "/api/export/compare-kit", {"db_id": db, "method_ids": [self.gwp], "path": os.path.join(self.dir, "kit.zip")})
+        self.assertGreater(kit["results"], 0)
+
     def test_templates(self):
         t = self.api("GET", "/api/model-templates")["templates"]
         self.assertGreaterEqual(len(t), 4)

@@ -136,6 +136,7 @@
     const sc = (S.model && S.model.scope) || {};
     $("#awareLoc").value = sc.aware_location || ""; $("#awareUse").value = (sc.aware_use || "unknown").replace("-", "_");
     $("#awareBg").value = sc.aware_background_use || "by process";
+    $("#awareLat").value = sc.aware_lat ?? ""; $("#awareLon").value = sc.aware_lon ?? ""; $("#awareMonths").value = sc.aware_months ?? "";
   }
   $("#btnRegTemplate").addEventListener("click", () => { $("#regTemplate").hidden = false; $("#regTemplate").textContent = (S.regTemplates || {})[$("#regMethod").value] || ""; });
   $("#btnRegImport").addEventListener("click", (e) => guard(e.target, async () => {
@@ -149,10 +150,13 @@
   async function saveRegScope() {
     needModel();
     const sc = S.model.scope || {};
-    if ((sc.aware_location || "") !== $("#awareLoc").value.trim().toUpperCase() || (sc.aware_use || "unknown") !== $("#awareUse").value
-        || (sc.aware_background_use || "by process") !== $("#awareBg").value) {
+    const want = { aware_location: $("#awareLoc").value.trim().toUpperCase(), aware_use: $("#awareUse").value, aware_background_use: $("#awareBg").value,
+      aware_lat: $("#awareLat").value.trim(), aware_lon: $("#awareLon").value.trim(), aware_months: $("#awareMonths").value.trim() };
+    const have = { aware_location: sc.aware_location || "", aware_use: sc.aware_use || "unknown", aware_background_use: sc.aware_background_use || "by process",
+      aware_lat: String(sc.aware_lat ?? ""), aware_lon: String(sc.aware_lon ?? ""), aware_months: String(sc.aware_months ?? "") };
+    if (Object.keys(want).some((k) => String(want[k]) !== String(have[k]))) {
       fillScope();
-      await saveModelScope({ aware_location: $("#awareLoc").value.trim().toUpperCase(), aware_use: $("#awareUse").value, aware_background_use: $("#awareBg").value });
+      await saveModelScope(want);
     }
   }
   const compl = (c) => `exact ${pct(c.exact)}, country ${pct(c.country)}, global ${pct(c.global)}, <span class="${c.none > 0 ? "danger" : ""}">none ${pct(c.none)}</span>`;
@@ -162,6 +166,7 @@
     $("#regOut").innerHTML = `<h3>AWARE water scarcity of ${esc(S.model.name)}</h3>${r.demo ? '<p class="warn">Demo factors: not AWARE 2.0 values.</p>' : ""}
       <p><b>${fmt(r.total)} ${esc(r.unit)}</b> per functional unit, from ${fmt(r.consumption_m3)} m3 of water consumed.</p>
       ${r.empty ? '<p class="warn">The supply chain of this model has no water taken from or returned to nature, so there is nothing to characterise. The result is 0 and completeness does not apply.</p>' : `<p>Completeness (share of the water consumption): ${compl(r.completeness)}.</p>`}
+      <p class="hint">Model's own water: ${r.site_from_gis ? `watershed ${esc(r.site_from_gis.location)} (${esc(r.site_from_gis.name)}) found from the coordinates` : `location ${esc(r.site || "GLO")}`}${r.monthly_used ? ", monthly factors weighted by the use profile" : r.monthly_factors_available ? ", annual factor (no monthly profile given)" : ""}. Supply-chain processes use annual factors.</p>
       ${r.unmatched.length ? `<p class="danger">Locations without a factor: ${r.unmatched.slice(0, 8).map((x) => `${esc(x.location)} (${fmt(x.consumption_m3)} m3)`).join(", ")}.</p>` : ""}
       ${r.water_balance_m3 ? `<p class="hint">Water balance per functional unit (m3): withdrawn ${fmt(r.water_balance_m3.withdrawal)}, returned to fresh water ${fmt(r.water_balance_m3.returned)}, evaporated ${fmt(r.water_balance_m3.evaporated)}, to the sea ${fmt(r.water_balance_m3.to_sea)}, to soil ${fmt(r.water_balance_m3.to_soil)}. Only the return to fresh water is subtracted.</p>` : ""}
       <div class="table-wrap"><table><thead><tr><th>Process</th><th>Location</th><th>Use</th><th class="num">Consumption m3</th><th class="num">Factor</th><th>Factor found</th><th class="num">Impact</th></tr></thead><tbody>${r.top.slice(0, 15).map((x) => `<tr><td>${esc(x.process)}</td><td>${esc(x.location)}</td><td>${esc(x.use)}${x.factor_of_use && x.factor_of_use !== x.use ? ` <span class="warn">(no ${esc(x.use)} factor: unknown used)</span>` : ""}</td><td class="num">${fmt(x.consumption_m3)}</td><td class="num">${fmt(x.factor)}</td><td>${esc(x.how)}</td><td class="num">${fmt(x.impact)}</td></tr>`).join("")}</tbody></table></div>

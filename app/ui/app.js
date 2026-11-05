@@ -321,9 +321,11 @@ function watchJob(job, { onDone, quiet } = {}) {
         if (typeof r.methods === "number" && r.methods) parts.push(`${r.methods} impact categories`);
         if (typeof r.factors === "number") parts.push(`${r.factors} factors`);
         if (typeof r.mappings === "number") parts.push(`${r.mappings} mappings, ${r.factors_added} factors added`);
-        box.innerHTML = `<b>${esc(j.label)}</b><br>Done${parts.length ? ": " + parts.join(", ") : ""}.${warn ? "<br>" + esc(warn) : ""}`;
+        const ir = r.integrity_report;
+        const irHtml = ir ? `<details><summary>Import integrity report: ${esc(ir.result || "")}</summary><table><tbody>${Object.entries(ir.contents || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${Number(v).toLocaleString("en-US")}</td></tr>`).join("")}<tr><td>Largest matrix residual</td><td class="num">${ir.matrix_residual != null ? Number(ir.matrix_residual).toExponential(1) : "-"}</td></tr></tbody></table><p class="hint">Checked: ${esc((ir.checks || []).join("; "))}.</p></details>` : "";
+        box.innerHTML = `<b>${esc(j.label)}</b><br>Done${parts.length ? ": " + parts.join(", ") : ""}.${warn ? "<br>" + esc(warn) : ""}${irHtml}`;
         if (!quiet) toast(`${j.label}: done`);
-        setTimeout(() => (box.hidden = true), warn ? 30000 : 6000);
+        setTimeout(() => (box.hidden = true), ir ? 60000 : warn ? 30000 : 6000);
         if (onDone) await onDone(j);
       }
       resolve(j);

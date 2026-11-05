@@ -45,6 +45,14 @@ def suggest(store, db_id, product, unit, limit=6, location=None):
         except ValueError:
             pass
     hits = store.search_activities(product, None, None, limit=80)
+    # a provider named by the dataset itself (openLCA defaultProvider) that exists in another library database
+    keys = {r["link_key"] for r in store.q(f"SELECT DISTINCT link_key FROM unlinked WHERE db_id=? AND product=? "
+                                           "AND reason LIKE 'default provider not in this import%'", (db_id, product)) if r["link_key"]}
+    named = set()
+    for k in keys:
+        for a in store.q("SELECT a.id FROM activities a WHERE a.key=? AND a.db_id!=?", (k, db_id)):
+            named.add(a["id"])
+    recorded |= named
     seen = {h["id"] for h in hits}
     for aid in recorded - seen:
         a = store.one("SELECT a.id, a.name, a.product, a.location, a.unit, d.name AS db FROM activities a "
@@ -57,10 +65,11 @@ def suggest(store, db_id, product, unit, limit=6, location=None):
         if fac is None:
             continue
         hl = (h["location"] or "").upper()
-        score = (4 if h["id"] in recorded else 0) + (2 if (h["product"] or "").lower() == pn else 0) \
+        score = (8 if h["id"] in named else 4 if h["id"] in recorded else 0) + (2 if (h["product"] or "").lower() == pn else 0) \
             + (2 if loc and hl == loc else 0) + (1 if h["kind"] == "market" else 0) \
             + (0.5 if not loc and hl in ("GLO", "ROW") else 0)
         out.append({**h, "factor": fac, "score": score, "recorded_candidate": h["id"] in recorded,
+                    "named_provider": h["id"] in named,
                     "same_location": bool(loc) and hl == loc})
     out.sort(key=lambda r: -r["score"])
     return out[:limit]
@@ -86,6 +95,11 @@ def link(store, db_id, product, unit, target_id, factor=None, location=None):
     rows = _rows(store, db_id, product, unit, location)
     if not rows:
         raise ValueError("Nothing to link for that product.")
+    import math
+    bad = [r for r in rows if r["amount"] is None or not all(v is None or math.isfinite(v) for v in (r["amount"], r["p1"], r["p2"], r["p3"]))]
+    if bad or not math.isfinite(fac):
+        raise ValueError(f"{len(bad)} of these inputs have an amount or uncertainty parameter that is not a finite number. "
+                         "They cannot be linked: correct the source data and import it again.")
     if any(r["output_id"] == target_id for r in rows):
         raise ValueError("A dataset cannot supply itself. Choose another supplier.")
     with store.lock:
@@ -130,6 +144,9 @@ def auto_link(store, db_id):
             continue
         if "ambiguous" in (g["reasons"] or ""):
             left.append({"product": g["product"], "location": g["location"], "why": "several producers in the import"})
+            continue
+        if "default provider not in this import" in (g["reasons"] or ""):
+            left.append({"product": g["product"], "location": g["location"], "why": "the dataset names another provider"})
             continue
         if "no supplier link in the dataset" in (g["reasons"] or ""):
             # may be a deliberate cut-off of the system model: only the user can decide

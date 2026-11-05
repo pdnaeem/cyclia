@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Cyclia: wrapper that loads the ILCD process and flow schemas with the EPD extensions 2013 and 2019 (ILCD+EPD 1.2) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:cyclia:validate" elementFormDefault="qualified">
+  <xs:import namespace="http://lca.jrc.it/ILCD/Process" schemaLocation="ILCD_ProcessDataSet.xsd"/>
+  <xs:import namespace="http://www.iai.kit.edu/EPD/2013" schemaLocation="EPD_Extensions_2013.xsd"/>
+  <xs:import namespace="http://www.indata.network/EPD/2019" schemaLocation="EPD_Extensions_2019.xsd"/>
+</xs:schema>

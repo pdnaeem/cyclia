@@ -69,8 +69,10 @@ CREATE TABLE IF NOT EXISTS lib.activity_dq (activity_id INTEGER PRIMARY KEY, ter
 CREATE TABLE IF NOT EXISTS lib.native_factors (id INTEGER PRIMARY KEY, method TEXT, indicator TEXT, key TEXT, location TEXT,
     value REAL, unit TEXT, source TEXT);
 CREATE INDEX IF NOT EXISTS lib.idx_native ON native_factors(method, indicator, key, location);
+CREATE TABLE IF NOT EXISTS lib.native_shapes (id INTEGER PRIMARY KEY, method TEXT, location TEXT, name TEXT,
+    geometry TEXT, minx REAL, miny REAL, maxx REAL, maxy REAL, source TEXT);
 CREATE TABLE IF NOT EXISTS lib.slca_data (id INTEGER PRIMARY KEY, match TEXT, location TEXT, worker_hours REAL, stakeholder TEXT,
-    indicator TEXT, risk TEXT, source TEXT);
+    indicator TEXT, risk TEXT, source TEXT, raw_value TEXT, raw_unit TEXT, quality TEXT, activity_unit TEXT);
 CREATE TABLE IF NOT EXISTS lib.chemicals (id INTEGER PRIMARY KEY, name TEXT UNIQUE, cas TEXT, props TEXT, result TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 """
@@ -116,7 +118,8 @@ DB_META_COLUMNS = ("original_name", "release_date", "geography", "technology", "
 LIB_MIGRATIONS = {"tech": [("src_unlinked", "INTEGER")], "flow_mapping": [("s_uuid", "TEXT")],
                   "activities": [("product_uuid", "TEXT")],
                   "unlinked": [("reason", "TEXT DEFAULT 'no producer'"), ("candidates", "TEXT")],
-                  "databases": [(c, "TEXT") for c in DB_META_COLUMNS]}
+                  "databases": [(c, "TEXT") for c in DB_META_COLUMNS],
+                  "slca_data": [("raw_value", "TEXT"), ("raw_unit", "TEXT"), ("quality", "TEXT"), ("activity_unit", "TEXT")]}
 LEGACY_DATA_TABLES = ["databases", "activities", "activities_fts", "tech", "flows", "bio", "methods", "cfs", "nw"]
 INPUT_COLUMNS = ["id", "model_id", "kind", "ref_id", "amount", "label", "comment", "pedigree", "position", "stage",
                  "input_amount", "input_unit", "avoided", "ref_db", "ref_key", "formula", "year", "fixed", "data_type",

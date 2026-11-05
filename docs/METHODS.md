@@ -321,7 +321,7 @@ changes α_g that best explain the gap, (ref_d - cyclia_d) = Σ_g α_g c_dg, are
 (weights 1 / |ref_d|), with the share of the gap variance explained. Land flows of the inventories without a
 factor, and raw factors that give one flow two different values, are listed.
 
-`engine/tests` holds 167 automated tests (1.3.6), including: a hand-calculated wall model; agreement with an
+`engine/tests` holds 184 automated tests (1.3.7), including: a hand-calculated wall model; agreement with an
 independent dense solution to 10⁻⁹; supply loops and waste treatment from ecoSpold2; unit conversion and
 waste flows from openLCA JSON-LD; ecoSpold1, SimaPro CSV and ILCD imports against hand calculations;
 cross-database linking and unlinking; flow mapping; regional factors; module D; co-product allocation;
@@ -533,6 +533,91 @@ results within 1 %, and notes deviating datasets whose supply chain holds unreso
 **EPD additional indicators.** HTP-c and HTP-nc match the EF 3.1 names 'carcinogenic' and 'non-carcinogenic', the
 toxicity sub-categories ', inorganics' and ', organics' are never taken for the indicator, and the units of PM,
 IRP, ETP-fw, HTP-c, HTP-nc, SQP and GWP-GHG are checked.
+
+## 14. Added in 1.3.7
+
+### 14.1 ILCD+EPD export (step 6 > EPD)
+The EPD of a model as an ILCD+EPD 1.2 process data set (typeOfDataSet EPD, epd:subType from the EPD form) with a
+product flow data set for the declared unit, in a zip with the ILCD folder layout. Resource, waste and output
+indicators (EN 15804+A2 Tables 4 to 6) are exchanges of the authoritative indicator flows; impact indicators are
+LCIA results of the authoritative EN 15804+A2 (EF 3.1) LCIA method data sets; each carries one epd:amount per
+declared module (identifiers from the InData lists EN15804+A2_EF3.1_indicators.csv). meanAmount is 0, as in the
+format. Every file is validated against the official ILCD process and flow schemas with the EPD extensions 2013 and
+2019 before the zip is written. Not written: ILCD+EPD 1.3 (2024 extension) elements, scenarios, content declaration
+and contact data sets (add them in the EPD Editor).
+
+### 14.2 LANCA soil quality index
+SQI_CF(kind, land use, location) = Σ_i w_i · CF_i / N_i over erosion resistance, mechanical filtration, groundwater
+regeneration and biotic production (linear aggregation of the EF method; physicochemical filtration is left out).
+N_i must be entered from the method version followed; w_i default to 1/4 each, an assumption to state. Only land
+use types with all four indicators are aggregated; aggregated factors are compared with official SQI factors when
+both exist.
+
+### 14.3 AWARE monthly factors and watershed polygons
+Monthly factors: rows of the AWARE table with a month (1 to 12). With a monthly profile p_m of the model's own
+water use (12 shares, normalised), CF = Σ_m p_m CF_m; every month with use needs a factor (same location fallbacks),
+otherwise the annual factor is used. Supply-chain processes have no month and use annual factors. Watersheds:
+GeoJSON polygons (WGS84) with a location code per feature; the site's latitude and longitude are located by
+point-in-polygon (even-odd rule, holes respected, smallest bounding box first) and the basin code is used as the
+location of the model's own water.
+
+### 14.4 PSILCA and SOCA (openLCA JSON-LD)
+Social indicators and the social aspects of every process are read: activity value (worker hours per unit of the
+reference product when the indicator's activity variable is worker hours), risk level, raw amount and unit,
+quality. Stakeholder category = first level of the indicator's category path. openLCA risk levels map to Cyclia's
+(no risk to very high risk); 'no data', 'not applicable' and opportunity levels are not counted. SOCA processes keep
+their ecoinvent names and locations and match the library directly; PSILCA sectors are assigned to datasets with a
+mapping table. The assessment remains the risk-hour screening of 12.8.
+
+### 14.5 MFA builder and MFA linked to LCA
+The MFA system is edited in tables (processes, stocks with lifetimes, sinks, flows, inflows) with a diagram whose
+boxes can be dragged; the JSON stays available. Linked to the LCA: impact of process p in year t =
+throughput_pt × factor_p × impact per unit of the linked dataset (from the engine, whole supply chain) or model (per
+unit of its functional unit). Stocks are counted by their inflow, sinks by what they receive. Background data are
+those of today unless a prospective background scenario is used.
+
+### 14.6 Staging imports
+Format imports (ecoSpold2, openLCA JSON-LD, ecoSpold1, SimaPro CSV, ILCD) run into a separate staging library.
+Checks there: datasets present, finite amounts, no dangling links, a solvable matrix (residual of random solves below
+1e-6). Then one transaction merges the database, its datasets (ids shifted), exchanges, flows (joined by UUID),
+unresolved inputs with their candidates, data quality and impact methods new to the library (factors matched again
+against the whole library). A failed check or merge leaves the user's library unchanged.
+
+### 14.7 Comparison kit
+For a database whose licence allows sharing, the kit holds the data as tables and as openLCA JSON-LD, Cyclia's
+result of one unit of every dataset in every chosen category, and scripts for an independent numpy/scipy solve,
+Brightway (bw2data, bw2calc) and openLCA 2 (IPC), with a comparison script (agreement below 1e-6; results near zero
+measured against 1e-9 of the category's largest result). Verified here: the numpy solve agrees with Cyclia to
+1.3e-10 on the tutorial database, and the JSON-LD imported back into Cyclia reproduces every result. The Brightway
+and openLCA runs must be done by the user (they could not be installed in the development environment).
+
+## 15. Database integrity (1.3.8)
+
+### 15.1 Import check
+Before a format import is merged into the library, the staged database must have: at least one dataset; finite
+technosphere, elementary and unresolved-input amounts; finite uncertainty parameters (p1 to p3) and an uncertainty
+type of 0 to 4; finite, nonzero production; no technosphere link to a dataset and no elementary exchange to a flow
+that does not exist; and a matrix whose solves for 10 random unit demands reproduce the demand to 1e-6. SQLite stores
+NaN as NULL, so a NULL amount counts as not finite; Infinity is detected as an absolute value above 1e300. The same
+counts are part of the Database Check (matrix status) and are refused by manual linking.
+
+### 15.2 openLCA providers
+For each product input of an openLCA JSON-LD process: if its defaultProvider is in the import, that process is the
+supplier. If a defaultProvider is given but not in the import, the input stays unresolved ("default provider not in
+this import"), keeps the provider id as its link key and is never linked automatically. Only when no defaultProvider
+is given and exactly one process of the import produces the flow is that process linked; with several producers the
+input stays unresolved as ambiguous.
+
+### 15.3 Scope of the Database Check
+With a database selected, elementary-flow coverage, unit consistency (unknown units, the same flow with different
+units) and LCIA compatibility count only the elementary flows that the datasets of that database use; dataset and
+exchange counts are of that database. Without a selection the whole library is checked.
+
+### 15.4 Streaming
+SimaPro CSV is read row by row and one process block is held at a time. Datasets are written as they are read and
+elementary exchanges in batches of 20,000. Technosphere inputs are kept in compact form until all datasets are read,
+because a supplier is chosen only when every producer of the import is known. Everything is one transaction in the
+staging library.
 
 ## References
 

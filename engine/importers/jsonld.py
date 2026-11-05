@@ -186,7 +186,7 @@ def import_jsonld(store, path, name, progress=lambda *a: None):
 def _processes(store, db_id, src, procs, flows, locations, ref_amount, elementary_id, progress):
     c = store.conn
     providers, pending, bio, unlinked = {}, [], [], []
-    co_products = n_ambiguous = 0
+    co_products = n_ambiguous = n_external = 0
     with store.lock:
         loaded = []
         total = len(procs)
@@ -212,12 +212,9 @@ def _processes(store, db_id, src, procs, flows, locations, ref_amount, elementar
             aid = cur.lastrowid
             lst = providers.setdefault((ref.get("flow") or {}).get("@id"), [])
             lst.append(aid)
-            loaded.append((aid, p["@id"], exs, ref, loc))
-            if i % 200 == 0:
-                progress(8 + int(60 * i / max(total, 1)), f"Reading processes {i:,}/{total:,}")
-        progress(70, "Linking supply chains")
-        keymap = {k: a for a, k, _, _, _ in loaded}
-        for aid, _, exs, ref, loc in loaded:
+            # 1.3.8: the process document is not kept. Elementary exchanges are written in batches now; product and
+            # waste exchanges are kept in compact form until every provider of the import is known
+            compact = []
             for e in exs:
                 if e is ref:
                     continue
@@ -231,6 +228,23 @@ def _processes(store, db_id, src, procs, flows, locations, ref_amount, elementar
                 if ftype == "ELEMENTARY_FLOW":
                     bio.append((aid, elementary_id(fuuid), amt) + unc)
                     continue
+                compact.append({"flow": {"@id": fuuid, "flowType": ftype, "name": (e.get("flow") or {}).get("name", "")},
+                                "isInput": bool(e.get("isInput")), "defaultProvider": e.get("defaultProvider"),
+                                "_amt": amt, "_unc": unc})
+            if len(bio) >= 20000:
+                c.executemany("INSERT INTO bio(activity_id,flow_id,amount,utype,p1,p2,p3) VALUES(?,?,?,?,?,?,?)", bio)
+                bio = []
+            loaded.append((aid, p["@id"], compact, None, loc))
+            del p, exs
+            if i % 200 == 0:
+                progress(8 + int(60 * i / max(total, 1)), f"Reading processes {i:,}/{total:,}")
+        progress(70, "Linking supply chains")
+        keymap = {k: a for a, k, _, _, _ in loaded}
+        for aid, _, exs, ref, loc in loaded:
+            for e in exs:
+                fuuid = e["flow"]["@id"]
+                ftype = e["flow"]["flowType"]
+                amt, unc = e["_amt"], e["_unc"]
                 is_input = bool(e.get("isInput"))
                 if (ftype == "PRODUCT_FLOW" and not is_input) or (ftype == "WASTE_FLOW" and is_input):
                     co_products += 1
@@ -244,16 +258,22 @@ def _processes(store, db_id, src, procs, flows, locations, ref_amount, elementar
                 cands = providers.get(fuuid) or []
                 reason = ""
                 if prov is None:
-                    if len(cands) == 1:
+                    if dp:
+                        # an explicit provider that is not in this import (e.g. a process of another database): it is
+                        # never replaced by another producer of the same product; the reference is kept
+                        reason = "default provider not in this import"
+                        n_external += 1
+                    elif len(cands) == 1:
                         prov = cands[0]
                     else:
-                        reason = "ambiguous" if cands else ("supplier not in this import" if dp else "no producer")
+                        reason = "ambiguous" if cands else "no producer"
                 if prov is None:
                     fl = flows.get(fuuid, {})
                     n_ambiguous += reason == "ambiguous"
                     unlinked.append((db_id, aid, fl.get("name") or (e.get("flow") or {}).get("name", ""),
-                                     fl.get("ref_unit", ""), sign * amt, loc, fuuid) + eunc
-                                    + (reason, json.dumps(cands) if len(cands) > 1 else None))
+                                     fl.get("ref_unit", ""), sign * amt, loc, dp or fuuid) + eunc
+                                    + (reason + (f": {(e.get('defaultProvider') or {}).get('name') or dp}" if dp else ""),
+                                       json.dumps(cands) if (len(cands) > 1 or dp) and cands else None))
                     continue
                 pending.append((aid, prov, sign * amt) + eunc)
         c.executemany("INSERT INTO tech(output_id,input_id,amount,utype,p1,p2,p3) VALUES(?,?,?,?,?,?,?)", pending)
@@ -269,12 +289,16 @@ def _processes(store, db_id, src, procs, flows, locations, ref_amount, elementar
         n_prod = len({u[2] for u in unlinked})
         warnings.append(f"{len(unlinked)} inputs ({n_prod} products) have no supplier in this file, often because they "
                         "point to another database. Link them under 'Link missing suppliers'.")
+    if n_external:
+        warnings.append(f"{n_external} inputs name a default provider that is not in this file. Cyclia kept them unresolved "
+                        "with that reference instead of using another producer: link them under 'Link missing suppliers'.")
     if n_ambiguous:
         warnings.append(f"{n_ambiguous} inputs have no default provider and several processes in the file produce their "
                         "product. Cyclia does not pick one: choose the supplier under 'Link missing suppliers'.")
     if co_products:
         warnings.append(f"{co_products} co-product exchanges were ignored; the database should already be allocated.")
-    return {"activities": n_act, "warnings": warnings, "unlinked_inputs": len(unlinked), "ambiguous_inputs": n_ambiguous}
+    return {"activities": n_act, "warnings": warnings, "unlinked_inputs": len(unlinked), "ambiguous_inputs": n_ambiguous,
+            "external_provider_inputs": n_external}
 
 
 def read_impact_factors(path):

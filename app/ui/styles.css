@@ -968,6 +968,16 @@ pre.code, textarea.code { font-family: ui-monospace, "SF Mono", Consolas, monosp
 /* 1.3.6 database explorer */
 .ex-cols { display: grid; grid-template-columns: minmax(220px, 1fr) 2fr; gap: 16px; align-items: start; }
 .ex-cols #exResults { max-height: 70vh; overflow: auto; }
+#exResults li { display: flex; align-items: center; gap: 6px; }
+#exResults li > button { flex: 1; min-width: 0; }
+#exResults li > label.inline { margin: 0; }
 #exDetail table { width: 100%; }
 button.link { background: none; border: 0; padding: 0; color: var(--spruce, #2f6b4f); text-decoration: underline; cursor: pointer; text-align: left; font: inherit; }
 @media (max-width: 900px) { .ex-cols { grid-template-columns: 1fr; } }
+
+/* 1.3.7 MFA builder */
+.mfa-canvas-wrap { border: 1px solid var(--rule, #ddd); border-radius: 8px; background: var(--panel, #fff); overflow: auto; }
+#mfaCanvas { width: 100%; min-height: 300px; display: block; touch-action: none; }
+table.mfa-edit input { width: 100%; min-width: 60px; }
+table.mfa-edit select { width: 100%; min-width: 110px; }
+#mfaLinks .results { max-height: 180px; overflow: auto; }

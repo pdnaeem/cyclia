@@ -32,14 +32,21 @@ run(sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir", "
     "--hidden-import", "importers.ecoinvent_login", "--hidden-import", "importers.other_formats",
     "--hidden-import", "importers.demo", "--hidden-import", "science", "--hidden-import", "trust",
     "--hidden-import", "productivity", "--hidden-import", "standards", "--hidden-import", "interop",
-    "--hidden-import", "teaching", "--hidden-import", "credits", "--hidden-import", "analysis", "--hidden-import", "hier", "--hidden-import", "crosscheck", "--hidden-import", "factormatch", "--hidden-import", "epd_profiles", "--hidden-import", "regional", "--hidden-import", "slca", "--hidden-import", "mfa", "--hidden-import", "matplotlib.backends.backend_svg", "--hidden-import", "scipy.optimize", "--hidden-import", "scipy.stats.qmc",
+    "--hidden-import", "teaching", "--hidden-import", "credits", "--hidden-import", "analysis", "--hidden-import", "hier", "--hidden-import", "crosscheck", "--hidden-import", "factormatch", "--hidden-import", "epd_profiles", "--hidden-import", "regional", "--hidden-import", "slca", "--hidden-import", "mfa", "--hidden-import", "ilcd_epd", "--hidden-import", "staging", "--hidden-import", "compare_kit", "--hidden-import", "matplotlib.backends.backend_svg", "--hidden-import", "scipy.optimize", "--hidden-import", "scipy.stats.qmc",
     "--collect-submodules", "pdfplumber", "--collect-submodules", "pypdf",
     "--collect-data", "docx", *EI,
+    # data read at run time: ILCD+EPD schemas (validation of exports) and the comparison kit scripts
+    "--add-data", os.path.join("schemas", "ilcd_epd") + os.pathsep + os.path.join("schemas", "ilcd_epd"),
+    "--add-data", os.path.join("tools", "compare_kit") + os.pathsep + os.path.join("tools", "compare_kit"),
     "--exclude-module", "tkinter", "--exclude-module", "matplotlib.tests", "--exclude-module", "numpy.tests",
     "server.py")
 exe = os.path.join(HERE, "dist", "cyclia-engine", "cyclia-engine" + (".exe" if os.name == "nt" else ""))
 if not os.path.isfile(exe):
     sys.exit("Build failed: engine executable not found")
+base = os.path.join(HERE, "dist", "cyclia-engine")
+for rel in (os.path.join("schemas", "ilcd_epd", "_cyclia_validate.xsd"), os.path.join("tools", "compare_kit", "compare.py")):
+    if not any(os.path.isfile(os.path.join(base, sub, rel)) for sub in ("_internal", "")):
+        sys.exit(f"Build failed: {rel} is missing from the engine bundle")
 # smoke test: the frozen engine must start and print its ready line
 import threading
 p = subprocess.Popen([exe, "--port", "0", "--data", os.path.join(HERE, "build", "smoke-data"), "--token", "x"],
