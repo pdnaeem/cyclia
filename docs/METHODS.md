@@ -630,6 +630,13 @@ part, the factors that ecoinvent's results imply for flows without a factor in C
 otherwise flows whose name the method file has) are estimated by least squares over the deviating datasets, rows
 weighted by 1/|r_e|. They are a diagnosis; factors are added only from the method's source.
 
+### 15.6 No cut-off of scaling factors (1.3.10)
+The scaling vector s = A^-1 f is used as solved. Earlier versions set entries below 1e-13 times max|s| to zero as
+round-off; for ecoinvent this removed infrastructure, whose scaling factors per unit of product are of that order,
+and with it most land transformation and occupation (the land use deviation of the 1.3.6 benchmark). Round-off in
+totals that cancel to about zero is still cleaned per category (an entry below 1e-10 of the sum of the absolute
+contributions), and contribution lists still hide entries below 1e-12 of the category scale.
+
 ## References
 
 Andreasi Bassi S., Biganzoli F., Ferrara N., Amadei A., Valente A., Sala S., Ardente F. (2023) Updated characterisation and normalisation factors for the Environmental Footprint 3.1 method. JRC130796, Publications Office of the European Union.

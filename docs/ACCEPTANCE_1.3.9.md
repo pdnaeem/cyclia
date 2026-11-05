@@ -51,6 +51,18 @@ Tests are in `engine/tests/test_features.py`. All 199 pass.
   - The flow is named, with the ratio 1.2.
 - **Reader**: only the wanted rows are kept, every data row is counted, and every flow column is read.
 
+## Result of the user's run (fixed in 1.3.10)
+
+The inventory check on the real ecoinvent files:
+- 100 datasets were compared, and 3,352 of 3,354 flow columns matched Cyclia's flows.
+- For land use, the cause was 100 % inventory and 0 % factors. ecoinvent's inventory with Cyclia's factors reproduced
+  ecoinvent's results in 100 % of the cases.
+- The flows that differ point to infrastructure: industrial area, mineral extraction, seabed infrastructure, and
+  drilling emissions to the ocean.
+
+The cause was the cut-off of small scaling factors in the solve. It is removed in 1.3.10 (METHODS 15.6, test
+`TestSmallScalingFactors`).
+
 ## Not done
 
 - The run against the real ecoinvent files. It needs the user's licence: "Validate only" with "Compare inventories

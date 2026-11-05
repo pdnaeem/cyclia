@@ -103,8 +103,10 @@ class MatrixCache:
         s = (lu or self.lu).solve(demand)
         if not np.all(np.isfinite(s)):
             raise LCAError("The calculation produced non-finite numbers. The database may be badly linked.")
-        if s.size:
-            s[np.abs(s) < 1e-13 * (np.abs(s).max() or 1.0)] = 0.0  # round-off from the sparse solve
+        # 1.3.10: no cut-off of small scaling factors. Up to 1.3.9 values below 1e-13 x the largest were set to zero
+        # as round-off; that also removed real ones, such as the tiny shares of infrastructure (buildings, mines,
+        # platforms, roads) in a supply chain whose largest scaling factor is large, and with them most land
+        # transformation and occupation. Found by the inventory check against ecoinvent's cumulative LCI.
         return s
 
 
@@ -1158,8 +1160,6 @@ def full_mc(store, model_ids, method_ids, iterations=200, seed=42, progress=lamb
                 for x, a in fx:
                     fixed_h += M.fixed_vector(x) * a * amt
             s = lu.solve(f) if f.any() else np.zeros(mc.n)
-            if s.size:
-                s[np.abs(s) < 1e-13 * (np.abs(s).max() or 1.0)] = 0.0
             res[p, it] = Q @ s + M.Cd @ gd + fixed_h
         if it % max(1, iterations // 100) == 0:
             progress(int(100 * it / iterations), f"Iteration {it + 1:,} of {iterations:,}")

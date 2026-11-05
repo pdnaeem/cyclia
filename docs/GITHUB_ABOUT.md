@@ -22,8 +22,8 @@ life-cycle-assessment lca lca-software iso-14044 ecoinvent carbon-footprint epd 
 
 Settings > General > Social preview: upload `.github/social-preview.png`.
 
-## Release title for 1.3.9
+## Release title for 1.3.10
 
-Cyclia 1.3.9: inventory check against ecoinvent's cumulative LCI (cause of benchmark deviations)
+Cyclia 1.3.10: land use fixed (small infrastructure scaling factors are no longer cut)
 
-Paste the text of `docs/RELEASE_NOTES_v1.3.9.md` as the release description.
+Paste the text of `docs/RELEASE_NOTES_v1.3.10.md` as the release description.

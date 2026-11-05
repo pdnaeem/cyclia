@@ -1,6 +1,6 @@
 # Cyclia feature assessment and roadmap
 
-Version: 1.3.9. Author: Naeem Ur Rehman. This document lists what Cyclia does, which standards it follows,
+Version: 1.3.10. Author: Naeem Ur Rehman. This document lists what Cyclia does, which standards it follows,
 what was added in 1.3.2 after a full feature review, what 1.3.3 and 1.3.4 corrected after two external audits,
 what 1.3.5 added after a third audit, and what is still planned. Competitor capabilities are
 only listed where the vendor's own documentation describes them (sources at the end).
@@ -152,7 +152,12 @@ detection, quality filters in the explorer; a full ecoinvent import benchmark on
 ## 2g. 1.3.9
 
 Inventory check against ecoinvent's cumulative LCI: each deviation of the benchmark is split into an inventory and a
-factor part, so the cause of the land use deviation is measured on the user's machine. Open: the result of that run.
+factor part, so the cause of the land use deviation is measured on the user's machine.
+
+## 2h. 1.3.10
+
+The measured cause (100 % inventory) was the cut-off of small scaling factors in the solve; removed. Open: the
+user's re-run of the benchmark with 1.3.10.
 
 ---
 
@@ -190,7 +195,7 @@ database and method fingerprints.
 
 "Not documented" means the page reviewed did not describe it, not that the product lacks it.
 
-| Feature | Cyclia 1.3.9 | openLCA 2 | SimaPro Expert | Sphera LCA for Experts | Brightway / Activity Browser |
+| Feature | Cyclia 1.3.10 | openLCA 2 | SimaPro Expert | Sphera LCA for Experts | Brightway / Activity Browser |
 |---|---|---|---|---|---|
 | Monte Carlo | Yes, with Sobol, comparative probabilities, correlated parameters, convergence | Yes | Yes | Not documented | Yes, plus global sensitivity analysis |
 | Parameters and scenarios | Yes | Yes | Yes | Key parameters through an interface | Yes, with premise scenarios |

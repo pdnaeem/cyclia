@@ -4,6 +4,8 @@ Each test reproduces a finding of the third database audit (of 1.3.6) or checks 
 unresolved inputs, an explicit openLCA provider outside the import, the scope of the database check, the explorer
 query, streaming imports, the import integrity report and rollback."""
 import json
+
+import numpy as np
 import os
 import shutil
 import sys
@@ -287,3 +289,28 @@ class TestStreamingAndRecovery(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSmallScalingFactors(Base):
+    def test_infrastructure_share_is_not_cut(self):
+        """1.3.10: a supply chain with a large scaling factor (1,000 kWh) and a tiny one (1e-14 of a mine) keeps the
+        mine's land transformation. Up to 1.3.9 scaling factors below 1e-13 x the largest were set to zero, which
+        made land use 0.4 % (median) and up to 14 % lower than ecoinvent's."""
+        b = other_formats._Builder(self.st, "Infra", "test")
+        p = b.activity("p", "product", "product", "GLO", "kg")
+        e = b.activity("e", "electricity", "electricity", "GLO", "kWh")
+        m = b.activity("m", "mine", "mine", "GLO", "unit")
+        b.input(p, "electricity", "kWh", 1000.0)
+        b.input(p, "mine", "unit", 1e-14)
+        b.emission(e, "co2", "Carbon dioxide, fossil", "air", "", "kg", 0.5)
+        b.emission(m, "lt", "Transformation, to mineral extraction site", "natural resource", "land", "m2", 1e9)
+        b.write(lambda *a: None)
+        calc.invalidate()
+        mc = calc.get_mc(self.st)
+        f = np.zeros(mc.n)
+        f[mc.act_index[self.st.one("SELECT id FROM activities WHERE key='p'")["id"]]] = 1.0
+        g = mc.B @ mc.solve(f)
+        lt = mc.flow_index[self.st.one("SELECT id FROM flows WHERE uuid='lt'")["id"]]
+        co2 = mc.flow_index[self.st.one("SELECT id FROM flows WHERE uuid='co2'")["id"]]
+        self.assertAlmostEqual(g[lt], 1e-5, delta=1e-17)
+        self.assertAlmostEqual(g[co2], 500.0, places=9)

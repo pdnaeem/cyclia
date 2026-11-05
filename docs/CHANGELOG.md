@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.10 (2026-11-05)
+
+Fix of the land use deviation in the ecoinvent benchmark, found by the 1.3.9 inventory check.
+
+- **Small scaling factors are no longer cut**: the matrix solve set every scaling factor below 1e-13 times the
+  largest one to zero, as round-off. In ecoinvent, infrastructure (buildings, mines, offshore platforms, roads)
+  enters a supply chain with scaling factors of that order, so its land transformation and occupation, and its
+  drilling and mining emissions, were left out. The inventory check against ecoinvent's cumulative LCI showed it:
+  land use 100 % inventory part and 0 % factor part; "Transformation, from industrial area" 43 % and
+  "Transformation, to unspecified" 38 % higher in ecoinvent's inventory (median over about 90 datasets); ocean
+  emissions of aluminium, silicon and titanium 17 to 20 % higher; ecoinvent's inventory with Cyclia's factors gave
+  ecoinvent's results in 100 % of the cases. The cut-off is removed from the solve and from the Monte Carlo loop.
+- All results can change slightly (they become more complete); land use the most.
+- 200 automated tests (1 new).
+
 ## 1.3.9 (2026-11-05)
 
 Finding the cause of the land use deviation in the ecoinvent benchmark. Details: docs/ACCEPTANCE_1.3.9.md.
