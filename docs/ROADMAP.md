@@ -1,6 +1,6 @@
 # Cyclia feature assessment and roadmap
 
-Version: 1.3.10. Author: Naeem Ur Rehman. This document lists what Cyclia does, which standards it follows,
+Version: 1.4.0. Author: Naeem Ur Rehman. This document lists what Cyclia does, which standards it follows,
 what was added in 1.3.2 after a full feature review, what 1.3.3 and 1.3.4 corrected after two external audits,
 what 1.3.5 added after a third audit, and what is still planned. Competitor capabilities are
 only listed where the vendor's own documentation describes them (sources at the end).
@@ -157,7 +157,12 @@ factor part, so the cause of the land use deviation is measured on the user's ma
 ## 2h. 1.3.10
 
 The measured cause (100 % inventory) was the cut-off of small scaling factors in the solve; removed. Open: the
-user's re-run of the benchmark with 1.3.10.
+user's re-run of the benchmark.
+
+## 2i. 1.4.0
+
+1.3.8 to 1.3.10 in one release that builds on every platform: the macOS failure of 1.3.10 (solver round-off in
+categories that are zero) fixed in the solve and in the EPD check.
 
 ---
 
@@ -195,7 +200,7 @@ database and method fingerprints.
 
 "Not documented" means the page reviewed did not describe it, not that the product lacks it.
 
-| Feature | Cyclia 1.3.10 | openLCA 2 | SimaPro Expert | Sphera LCA for Experts | Brightway / Activity Browser |
+| Feature | Cyclia 1.4.0 | openLCA 2 | SimaPro Expert | Sphera LCA for Experts | Brightway / Activity Browser |
 |---|---|---|---|---|---|
 | Monte Carlo | Yes, with Sobol, comparative probabilities, correlated parameters, convergence | Yes | Yes | Not documented | Yes, plus global sensitivity analysis |
 | Parameters and scenarios | Yes | Yes | Yes | Key parameters through an interface | Yes, with premise scenarios |

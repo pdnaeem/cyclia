@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.4.0 (2026-11-05)
+
+First release with the work of 1.3.8 to 1.3.10 that passes the build on every platform. 1.3.10 failed the macOS
+build (test_epd: "the module table does not add up to the LCA result").
+
+- **Cause of the macOS failure**: 1.3.10 stopped cutting small scaling factors (the land use fix). The sparse solve
+  can leave round-off of about 1e-17 in datasets that are not in the supply chain at all. On macOS this made
+  categories that are zero (land use, freshwater eutrophication of the demo wall) tiny non-zero numbers, and the EPD
+  check divided their round-off by the near-zero total. Reproduced on Linux by adding 1e-17 noise to the solve.
+- **Fix in the solve**: datasets that are not in the supply chain of the demand (graph search over the exchanges,
+  independent of the amounts) get exactly zero. Datasets in the supply chain keep their value however small it is,
+  so the land use fix of 1.3.10 stays.
+- **Fix in the EPD check**: the gap between the module table and the result is measured relative to the gross size
+  of the stage contributions, so a category that cancels to about zero is not blocked by round-off. A real gap is
+  still found.
+- The whole test suite also passes with simulated solver round-off (except the test that checks a 1e-14 scaling
+  factor, whose simulated noise is larger than the value).
+- 203 automated tests (3 new).
+
 ## 1.3.10 (2026-11-05)
 
 Fix of the land use deviation in the ecoinvent benchmark, found by the 1.3.9 inventory check.

@@ -637,6 +637,12 @@ and with it most land transformation and occupation (the land use deviation of t
 totals that cancel to about zero is still cleaned per category (an entry below 1e-10 of the sum of the absolute
 contributions), and contribution lists still hide entries below 1e-12 of the category scale.
 
+Since 1.4.0, datasets that are not in the supply chain of the demand are set to exactly zero after the solve. They
+are found by a graph search over the exchanges (a dataset is reached when it supplies a reached dataset), which does
+not depend on the amounts. This removes round-off of the sparse solve where the exact value is zero and keeps every
+value in the supply chain. The EPD check (module table against result) measures the gap relative to the sum of the
+absolute stage contributions.
+
 ## References
 
 Andreasi Bassi S., Biganzoli F., Ferrara N., Amadei A., Valente A., Sala S., Ardente F. (2023) Updated characterisation and normalisation factors for the Environmental Footprint 3.1 method. JRC130796, Publications Office of the European Union.

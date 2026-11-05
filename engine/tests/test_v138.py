@@ -314,3 +314,19 @@ class TestSmallScalingFactors(Base):
         co2 = mc.flow_index[self.st.one("SELECT id FROM flows WHERE uuid='co2'")["id"]]
         self.assertAlmostEqual(g[lt], 1e-5, delta=1e-17)
         self.assertAlmostEqual(g[co2], 500.0, places=9)
+
+
+class TestEpdReconcileRoundOff(unittest.TestCase):
+    def test_round_off_of_a_cancelling_category_is_not_a_gap(self):
+        """1.4.0: macOS CI. Stages that cancel to about zero (total cleaned to 0, module sum 1e-17) blocked the EPD,
+        because the gap was divided by the near-zero total."""
+        import standards
+        r = {"results": [{"category": "c", "indicator": "i", "unit": "u", "family": "f", "total": 0.0, "module_d": 0.0,
+                          "by_stage": [{"name": "A1-A3", "impact": 1.0}, {"name": "C4", "impact": -1.0 + 1e-17}]}]}
+        self.assertLess(standards.reconcile(r), 1e-6)
+
+    def test_a_real_gap_is_still_found(self):
+        import standards
+        r = {"results": [{"category": "c", "indicator": "i", "unit": "u", "family": "f", "total": 2.0, "module_d": 0.0,
+                          "by_stage": [{"name": "A1-A3", "impact": 1.0}]}]}
+        self.assertGreater(standards.reconcile(r), 0.4)

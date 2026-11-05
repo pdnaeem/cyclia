@@ -99,10 +99,33 @@ class MatrixCache:
         B.sum_duplicates()
         return B
 
+    def reached(self, demand):
+        """Datasets in the supply chain of the demand (graph search over the exchanges, independent of the amounts)."""
+        # cached for this exchange list: the object is rebuilt in place when the library changes, and variants
+        # (science.py) carry their own arrays
+        cache = getattr(self, "_reach_pattern", None)
+        if cache is None or cache[0] is not self.t_rows or cache[1] is not self.t_cols or cache[2].shape[0] != self.n:
+            P = sp.csr_matrix((np.ones(len(self.t_rows), dtype=np.int32), (self.t_rows, self.t_cols)),
+                              shape=(self.n, self.n))
+            P.data[:] = 1
+            cache = self._reach_pattern = (self.t_rows, self.t_cols, P)
+        P = cache[2]
+        r = np.asarray(demand) != 0
+        while True:
+            nr = r | (P @ r.astype(np.int32) > 0)
+            if np.array_equal(nr, r):
+                return r
+            r = nr
+
     def solve(self, demand, lu=None):
         s = (lu or self.lu).solve(demand)
         if not np.all(np.isfinite(s)):
             raise LCAError("The calculation produced non-finite numbers. The database may be badly linked.")
+        if s.size:
+            s[~self.reached(demand)] = 0.0
+        # 1.4.0: datasets that are not in the supply chain of the demand get exactly zero. The sparse solve can leave
+        # round-off of about 1e-17 there (seen on macOS), which made a category that is zero look like noise.
+        # Datasets in the supply chain keep their value however small it is.
         # 1.3.10: no cut-off of small scaling factors. Up to 1.3.9 values below 1e-13 x the largest were set to zero
         # as round-off; that also removed real ones, such as the tiny shares of infrastructure (buildings, mines,
         # platforms, roads) in a supply chain whose largest scaling factor is large, and with them most land

@@ -142,7 +142,11 @@ def reconcile(result):
     gap = 0.0
     for m, r in zip(by_module(result), result["results"]):
         ac = sum(v for c, v in m["modules"].items() if c != "D") + m["unassigned"]
-        scale = max(abs(r["total"]), abs(r.get("module_d") or 0), 1e-30)
+        # relative to the gross size of the contributions: a category whose stages cancel to about zero has a total
+        # of 0 (round-off cleaned) and module sums of round-off size; dividing by the near-zero total would turn
+        # 1e-17 of round-off into a large gap (1.4.0, seen on macOS once tiny scaling factors were no longer cut)
+        gross = sum(abs(b["impact"]) for b in r["by_stage"]) + abs(r.get("module_d") or 0)
+        scale = max(abs(r["total"]), abs(r.get("module_d") or 0), gross, 1e-300)
         gap = max(gap, abs(ac - r["total"]) / scale, abs(m["modules"]["D"] - (r.get("module_d") or 0)) / scale)
     return gap
 

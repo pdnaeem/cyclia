@@ -448,6 +448,30 @@ class TestFeatures(unittest.TestCase):
         for path in ("/api/export/epd", "/api/export/epd-excel"):
             self.assertTrue(os.path.exists(self.api("POST", path, self.calc_body())["path"]))
 
+    def test_epd_with_solver_round_off(self):
+        """1.4.0: the macOS CI failure of 1.3.10. Round-off of about 1e-17 from the sparse solve (simulated here) made
+        categories that are zero look like noise and blocked the EPD ('module table does not add up')."""
+        orig = calc.factorise
+
+        class Noisy:
+            def __init__(self, lu):
+                self.lu = lu
+
+            def solve(self, b):
+                x = self.lu.solve(b)
+                return x + np.random.default_rng(0).normal(0, 1e-17, x.shape) * (np.abs(x).max() or 1.0)
+        calc.factorise = lambda A: Noisy(orig(A))
+        calc.invalidate()
+        try:
+            for path in ("/api/export/epd", "/api/export/epd-excel"):
+                self.assertTrue(os.path.exists(self.api("POST", path, self.calc_body())["path"]))
+            e = self.api("POST", "/api/epd/check", self.calc_body())
+            zero = [m for m in e["modules"] if m["category"] in ("land use", "eutrophication, freshwater")]
+            self.assertTrue(zero and all(m["total_ac"] == 0.0 for m in zero), zero)
+        finally:
+            calc.factorise = orig
+            calc.invalidate()
+
     def test_pef_14067_ghg(self):
         p = self.api("POST", "/api/pef", self.calc_body())
         self.assertGreaterEqual(sum(c["share"] for c in p["relevant_categories"]), 0.8 - 1e-9)
