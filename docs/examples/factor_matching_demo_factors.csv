@@ -1,0 +1,14 @@
+# Demonstration file for Cyclia's factor matching validation (Toolbox > Validation > Factor matching).
+# Factors of the "Demo EF-style method (illustrative)" as another tool might have them, with deliberate differences:
+# Methane fossil 29.7 instead of 29.8 (different), Dinitrogen monoxide missing (only in Cyclia),
+# Sulfur hexafluoride added (only in the external file), Ammonia 3.02 given without uuid (matched by name).
+# The values are invented for the demo and are not EF 3.1 factors.
+category,flow_uuid,flow_name,compartment,subcompartment,unit,cf
+climate change,eb48996f-ad11-511f-965e-9a5fd09f2614,"Carbon dioxide, fossil",air,unspecified,kg,1
+climate change,5d4e1d98-ac7b-53f3-a9d7-fb5c4edcecb4,"Carbon dioxide, non-fossil",air,unspecified,kg,0
+climate change,682ddee4-a4c1-5db0-8ef1-8a7e8a5179f7,"Methane, fossil",air,unspecified,kg,29.7
+climate change,d484a49e-9e35-5f65-8b6d-5fef9c309cf4,"Methane, non-fossil",air,unspecified,kg,27
+climate change,,Sulfur hexafluoride,air,unspecified,kg,25200
+acidification,3d4d1b2f-fc1a-5788-a081-6f1011f68fdf,Sulfur dioxide,air,unspecified,kg,1.31
+acidification,dcd4d92c-5dfc-57d1-a734-4d108c62d118,Nitrogen oxides,air,unspecified,kg,0.74
+acidification,,Ammonia,air,unspecified,kg,3.02

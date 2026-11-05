@@ -64,7 +64,15 @@ jobs:
             # macOS on Apple silicon needs at least an ad-hoc signature to start
             if [ "$RUNNER_OS" = "macOS" ]; then EXTRA="-c.mac.identity=-"; fi
           fi
-          npx electron-builder ${{ matrix.target }} $EXTRA --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+          # hdiutil on GitHub's macOS runners sometimes fails with "Resource busy" while making the .dmg: retry
+          n=0
+          until npx electron-builder ${{ matrix.target }} $EXTRA --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}; do
+            n=$((n+1))
+            if [ "$RUNNER_OS" != "macOS" ] || [ $n -ge 3 ]; then echo "electron-builder failed"; exit 1; fi
+            echo "electron-builder failed on macOS, retry $n of 2 in 30 s"
+            hdiutil info || true
+            sleep 30
+          done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets[matrix.csc_link] }}

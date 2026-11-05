@@ -76,6 +76,10 @@ def lcc(ctx, model_id):
     if not has_cost(model_id):
         return None
     rate = float(sc.get("lcc_rate") or 0) / 100.0
+    try:
+        period = float(sc.get("lcc_period") or 0)
+    except (TypeError, ValueError):
+        period = 0.0
     if rate <= -1:
         raise calc.LCAError("The discount rate must be above -100 %.")
     share = calc.allocation_share(sc)
@@ -86,8 +90,16 @@ def lcc(ctx, model_id):
         name = inp["label"] or inp["target"]["name"]
         stage = inp["stage"] or UNASSIGNED
         if inp.get("unit_cost") is not None:
-            c = _input_amount(ctx, model_id, inp) * float(inp["unit_cost"]) * sign * share
-            d = c / (1 + rate) ** year
+            c1 = _input_amount(ctx, model_id, inp) * float(inp["unit_cost"]) * sign * share
+            years = [year]
+            R = float(inp.get("replace_every") or 0)
+            if R > 0 and period > 0:
+                k = 1
+                while year + k * R < period - 1e-9:
+                    years.append(year + k * R)
+                    k += 1
+            c = c1 * len(years)
+            d = sum(c1 / (1 + rate) ** y for y in years)
             src = "line"
         elif inp["kind"] == "model":
             sub = ctx.model(inp["ref_id"])
@@ -100,7 +112,9 @@ def lcc(ctx, model_id):
         else:
             n_unc += 1
             continue
+        ctype = inp.get("cost_type") or ""
         rows.append({"input_id": inp["id"], "name": name, "stage": stage, "year": year, "cost": c, "discounted": d,
+                     "cost_type": ctype, "replacements": (len(years) - 1) if src == "line" else 0,
                      "module_d": calc.is_module_d(sc, inp["stage"]), "source": src, "revenue": c < 0})
     ac = [r for r in rows if not r["module_d"]]
     stages = []
@@ -109,14 +123,22 @@ def lcc(ctx, model_id):
             stages.append(r["stage"])
     by_stage = [{"stage": s, "cost": sum(r["cost"] for r in ac if r["stage"] == s),
                  "discounted": sum(r["discounted"] for r in ac if r["stage"] == s)} for s in stages]
+    by_type = {}
+    for r in ac:
+        t = r["cost_type"] or "not classified"
+        by_type.setdefault(t, {"type": t, "cost": 0.0, "discounted": 0.0})
+        by_type[t]["cost"] += r["cost"]
+        by_type[t]["discounted"] += r["discounted"]
     rows.sort(key=lambda r: -abs(r["cost"]))
     return {"currency": (sc.get("lcc_currency") or "EUR").strip() or "EUR", "rate_percent": rate * 100,
             "total": sum(r["cost"] for r in ac), "total_discounted": sum(r["discounted"] for r in ac),
-            "beyond_boundary": sum(r["cost"] for r in rows if r["module_d"]), "by_stage": by_stage, "lines": rows,
+            "beyond_boundary": sum(r["cost"] for r in rows if r["module_d"]), "by_stage": by_stage,
+            "by_type": list(by_type.values()), "study_period": period, "lines": rows,
             "n_costed": len(rows), "n_uncosted": n_unc,
             "note": "Costs per functional unit from the prices entered in step 3 (price per unit of the amount). "
                     "Credit lines with a price count as revenue. Discounted with the rate in step 2 and the year of "
-                    "each line (net present cost). Module D lines are reported apart. Only the costs you entered are "
+                    "each line (net present cost). A line with a replacement interval is bought again every interval "
+                    "within the study period of step 2. Module D lines are reported apart. Only the costs you entered are "
                     "included: lines without a price count as zero."}
 
 
@@ -480,3 +502,47 @@ def correlated_draws(rng, dist, size, correlations):
              if ("p", c.get("a")) in keys and ("p", c.get("b")) in keys and c.get("a") != c.get("b")]
     d = hier.draw(rng, var_list, size, pairs)
     return {k[1]: v for k, v in d.items()}
+
+
+# ============================================================================ consequential: marginal suppliers
+CONSTRAINED_WORDS = ("recycled", "recycling", "secondary", "by-product", "byproduct", "co-product", "coproduct", "waste",
+                     "treatment of", "scrap", "used ", "reuse", "re-use", "residue", "cut-off")
+
+
+def constrained_reason(name, product):
+    t = f"{name or ''} {product or ''}".lower()
+    hit = next((w.strip() for w in CONSTRAINED_WORDS if w in t), None)
+    return (f"'{hit}' in the name: a by-product, recycled or waste-based supply is usually constrained (its output "
+            "does not follow demand)") if hit else ""
+
+
+def marginal_guidance(store, model_id):
+    """For every market in the supply chain of a model: its suppliers, which are likely constrained (by-products,
+    recycled or waste-based supply, Weidema et al. 2009), and a proposed marginal supplier among the unconstrained
+    ones. The proposal is a starting point only: the marginal supplier is the one whose output changes when demand
+    changes, normally the most competitive unconstrained technology in a growing market, which needs market data."""
+    import science
+    out = []
+    for m in science.markets(store, model_id):
+        sup = []
+        for x in m["suppliers"]:
+            reason = constrained_reason(x["name"], x.get("product"))
+            sup.append({"id": x["id"], "name": x["name"], "location": x["location"], "share": x["share"],
+                        "constrained": bool(reason), "reason": reason})
+        free = [x for x in sup if not x["constrained"]]
+        prop = max(free, key=lambda x: x["share"]) if free else None
+        rule = None
+        if prop:
+            rule = {"type": "swap", "activity_ids": [m["market"]["id"]], "product": m["product_root"],
+                    "to": [{"id": prop["id"], "share": 1.0}],
+                    "note": f"marginal supplier of {m['product_root']} in {m['market']['name']}"}
+        out.append({"market": {k: m["market"][k] for k in ("id", "name", "location", "product")},
+                    "product": m["product_root"], "suppliers": sup, "proposal": prop, "rule": rule,
+                    "all_constrained": not free})
+    return {"markets": out,
+            "guidance": "ISO 14044 4.3.4.2 and the consequential approach (Weidema et al. 2009): for each market, the "
+                        "marginal supplier is the unconstrained supplier that would respond to a change in demand. "
+                        "Cyclia excludes suppliers that look constrained (by-products, recycled, waste-based) and "
+                        "proposes the unconstrained supplier with the largest current share as a starting point. "
+                        "Confirm or change it with market trends (which technology is growing and competitive), then "
+                        "create a consequential background scenario from the chosen suppliers."}

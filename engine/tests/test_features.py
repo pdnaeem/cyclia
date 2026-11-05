@@ -308,6 +308,41 @@ class TestFeatures(unittest.TestCase):
         self.assertLess(kiln["share"], 1)
         self.assertTrue(kiln["rule"])
 
+    def test_v135_endpoints(self):
+        prof = self.api("GET", "/api/epd/profiles")["profiles"]
+        self.assertTrue({"generic", "international-epd-system", "ibu", "inies-fdes"} <= {p["id"] for p in prof})
+        self.api("POST", f"/api/models/{self.wall}/epd-info", {"profile": "ibu", "fields": {"declaration_number": "X"}})
+        chk = self.api("POST", "/api/epd/check", self.calc_body())["checklist"]
+        self.assertEqual(chk["profile"], "ibu")
+        with self.assertRaises(AssertionError):
+            self.api("POST", f"/api/models/{self.wall}/epd-info", {"profile": "no-such"})
+        self.api("POST", f"/api/models/{self.wall}/epd-info", {"profile": "generic"})
+        cp = self.api("POST", "/api/export/epd-profile", {"id": "ibu", "path": os.path.join(self.dir, "ibu.json")})["path"]
+        self.assertEqual(self.api("POST", "/api/epd/profiles", {"path": cp})["id"], "ibu-copy")
+        self.assertIn("ibu-copy", {p["id"] for p in self.api("GET", "/api/epd/profiles")["profiles"]})
+        self.api("POST", f"/api/models/{self.wall}/epd-info", {"profile": "ibu-copy"})
+        self.api("POST", f"/api/models/{self.wall}/epd-info", {"profile": "generic"})
+        st = self.api("POST", "/api/regional/demo")["status"]
+        self.assertTrue(st["AWARE"]["demo"])
+        a = self.api("POST", "/api/regional/assess", {"model_id": self.wall, "method": "AWARE"})
+        self.assertIn("completeness", a)
+        self.api("POST", "/api/slca/demo")
+        s = self.api("POST", "/api/slca/assess", {"model_id": self.wall})
+        self.assertIn("worker_hours", s)
+        ex = self.api("GET", "/api/mfa/example")["definition"]
+        r = self.api("POST", "/api/mfa/run", {"definition": ex})
+        self.assertTrue(r["mass_balance_ok"])
+        self.assertAlmostEqual(self.api("POST", "/api/mfa/mci", {"Fr": 0, "Cr": 0})["MCI"], 0.1)
+        g = self.api("GET", f"/api/models/{self.wall}/marginal")
+        self.assertIn("markets", g)
+        p = os.path.join(self.dir, "ext.csv")
+        with open(p, "w") as fh:
+            fh.write("category,flow_name,compartment,subcompartment,unit,cf\nclimate change,\"Carbon dioxide, fossil\",air,,kg,1\n")
+        res = self.api.job("/api/factor-match", {"path": p, "method_ids": [self.gwp]})
+        self.assertIn("categories", res)
+        out = self.api("POST", "/api/export/factor-match", {"path": os.path.join(self.dir, "fm.xlsx")})
+        self.assertTrue(os.path.exists(out["path"]))
+
     def test_templates(self):
         t = self.api("GET", "/api/model-templates")["templates"]
         self.assertGreaterEqual(len(t), 4)

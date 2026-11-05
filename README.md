@@ -52,7 +52,8 @@ USLCI, Agribalyse or ELCD. Your data stays on your computer.
 
 **Databases and impact methods**
 - ecoinvent: download with your own licence inside the app, or import a release you already have
-- openLCA JSON-LD, SimaPro CSV, ILCD (Ökobaudat, EF datasets), ecoSpold1 and ecoSpold2
+- openLCA JSON-LD, SimaPro CSV, ILCD (Ökobaudat, EF datasets, with their data quality ratings), ecoSpold1 and
+  ecoSpold2
 - EF 3.1 (Environmental Footprint) with official JRC normalisation and weighting, ReCiPe 2016, CML-IA,
   IPCC 2021 GWP100 split per EN 15804+A2, or any method from a CSV table
 - Flow mapping between databases and methods with different flow names
@@ -61,18 +62,27 @@ USLCI, Agribalyse or ELCD. Your data stays on your computer.
 - Parameters, formulas and scenarios; co-product allocation; system expansion and avoided products
 - Circular Footprint Formula (EU PEF) for recycled content, recycling and energy recovery
 - Primary, secondary or estimated data per line, with reference, year, supplier and verification
-- Life cycle costing (LCC) with discounting, next to the environmental results
+- Life cycle costing (LCC) with discounting, cost types and replacements over a study period, next to the
+  environmental results
 - EN 15804+A2 modules A to D with module D reported separately; biogenic carbon; dynamic GWP
 - Background scenarios for prospective and consequential LCA, including premise and Activity Browser
   scenario files
 - Inventory from tables in papers and reports (PDF, Word, Excel or pasted text)
 - Model templates for buildings, packaging, food and energy
+- Marginal supplier guidance for consequential LCA: constrained suppliers excluded, a consequential
+  scenario created from your choices
 
 **Interpretation**
 - Contribution analysis by input, process and elementary flow; supply chain tree and Sankey diagram
 - Sensitivity analysis, Monte Carlo uncertainty with the pedigree matrix, and Sobol indices
 - Parameter sweeps, optimisation and Pareto fronts
 - Impacts by location on a world map
+- AWARE water scarcity and LANCA land use per process location, with completeness (import the official
+  factors)
+- Social LCA screening: worker hours and risk hours per stakeholder along the supply chain (import PSILCA,
+  SOCA or your own data)
+- Dynamic material flow analysis with stocks, lifetimes and recycling loops, and the Material Circularity
+  Indicator
 - Toxicity: screening characterisation factors for your own chemicals (multimedia fate model with
   USEtox-style exposure and effect), import of official factors by CAS number, and a coverage report
 - Automatic ISO 14044 completeness, consistency and sensitivity checks
@@ -87,7 +97,8 @@ USLCI, Agribalyse or ELCD. Your data stays on your computer.
 - Report centre that shows what each report still needs
 - ISO 14044-structured Word report, two-page executive summary, Excel results workbook, journal figures
   (300 dpi PNG and SVG), review and verification status
-- EPD per ISO 14025:2026 and EN 15804+A2 with checklist, PEF most relevant results, ISO 14067 carbon footprint report,
+- EPD per ISO 14025:2026 and EN 15804+A2 with checklist and programme layouts (EPD International, IBU, INIES
+  FDES drafts, or your own profile), PEF most relevant results, ISO 14067 carbon footprint report,
   GHG Protocol workbook, critical review checklist
 - Export to Brightway and openLCA; Python and R clients for scripted work
 - Reproducibility bundles with database and method fingerprints
@@ -101,9 +112,9 @@ USLCI, Agribalyse or ELCD. Your data stays on your computer.
 
 ## Validated calculations
 
-LCA results only matter if they are right. Cyclia checks itself in four independent ways:
+LCA results only matter if they are right. Cyclia checks itself in five independent ways:
 
-1. **113 automated tests** of the calculation engine (`engine/tests`)
+1. **137 automated tests** of the calculation engine (`engine/tests`)
 2. **A validation suite of 35 product systems with exact known answers**: supply chains, loops,
    allocation, system expansion, units, regional and site factors, background scenarios, module D,
    dynamic GWP, Monte Carlo, Sobol and the fate model. Run it in the app (Toolbox > Validation) and
@@ -112,6 +123,10 @@ LCA results only matter if they are right. Cyclia checks itself in four independ
    a different solver) inside the app; see [`docs/CROSS_VALIDATION.md`](docs/CROSS_VALIDATION.md).
 4. **Automatic comparison with ecoinvent's own LCIA results**: connect your ecoinvent account and
    Cyclia recalculates a sample of datasets and reports the deviation per impact category.
+5. **Factor matching validation**: Cyclia's characterisation factors compared flow by flow with an openLCA
+   JSON-LD export, a Brightway export or a CSV, with the effect of every difference on your models.
+
+What each 1.3.5 feature does, how it is tested and what it does not do yet: [`docs/ACCEPTANCE_1.3.5.md`](docs/ACCEPTANCE_1.3.5.md).
 
 The calculation method, with references, is documented in [`docs/METHODS.md`](docs/METHODS.md).
 
@@ -165,7 +180,7 @@ login or to check for updates.
 
 If Cyclia helps your research, please cite it. Citing is how free scientific software gets credit.
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.3.4)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.3.5)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [`CITATION.cff`](CITATION.cff). Inside
@@ -197,7 +212,7 @@ python -m unittest discover -s engine/tests -v
 ```
 
 On Windows, `build-windows.bat` runs the tests, builds the engine and produces the installer in
-`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.3.4` makes GitHub
+`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.3.5` makes GitHub
 Actions build Windows, macOS and Linux installers and publish them as a release.
 
 ```

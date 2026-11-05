@@ -26,6 +26,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import analysis  # noqa: E402
 import crosscheck  # noqa: E402
+import epd_profiles  # noqa: E402
+import factormatch  # noqa: E402
+import mfa  # noqa: E402
+import regional  # noqa: E402
+import slca  # noqa: E402
 import calc  # noqa: E402
 import formula as fm  # noqa: E402
 import interop  # noqa: E402
@@ -42,7 +47,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.3.4"
+VERSION = "1.3.5"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -774,6 +779,7 @@ def input_add(st, body, q, mid):
 
 
 DATA_TYPES = ("", "primary", "secondary", "estimate")
+COST_TYPES = ("", "capex", "opex", "maintenance", "replacement", "end of life")
 
 
 @route("PATCH", r"/api/inputs/(\d+)")
@@ -813,6 +819,18 @@ def input_update(st, body, q, iid):
             if not 1900 <= y <= 2100:
                 raise ApiError("Give the data year as a four-digit year, e.g. 2024.")
             fields["data_year"] = y
+    if "cost_type" in body:
+        if body["cost_type"] not in COST_TYPES:
+            raise ApiError("Cost type must be one of: " + ", ".join(t or "(none)" for t in COST_TYPES) + ".")
+        fields["cost_type"] = body["cost_type"]
+    if "replace_every" in body:
+        if body["replace_every"] in (None, ""):
+            fields["replace_every"] = None
+        else:
+            r = _num(body["replace_every"], "Replacement interval")
+            if r <= 0:
+                raise ApiError("The replacement interval must be more than zero years.")
+            fields["replace_every"] = r
     if "unit_cost" in body:
         if body["unit_cost"] in (None, ""):
             fields["unit_cost"] = None
@@ -1594,7 +1612,8 @@ def model_lock(st, body, q, mid):
 def epd_check(st, body, q):
     res = _calc(st, body)
     model = st.store.model(int(body["model_id"]))
-    return {"checklist": standards.epd_checklist(model, res), "modules": standards.by_module(res),
+    prof = epd_profiles.get((model["scope"].get("epd") or {}).get("profile"), _profiles_dir(st))
+    return {"checklist": standards.epd_checklist(model, res, prof), "modules": standards.by_module(res),
             "declared": standards.declared_modules(model, res), "columns": standards.COLUMNS}
 
 
@@ -1608,8 +1627,12 @@ def epd_info(st, body, q, mid):
     sc = m["scope"]
     keep = ("manufacturer", "site", "programme", "number", "pcr", "issued", "valid_until", "rsl", "type", "verification",
             "verifier", "biogenic_product", "biogenic_packaging", "description", "declared", "specific_months",
-            "prospective", "audience", "programme_statements", "pcr_version")
-    sc["epd"] = {k: body.get(k) for k in keep if body.get(k) not in (None, "")}
+            "prospective", "audience", "programme_statements", "pcr_version", "profile", "fields", "statements_override")
+    if body.get("profile") and body["profile"] not in epd_profiles.all_profiles(_profiles_dir(st)):
+        raise ApiError("Unknown EPD programme profile.")
+    if body.get("fields") is not None and not isinstance(body["fields"], dict):
+        raise ApiError("fields must be an object of field values.")
+    sc["epd"] = {k: body.get(k) for k in keep if body.get(k) not in (None, "", {}, [])}
     store.save_model({"id": m["id"], "name": m["name"], "product": m["product"], "unit": m["unit"], "amount": m["amount"],
                       "scope": sc})
     return {"model": store.model(int(mid))}
@@ -1627,9 +1650,52 @@ def _std_export(st, body, ext, fn, label):
     return {"path": path, "file": os.path.basename(path)}
 
 
+def _profiles_dir(st):
+    return os.path.join(st.data_dir, "epd_profiles")
+
+
+@route("GET", "/api/epd/profiles")
+def epd_profile_list(st, body, q):
+    return {"profiles": list(epd_profiles.all_profiles(_profiles_dir(st)).values())}
+
+
+@route("POST", "/api/epd/profiles")
+def epd_profile_save(st, body, q):
+    try:
+        prof = body.get("profile")
+        if body.get("path"):
+            with open(_check_path(body["path"]), encoding="utf-8-sig") as fh:
+                prof = json.load(fh)
+        if isinstance(prof, str):
+            prof = json.loads(prof)
+        if not isinstance(prof, dict):
+            raise ValueError("the file is not a JSON object")
+        pid = epd_profiles.save_custom(prof, _profiles_dir(st))
+    except (ValueError, json.JSONDecodeError, TypeError, OSError) as e:
+        raise ApiError(f"The profile could not be loaded: {e}")
+    return {"id": pid}
+
+
+@route("POST", "/api/export/epd-profile")
+def export_epd_profile(st, body, q):
+    prof = epd_profiles.all_profiles(_profiles_dir(st)).get(body.get("id") or "generic")
+    if not prof:
+        raise ApiError("Unknown EPD programme profile.")
+    prof = dict(prof, id=prof["id"] + "-copy", name=prof["name"] + " (copy)")
+    prof.pop("custom", None)
+    path = _export_path(st, body, {"name": f"EPD profile {prof['id']}"}, "json")
+    _writable(path)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(prof, fh, ensure_ascii=False, indent=2)
+    return {"path": path, "file": os.path.basename(path)}
+
+
 @route("POST", "/api/export/epd")
 def export_epd(st, body, q):
-    return _std_export(st, body, "docx", lambda p, m, r: standards.epd_word(p, m, r, st.store.databases(), VERSION), "EPD")
+    def fn(p, m, r):
+        prof = epd_profiles.get((m["scope"].get("epd") or {}).get("profile"), _profiles_dir(st))
+        return standards.epd_word(p, m, r, st.store.databases(), VERSION, profile=prof)
+    return _std_export(st, body, "docx", fn, "EPD")
 
 
 @route("POST", "/api/export/epd-excel")
@@ -1913,7 +1979,7 @@ def report_centre(st, body, q):
     errors = [c for c in res["checks"] if c["level"] == "error"]
     cats = " ".join(r["category"].lower() for r in res["results"])
     fams = " ".join(r["family"] for r in res["results"])
-    chk = standards.epd_checklist(model, res)
+    chk = standards.epd_checklist(model, res, epd_profiles.get((model["scope"].get("epd") or {}).get("profile"), _profiles_dir(st)))
 
     def item(ok, text, level="required"):
         return {"ok": bool(ok), "text": text, "level": level}
@@ -2055,6 +2121,142 @@ def allocation_overview(st, body, q):
     return {"models": out, "note": "ISO 14044 4.3.4.2: avoid allocation by subdivision or system expansion where possible; "
                                    "otherwise allocate by physical relationships, and only then by other relationships "
                                    "such as economic value."}
+
+
+# ------------------------------------------------------------------ 1.3.5: factor matching, regional, social, MFA
+@route("POST", "/api/factor-match")
+def factor_match(st, body, q):
+    path = _check_path(_need(body, "path")[0])
+    mids = _need(body, "method_ids")[0]
+    res_path = _check_path(body["results_path"]) if body.get("results_path") else None
+    store = st.store
+
+    def job(progress, cancelled):
+        progress(5, "Reading the external factors")
+        ext, kind = factormatch.read_external(path)
+        ext_res = factormatch.read_external_results(res_path) if res_path else None
+        progress(30, "Comparing flow by flow")
+        res = factormatch.compare(store, [int(x) for x in mids], ext, kind, [m["id"] for m in store.models()], ext_res,
+                                  body.get("pairs") or None)
+        st.last_factor_match = res
+        return res
+    return {"job": st.start_job("Factor matching validation", job, exclusive=False)}
+
+
+@route("POST", "/api/export/factor-match")
+def export_factor_match(st, body, q):
+    res = getattr(st, "last_factor_match", None)
+    if not res:
+        raise ApiError("Run the factor matching validation first.")
+    path = _export_path(st, body, {"name": "Cyclia factor matching validation"}, "xlsx")
+    _writable(path)
+    factormatch.to_excel(path, res, VERSION)
+    return {"path": path, "file": os.path.basename(path)}
+
+
+@route("GET", r"/api/models/(\d+)/marginal")
+def marginal(st, body, q, mid):
+    try:
+        return analysis.marginal_guidance(st.store, int(mid))
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+@route("GET", "/api/regional/status")
+def regional_status(st, body, q):
+    return {"status": regional.status(st.store), "templates": {"AWARE": regional.AWARE_TEMPLATE, "LANCA": regional.LANCA_TEMPLATE},
+            "lanca_indicators": list(regional.LANCA_INDICATORS)}
+
+
+@route("POST", "/api/regional/import")
+def regional_import(st, body, q):
+    method = _need(body, "method")[0]
+    text = body.get("text")
+    if body.get("path"):
+        with open(_check_path(body["path"]), encoding="utf-8-sig") as fh:
+            text = fh.read()
+    if not text:
+        raise ApiError("Give a CSV file or paste the table.")
+    try:
+        return regional.import_factors(st.store, method, text, body.get("source") or os.path.basename(body.get("path") or ""))
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/regional/demo")
+def regional_demo(st, body, q):
+    return {"status": regional.demo_factors(st.store)}
+
+
+@route("POST", "/api/regional/assess")
+def regional_assess(st, body, q):
+    mid, method = _need(body, "model_id", "method")
+    try:
+        return regional.aware(st.store, int(mid)) if str(method).upper() == "AWARE" else regional.lanca(st.store, int(mid))
+    except (ValueError, calc.LCAError) as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/slca/import")
+def slca_import(st, body, q):
+    text = body.get("text")
+    if body.get("path"):
+        with open(_check_path(body["path"]), encoding="utf-8-sig") as fh:
+            text = fh.read()
+    if not text:
+        raise ApiError("Give a CSV file or paste the table.")
+    try:
+        return slca.import_data(st.store, text, body.get("source") or os.path.basename(body.get("path") or ""))
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/slca/demo")
+def slca_demo(st, body, q):
+    return slca.demo_data(st.store)
+
+
+@route("GET", "/api/slca/info")
+def slca_info(st, body, q):
+    n = st.store.one("SELECT COUNT(*) AS n, MIN(source) AS src FROM slca_data")
+    return {"rows": n["n"], "source": n["src"] or "", "template": slca.TEMPLATE, "stakeholders": list(slca.STAKEHOLDERS),
+            "risk_factors": slca.RISK_FACTORS}
+
+
+@route("POST", "/api/slca/assess")
+def slca_assess(st, body, q):
+    mid = _need(body, "model_id")[0]
+    try:
+        return slca.assess(st.store, int(mid), body.get("factors"))
+    except (ValueError, calc.LCAError) as e:
+        raise ApiError(str(e))
+
+
+@route("GET", "/api/mfa/example")
+def mfa_example(st, body, q):
+    return {"definition": mfa.EXAMPLE}
+
+
+@route("POST", "/api/mfa/run")
+def mfa_run(st, body, q):
+    d = body.get("definition")
+    if isinstance(d, str):
+        try:
+            d = json.loads(d)
+        except json.JSONDecodeError as e:
+            raise ApiError(f"The definition is not valid JSON: {e}")
+    try:
+        return mfa.run(d or {})
+    except (ValueError, KeyError, TypeError) as e:
+        raise ApiError(f"MFA: {e}")
+
+
+@route("POST", "/api/mfa/mci")
+def mfa_mci(st, body, q):
+    try:
+        return mfa.mci(**{k: float(v) for k, v in body.items() if k in ("Fr", "Fu", "Cr", "Cu", "Ec", "Ef", "L_ratio", "U_ratio")})
+    except ValueError as e:
+        raise ApiError(str(e))
 
 
 @route("POST", "/api/crosscheck")

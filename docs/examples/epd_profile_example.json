@@ -1,0 +1,52 @@
+{
+  "id": "my-programme",
+  "name": "My programme (example)",
+  "language": "en",
+  "status": "Example of a custom profile. Not a real programme.",
+  "based_on": [],
+  "validity_years": 5,
+  "fields": [
+    {
+      "key": "registration",
+      "label": "Registration number",
+      "required": true
+    },
+    {
+      "key": "pcr",
+      "label": "PCR used",
+      "required": true
+    },
+    {
+      "key": "epd_type",
+      "label": "Type of EPD",
+      "type": "select",
+      "options": [
+        "product-specific",
+        "average"
+      ]
+    }
+  ],
+  "statements": [
+    "This EPD was prepared under the rules of My programme.",
+    "EPDs of construction products may not be comparable if they do not comply with EN 15804+A2."
+  ],
+  "required_indicators": [
+    "GWP-GHG"
+  ],
+  "grouped_tables": false,
+  "sections": [
+    "title",
+    "readiness",
+    "general",
+    "programme",
+    "description",
+    "modules",
+    "indicators",
+    "uncertainty",
+    "resource_note",
+    "lca_info",
+    "statements",
+    "checklist",
+    "references"
+  ]
+}

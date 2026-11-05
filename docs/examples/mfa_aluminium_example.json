@@ -1,0 +1,87 @@
+{
+  "name": "Aluminium in buildings (example, invented numbers)",
+  "years": [
+    2020,
+    2060
+  ],
+  "production_process": "prod",
+  "recycling_processes": [
+    "rec"
+  ],
+  "processes": [
+    {
+      "id": "prod",
+      "name": "Semi-finished production"
+    },
+    {
+      "id": "use",
+      "name": "Buildings in use",
+      "stock": true,
+      "lifetime": {
+        "type": "normal",
+        "mean": 40,
+        "sd": 10
+      }
+    },
+    {
+      "id": "eol",
+      "name": "Demolition and collection"
+    },
+    {
+      "id": "rec",
+      "name": "Recycling (remelting)"
+    },
+    {
+      "id": "loss",
+      "name": "Losses and landfill",
+      "sink": true
+    }
+  ],
+  "inflows": [
+    {
+      "to": "prod",
+      "values": {
+        "2020": 100,
+        "2040": 130,
+        "2060": 130
+      }
+    }
+  ],
+  "flows": [
+    {
+      "from": "prod",
+      "to": "use",
+      "share": 0.97
+    },
+    {
+      "from": "prod",
+      "to": "loss",
+      "share": 0.03
+    },
+    {
+      "from": "use",
+      "to": "eol",
+      "share": 1.0
+    },
+    {
+      "from": "eol",
+      "to": "rec",
+      "share": 0.85
+    },
+    {
+      "from": "eol",
+      "to": "loss",
+      "share": 0.15
+    },
+    {
+      "from": "rec",
+      "to": "prod",
+      "share": 0.95
+    },
+    {
+      "from": "rec",
+      "to": "loss",
+      "share": 0.05
+    }
+  ]
+}

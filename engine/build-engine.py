@@ -32,7 +32,7 @@ run(sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir", "
     "--hidden-import", "importers.ecoinvent_login", "--hidden-import", "importers.other_formats",
     "--hidden-import", "importers.demo", "--hidden-import", "science", "--hidden-import", "trust",
     "--hidden-import", "productivity", "--hidden-import", "standards", "--hidden-import", "interop",
-    "--hidden-import", "teaching", "--hidden-import", "credits", "--hidden-import", "analysis", "--hidden-import", "hier", "--hidden-import", "crosscheck", "--hidden-import", "matplotlib.backends.backend_svg", "--hidden-import", "scipy.optimize", "--hidden-import", "scipy.stats.qmc",
+    "--hidden-import", "teaching", "--hidden-import", "credits", "--hidden-import", "analysis", "--hidden-import", "hier", "--hidden-import", "crosscheck", "--hidden-import", "factormatch", "--hidden-import", "epd_profiles", "--hidden-import", "regional", "--hidden-import", "slca", "--hidden-import", "mfa", "--hidden-import", "matplotlib.backends.backend_svg", "--hidden-import", "scipy.optimize", "--hidden-import", "scipy.stats.qmc",
     "--collect-submodules", "pdfplumber", "--collect-submodules", "pypdf",
     "--collect-data", "docx", *EI,
     "--exclude-module", "tkinter", "--exclude-module", "matplotlib.tests", "--exclude-module", "numpy.tests",

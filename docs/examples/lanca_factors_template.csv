@@ -1,0 +1,2 @@
+indicator,kind,land_use,location,value,unit
+erosion resistance,occupation,arable land,GLO,0.0,kg/(m2*a) (example row: replace with the official table)

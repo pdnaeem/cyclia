@@ -51,10 +51,13 @@ both results and the difference, and the software versions used.
 
 ## 4. What is not covered yet
 
-- **Factor matching against another tool.** The cross-check uses the factors Cyclia has matched to the flows.
-  Whether they are the right factors is checked by the ecoinvent benchmark, which compares with ecoinvent's own
-  results. A comparison of the same inventory in openLCA and Brightway (which match factors in their own way) is
-  planned; Cyclia's export to Brightway and openLCA (step 6) produces the files for it.
+- **Factor matching against another tool.** Since 1.3.5, Toolbox > Validation > Factor matching compares
+  Cyclia's factors flow by flow with an openLCA JSON-LD export of the method, a Brightway export
+  (`engine/tools/brightway_export_factors.py`) or a CSV. It shows the effect of every difference on your models
+  and, with the other tool's results, splits the result difference into factors and the rest (method:
+  docs/METHODS.md 12.1; tests and demonstration: docs/ACCEPTANCE_1.3.5.md). The tool is tested with files built to
+  the openLCA schema and with the shipped demonstration files. A published run of EF 3.1 exported from real
+  openLCA and Brightway installations is still to be done; its reports will be added here.
 - **Land use.** In the ecoinvent benchmark, land use results of some datasets were up to about 5 % lower than
   ecoinvent's (median 0.4 %); other categories agreed. Since 1.3.4 the benchmark report has a "Land use
   reconciliation" sheet that splits each result into occupation, transformation-from and transformation-to,

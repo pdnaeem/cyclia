@@ -701,7 +701,17 @@ def run(store, model_id, method_ids, top=12, mc_iterations=0, sensitivity_pct=10
     out["water"] = analysis.water_inventory(lci)
     import hier
     T = hier.build(ctx, model_id, keep=keep_ac)
-    out["_tree"] = {"tree": T, "amounts": hier.path_amounts(ctx, T), "units": hier.leaf_units(ctx, mc, M, T)}
+    leaf_acts = sorted({lf["inp"]["ref_id"] for lf in T["leaves"] if lf["inp"]["kind"] == "activity" and lf["inp"]["ref_id"]})
+    ddq = {}
+    if leaf_acts:
+        try:
+            for r in store.q(f"SELECT * FROM activity_dq WHERE activity_id IN ({','.join('?' * len(leaf_acts))})", leaf_acts):
+                if all(r[k] is not None for k in ("ter", "ger", "tir", "p")):
+                    ddq[r["activity_id"]] = [r["ter"], r["ger"], r["tir"], r["p"]]
+        except Exception:
+            ddq = {}
+    out["_tree"] = {"tree": T, "amounts": hier.path_amounts(ctx, T), "units": hier.leaf_units(ctx, mc, M, T),
+                    "dataset_dq": ddq}
     out["foreground"] = hier.foreground_inventory(ctx, T)
     out["nested"] = len(T["models"]) > 1
     out["data_quality"] = data_quality(out)
@@ -739,8 +749,9 @@ def data_quality(out):
     - a pedigree-based indicator (P = reliability, TiR = temporal, GeR = geographical, TeR = technological
       correlation) in the form (TeR + GeR + TiR + P) / 4. It is not a PEF DQR, because pedigree reliability is not
       the PEF precision criterion;
-    - the PEF DQR, computed only from lines for which the four PEF scores (TeR, GeR, TiR, P) were entered, with the
-      share of the impact they cover."""
+    - the PEF DQR, computed from lines for which the four PEF scores (TeR, GeR, TiR, P) were entered, and from the
+      DQR of the datasets they use when the dataset carries one (EF / ILCD datasets), with the share of the impact
+      covered (and the part of it that comes from dataset DQRs)."""
     T = out.get("_tree")
     if T is None:
         return {"by_category": [], "lines": [], "priority": [], "default_lines": 0, "credits": [], "note": ""}
@@ -751,14 +762,20 @@ def data_quality(out):
     ped = np.array([[max(lines[li]["inp"]["pedigree"][c] for li in lf["chain"]) for c in range(5)]
                     for lf in tree["leaves"]], dtype=float).reshape(len(tree["leaves"]), 5)
 
+    ddq = T.get("dataset_dq") or {}
+
     def pef_of(lf):
         vals = [lines[li]["inp"].get("pef") for li in lf["chain"]]
-        own = vals[-1]
+        own, src = vals[-1], "line"
+        if not own and lf["inp"]["kind"] == "activity" and lf["inp"]["ref_id"] in ddq:
+            own, src = ddq[lf["inp"]["ref_id"]], "dataset"
         if not own:
-            return None
+            return None, None
         rest = [v for v in vals[:-1] if v]
-        return [max([own[c]] + [v[c] for v in rest]) for c in range(4)]
-    pefs = [pef_of(lf) for lf in tree["leaves"]]
+        return [max([own[c]] + [v[c] for v in rest]) for c in range(4)], src
+    pq = [pef_of(lf) for lf in tree["leaves"]]
+    pefs = [x[0] for x in pq]
+    psrc = [x[1] for x in pq]
 
     def dtype(lf):
         for li in reversed(lf["chain"]):
@@ -778,6 +795,7 @@ def data_quality(out):
         dqi = float((wped[0] + wped[2] + wped[3] + wped[4]) / 4)
         tshare = {t: float(sum(sh[i] for i in range(len(types)) if types[i] == t)) for t in ("primary", "secondary", "estimate", "")}
         cov = float(sum(sh[i] for i in range(len(pefs)) if pefs[i]))
+        cov_ds = float(sum(sh[i] for i in range(len(pefs)) if pefs[i] and psrc[i] == "dataset"))
         pef_dqr = None
         if cov > 0:
             idx = [i for i in range(len(pefs)) if pefs[i]]
@@ -788,7 +806,7 @@ def data_quality(out):
         cats.append({"category": r["category"], "indicator": r["indicator"], "family": r["family"],
                      "dqr": dqi, "rating": dqr_rating(dqi), "pedigree": [float(x) for x in wped],
                      "pef_dqr": pef_dqr, "pef_rating": dqr_rating(pef_dqr) if pef_dqr is not None else "",
-                     "pef_coverage": cov,
+                     "pef_coverage": cov, "pef_from_datasets": cov_ds,
                      "primary_share": tshare["primary"], "secondary_share": tshare["secondary"],
                      "estimate_share": tshare["estimate"], "unstated_share": tshare[""],
                      "credit_share": float(cw.sum() / (tot + cw.sum())) if cw.sum() else 0.0})

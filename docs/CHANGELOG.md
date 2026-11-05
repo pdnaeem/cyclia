@@ -1,5 +1,60 @@
 # Changelog
 
+## 1.3.5 (2026-11-05)
+
+New features after a third external audit (of the 1.3.4 roadmap). Acceptance criteria, tests and demonstration
+data for each one: docs/ACCEPTANCE_1.3.5.md.
+
+Validation
+- **Factor matching validation** (Toolbox > Validation): Cyclia's characterisation factors are compared flow by
+  flow with an openLCA JSON-LD export of the method, a Brightway export (`engine/tools/brightway_export_factors.py`)
+  or a CSV. Each flow is shown as same, different, only in Cyclia or only in the other tool, with unresolved,
+  ambiguous, unit and conflicting rows counted. The report shows the effect of each difference on every model and,
+  with the other tool's results, splits the result difference into the factor part and the rest. Excel report.
+  Demonstration files in docs/examples.
+
+EPD
+- **Programme layouts**: Cyclia generic, the International EPD System (GPI 5), IBU and INIES FDES (in French).
+  Each sets the order of sections in the Word EPD, extra fields, mandatory statements, required indicators and
+  maximum validity, and the checklist checks them. These are drafts modelled on published EPDs, not approved by
+  the programme operators.
+- Custom profiles: export a profile as JSON, edit it and load it (step 6 > EPD > Your own programme profile).
+
+Data quality
+- The data quality indicators of ILCD and EF datasets (TeR, GeR, TiR, P) are read on import and used for lines
+  without PEF scores; the share of the result scored this way is shown.
+
+Consequential modelling
+- **Marginal supplier guidance** (Toolbox > Background scenarios): markets of the open model with their
+  suppliers, constrained suppliers marked, a proposal, and a consequential scenario made from the choices.
+
+Costs
+- Cost types (capital, operating, maintenance, replacement, end of life), replacement intervals and a study
+  period; results by cost type.
+
+New methods and tools (factors and data are imported, none are shipped)
+- **AWARE** water scarcity per process location with sub-national, country and world fallbacks, agricultural
+  use for irrigation, a location and type of use for the model's own water, and completeness.
+- **LANCA** land use per process location for occupation and transformation, with five indicators plus the soil
+  quality index, and land flows without a factor listed.
+- **Social LCA**: risk-hour screening per stakeholder and indicator (UNEP 2020, ISO 14075:2024 categories) with
+  hotspots, coverage and processes without data.
+- **Material flows**: dynamic MFA with in-use stocks (fixed, normal or Weibull lifetimes), sinks, recycling
+  loops and a mass balance every year; recycling rate and recycled content; Material Circularity Indicator.
+- A model without water or land flows is reported as having nothing to characterise.
+
+Interface
+- Results tabs grouped: the main analyses in front, Dynamic climate, Map, Explore parameters and PEF under
+  "More analyses".
+
+Tests
+- 137 automated tests (24 new for 1.3.5, including the shipped demonstration files).
+
+Not in 1.3.5
+- IMPACT World+, official USEtox 2 factors, biodiversity, multi-user projects and dynamic characterisation beyond
+  climate are not implemented. The factor matching validation has not yet been run on a real openLCA or Brightway
+  installation. The land use deviation from ecoinvent is still open.
+
 ## 1.3.4 (2026-11-05)
 
 Corrections and additions after a second external audit (of 1.3.3).

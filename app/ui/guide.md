@@ -298,8 +298,11 @@ time (Levasseur et al., 2010), useful for long-lived products and biogenic carbo
 
 To add life cycle costing, give a **currency** and, if you want future costs discounted, a **discount rate**.
 Then enter a price on the lines in step 3 (**Details**). The Year column of each line is used for
-discounting. Results show the life cycle cost per functional unit by line and stage, and whether the cost
-hotspot is the same as the environmental one.
+discounting. Each costed line can have a **cost type** (capital, operating, maintenance, replacement, end of
+life) and a **replacement interval** in years: with a **study period** in step 2, the cost is repeated in year
+y, y + R, y + 2R ... before the end of the period and each occurrence is discounted. Results show the life cycle
+cost per functional unit by line, stage and cost type, and whether the cost hotspot is the same as the
+environmental one.
 
 ### Parameters and scenarios
 
@@ -471,7 +474,9 @@ can be concluded.
   scores of every line (also inside nested models) weighted by its share of the impact, credits left out, in
   the form (TeR + GeR + TiR + P) / 4 from 1 (excellent) to 5 (poor). It is not a PEF DQR, because pedigree
   reliability is not PEF precision. Enter the four PEF scores for your lines (Details in step 3) to get the
-  **PEF DQR** and the share of the impact it covers. The table also gives the shares of primary, secondary,
+  **PEF DQR** and the share of the impact it covers. Lines that use an ILCD or EF dataset without PEF scores of
+  their own take the dataset's TeR, GeR, TiR and P from its data quality indicators (read on import); the share
+  scored this way is shown as "from datasets". The table also gives the shares of primary, secondary,
   estimated and unstated data. Treat the findings as a draft for
   your interpretation: check each one against the other tabs and add what you know about the system.
   When you entered prices, the Summary also shows the **life cycle cost**; when the inventory has water flows,
@@ -487,6 +492,8 @@ can be concluded.
   indices (which uncertain inputs explain the spread).
 - **Uncertainty**: histogram and intervals from Monte Carlo, and whether the run has **converged** (the mean
   is known to within 1 % of the 95 % interval, and the interval is stable). If not, run more iterations.
+- The tabs below are in front: Summary, Contributions, Supply chain, Stages, Sensitivity, Uncertainty,
+  Inventory results, Checks and Compare. **More analyses** holds Dynamic climate, Map, Explore parameters and PEF.
 - **Dynamic climate**: climate impact over time, when dynamic GWP is on.
 - **Map**: where impacts occur, by country of the processes.
 - **Explore parameters**: sweeps (result as a parameter changes), optimisation (best parameter values under
@@ -540,6 +547,12 @@ Compare before you claim that one product is better.
   the module table adds up to the LCA result. It also checks the resource use, waste and output indicators of EN
   15804+A2 (PERE to EET) and the units. You can always create a draft; it says "not ready for submission" while
   anything is open. Enter the PCR version and your programme operator's mandatory statements in the EPD form.
+  **Programme layout**: choose Cyclia generic, the International EPD System, IBU or INIES FDES. The Word file then
+  follows that programme's order of sections and statements (INIES in French), the form shows the programme's
+  extra fields (required ones marked *), and the requirements check adds the programme's required fields,
+  indicators and maximum validity. These profiles are drafts built from EPDs the programmes have published; they
+  are not approved by the programme operators, so check them against your programme's current instructions.
+  Under **Your own programme profile** you can export a profile as JSON, edit it, and load it.
   Then an ISO
   14067 carbon footprint report and a GHG Protocol workbook.
 - **Critical review checklist**: the ISO 14044 items a reviewer checks, with your notes, exported to Excel.
@@ -553,13 +566,38 @@ Compare before you claim that one product is better.
 - **Validation**: the validation suite runs 35 small product systems with exact known answers and saves a
   Word report to attach to a thesis or paper. The **independent cross-check** recalculates datasets of your
   library and the models of your project with a second implementation (other solver, matrices rebuilt from the
-  tables) and shows the largest difference; save its Excel report for a reviewer. **Verify a reproducibility bundle** recalculates someone
+  tables) and shows the largest difference; save its Excel report for a reviewer. **Factor matching** compares
+  Cyclia's characterisation factors with another tool's, flow by flow: an openLCA JSON-LD export of the method,
+  a Brightway export (script `engine/tools/brightway_export_factors.py`) or a CSV. It lists flows that differ, flows
+  only one tool characterises and rows that match no flow, and shows what each difference does to the results of
+  your models. Add the other tool's results for the same models (CSV: model, category, value) to split the
+  difference into the part caused by the factors and the rest. Try it with
+  `factor_matching_demo_factors.csv` and `factor_matching_demo_results.csv` from
+  https://github.com/pdnaeem/cyclia/tree/main/docs/examples on the feature demo. **Verify a reproducibility bundle** recalculates someone
   else's bundle and checks that data, methods and results are identical.
 - **Background scenarios**: edit prospective or consequential versions of the database (scale emissions or
-  inputs over years, swap suppliers), import premise or Activity Browser scenario files, find marginal
-  suppliers.
+  inputs over years, swap suppliers), import premise or Activity Browser scenario files. **Marginal suppliers**
+  lists every market in the supply chain of the open model with its suppliers, marks the ones that look
+  constrained (recycled, by-product, waste-based) and proposes an unconstrained one. Confirm or change each choice
+  with what you know about the market, then create a consequential scenario from it.
 - **Chemicals and site factors**: screening toxicity factors for a substance that has none (from its
   properties, with a multimedia fate model), and site-specific factors for your own emissions.
+- **Regional methods**: **AWARE** water scarcity and **LANCA** land use, calculated with the inventory of every
+  process at its own location. Import the official factor tables (**Show template** gives the columns; templates are also in
+  https://github.com/pdnaeem/cyclia/tree/main/docs/examples); **Load demo
+  factors** only shows the workflow and its results mean nothing. For AWARE, give in the same tab the location
+  of your own water use (country, region code such as ES-AN, or watershed) and its type of use; it is saved with
+  the model. Each result shows
+  how much of the water or land was characterised exactly, with a fallback (country, then world), or not at all.
+- **Social LCA**: a screening of social risks along the supply chain: worker hours per functional unit and
+  risk hours per stakeholder and indicator, with the processes that cause them. Import your licensed PSILCA or
+  SOCA extract or your own data with the template; Cyclia ships no social data. Coverage shows how much of the
+  worker hours has data.
+- **Material flows**: dynamic material flow analysis (MFA) of a material system over years: processes, in-use stocks with
+  lifetimes, sinks and recycling loops, with stocks, flows, losses, recycling rate and recycled content per
+  year and a mass-balance check. Start from **Load example** (aluminium in buildings, invented numbers). The
+  **Material Circularity Indicator** of the Ellen MacArthur Foundation is calculated for a product from its
+  recycled content, collection and efficiencies.
 - **Templates**: your saved templates.
 - **Python, R and other software**: clients to run Cyclia from scripts, and Brightway import.
 - **Teaching**: exercises with automatic checking and an answer key for teachers.
@@ -633,13 +671,18 @@ energy and steam, process waste.
 
 Cyclia is honest about what it does not do (yet):
 
-- No social LCA (ISO 14075:2024) and no material flow analysis yet; they are on the roadmap
-  (docs/ROADMAP.md). Life cycle costing covers the costs you enter; it is not a full ISO 15686-5 study.
+- Social LCA is a risk screening with data you import; Cyclia ships no PSILCA, SOCA, AWARE or LANCA data.
+  MFA is a separate workspace and is not linked to the LCA model. Life cycle costing covers the costs you enter
+  (with replacements and cost types); it is not a full ISO 15686-5 study.
+- The EPD programme profiles are not approved by the programme operators.
+- IMPACT World+, official USEtox 2 factors and biodiversity methods are not built in (import them as CSV
+  methods where the licence allows); dynamic characterisation covers climate only.
 - One user per project file at a time; there is no shared server for teams.
 - Field emission models (fertiliser N2O, pesticide fate) are not built in beyond IPCC Tier 1 in the crop
   template; use "External model emissions" for other models.
-- Regionalised impact assessment uses the country of each process; factors per sub-national region are not
-  supported.
+- Regionalised impact assessment uses the location code of each process. AWARE and LANCA use sub-national
+  codes when the dataset has them, else the country, then the world value; the generic regional factors use the
+  country.
 - The macOS version runs on Apple silicon only and does not update itself until the app is signed.
 - A study is only as good as its data: the database must cover your sector and region.
 - The tutorial and demo data are illustrative and must never be published.

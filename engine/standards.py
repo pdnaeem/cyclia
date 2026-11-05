@@ -172,9 +172,11 @@ def _match_core(results):
     return found
 
 
-def epd_checklist(model, result):
+def epd_checklist(model, result, profile=None):
+    import epd_profiles
     sc = model["scope"] or {}
     epd = sc.get("epd") or {}
+    prof = profile or epd_profiles.get(epd.get("profile"))
     dec = declared_modules(model, result)
     core = _match_core(result["results"])
     fams = {r["family"] for r in result["results"]}
@@ -237,9 +239,30 @@ def epd_checklist(model, result):
             if result["results"][k]["cfs_matched"] == 0]
     add(not nocf, "Every declared indicator has characterisation factors for the inventory" +
         (f" (none for: {', '.join(nocf)})" if nocf else ""), "EN 15804+A2 Annex C")
+    if prof["id"] != "generic":
+        fields = epd.get("fields") or {}
+        miss_f = [f["label"] for f in prof["fields"] if f.get("required") and not str(fields.get(f["key"], "") or f.get("default", "") or "").strip()]
+        add(not miss_f, f"{prof['name']}: required information given" + (f" (missing: {'; '.join(miss_f)})" if miss_f else ""),
+            "Programme profile")
+        need = prof.get("required_indicators") or []
+        if need:
+            have = epd_profiles.match_additional(result["results"])
+            miss_i = [a for a in need if a not in have]
+            add(not miss_i, f"{prof['name']}: required indicators calculated" + (f" (missing: {', '.join(miss_i)})" if miss_i else
+                                                                              f" ({', '.join(need)})"), "Programme profile")
+        vy = prof.get("validity_years")
+        if vy and epd.get("issued") and epd.get("valid_until"):
+            try:
+                import datetime as _dt
+                a_, b_ = _dt.date.fromisoformat(epd["issued"]), _dt.date.fromisoformat(epd["valid_until"])
+                add((b_ - a_).days <= vy * 366 and b_ > a_, f"Validity at most {vy} years from the date of issue", "Programme profile")
+            except ValueError:
+                add(False, "Dates of issue and validity in the form YYYY-MM-DD", "Programme profile")
+        elif vy:
+            add(False, f"Date of issue and validity (at most {vy} years) given", "Programme profile")
     add(not [c for c in result["checks"] if c["level"] == "error"], "No errors in the Cyclia checks", "ISO 14044 4.5.3")
     ready = all(i["ok"] for i in items)
-    return {"ready": ready, "inventory_found": list(inv), "items": items, "declared": dec, "core_found": list(core), "core_missing": missing,
+    return {"ready": ready, "inventory_found": list(inv), "profile": prof["id"], "items": items, "declared": dec, "core_found": list(core), "core_missing": missing,
             "passed": sum(i["ok"] for i in items), "total": len(items)}
 
 
@@ -262,15 +285,42 @@ def _cell(v, declared):
     return report.fmt(v) if declared else "ND"
 
 
-def epd_word(path, model, result, databases, version=""):
+def _groups(result):
+    """Indicator group of every result row: core, additional, resource, waste, output or other."""
+    import epd_profiles
+    core = _match_core(result["results"])
+    inv = match_inventory(result["results"])
+    add = epd_profiles.match_additional(result["results"])
+    g, abbr = {}, {}
+    for a, k in core.items():
+        g[k], abbr[k] = "core", a
+    tables = {a: t for a, _n, t, *_ in INVENTORY}
+    for a, k in inv.items():
+        if k not in g:
+            g[k], abbr[k] = {"4": "resource", "5": "waste", "6": "output"}[tables[a]], a
+    for a, k in add.items():
+        if k not in g:
+            g[k], abbr[k] = "additional", a
+    for k in range(len(result["results"])):
+        g.setdefault(k, "other")
+    return g, abbr
+
+
+def epd_word(path, model, result, databases, version="", profile=None, profiles_dir=None):
+    """Word EPD laid out by a programme profile (epd_profiles). Blocks the EPD when impacts would be missing from the
+    module table; otherwise always writes a draft, marked 'not ready for submission' while requirements are open."""
+    import epd_profiles
     from docx import Document
     from docx.enum.section import WD_ORIENT
     from docx.shared import Cm, Pt
     sc = model["scope"] or {}
     epd = sc.get("epd") or {}
+    prof = profile or epd_profiles.get(epd.get("profile"), profiles_dir)
+    fr = prof.get("language") == "fr"
+    T = (lambda x: epd_profiles.UI_FR.get(x, x)) if fr else (lambda x: x)
     mods = by_module(result)
     dec = declared_modules(model, result)
-    chk = epd_checklist(model, result)
+    chk = epd_checklist(model, result, prof)
     un = unassigned_stages(result)
     if un:
         raise ValueError("The EPD cannot be written yet: these stages are not EN 15804 modules, so their impacts would be "
@@ -281,92 +331,204 @@ def epd_word(path, model, result, databases, version=""):
     if reconcile(result) >= 1e-6:
         raise ValueError("The EPD cannot be written: the module table does not add up to the LCA result. Please report "
                          "this to support@niellosoft.com with the project file.")
+    fields = epd.get("fields") or {}
+    fval = lambda f: str(fields.get(f["key"], "") or f.get("default", "") or "")
     doc = Document()
     doc.styles["Normal"].font.size = Pt(9.5)
     sec = doc.sections[0]
     sec.orientation = WD_ORIENT.LANDSCAPE
     sec.page_width, sec.page_height = sec.page_height, sec.page_width
-    for s in doc.sections:
-        s.left_margin = s.right_margin = Cm(1.6)
-    doc.add_heading("Environmental Product Declaration (EPD)", 0)
-    report._note(doc, "According to ISO 14025:2026 and EN 15804+A2. Draft generated by Cyclia for verification; not valid "
-                      "until verified and published by a programme operator. Cyclia is not a verified EPD tool in the "
-                      "sense of ISO 14025:2026, so each EPD needs its own verification.", italic=True)
-    open_n = sum(1 for i in chk["items"] if not i["ok"])
-    report._note(doc, ("Readiness: all requirements of the checklist at the end are met; the draft can go to verification."
-                       if chk["ready"] else
-                       f"Readiness: NOT READY FOR SUBMISSION. {open_n} of {chk['total']} requirements of the checklist at "
-                       "the end are still open."), 10, italic=False)
+    for s_ in doc.sections:
+        s_.left_margin = s_.right_margin = Cm(1.6)
     spec = specific_share(result)
-    doc.add_heading("General information", 1)
-    report._table(doc, ["Item", "Content"], [
-        ["Product", model["product"] or model["name"]],
-        ["Manufacturer", epd.get("manufacturer", "")], ["Production site(s)", epd.get("site", "")],
-        ["Programme operator", epd.get("programme", "")], ["Declaration number", epd.get("number", "")],
-        ["Product category rules", epd.get("pcr", "") + (f", version {epd['pcr_version']}" if epd.get("pcr_version") else "")], ["Date of issue", epd.get("issued", time.strftime("%Y-%m-%d"))],
-        ["Valid until", epd.get("valid_until", "")], ["Declared / functional unit", report.fu_text(model)],
-        ["Reference service life", epd.get("rsl", "") or "not declared"],
-        ["Type of EPD", epd.get("type", "cradle to gate with modules C1-C4 and module D")],
-        ["Verification", epd.get("verification", "")], ["Verifier", epd.get("verifier", "")],
-        ["Intended audience", {"B2B": "business-to-business", "B2C": "business-to-consumer"}.get(
-            (epd.get("audience") or "").upper(), epd.get("audience") or "business-to-business")],
-        ["Share of GWP-total from supply-chain-specific data", f"{spec * 100:.0f} %" if spec is not None else "not stated"],
-        ["Months of specific data", epd.get("specific_months", "") or "not stated"],
-        ["Prospective EPD", "yes (product not yet on the market; limited validity, re-evaluation after one year)"
-         if epd.get("prospective") else "no"],
-        ["Biogenic carbon content of the product (kg C per unit)", epd.get("biogenic_product", "")],
-        ["Biogenic carbon content of the packaging (kg C per unit)", epd.get("biogenic_packaging", "")]], widths=[7, 17])
-    if epd.get("programme_statements"):
-        doc.add_heading("Programme information", 1)
-        doc.add_paragraph(epd["programme_statements"])
-    doc.add_heading("Product description", 1)
-    doc.add_paragraph(epd.get("description") or sc.get("fu_description") or "")
-    doc.add_heading("System boundary: modules declared", 1)
-    report._table(doc, MODULES, [["X" if (m in dec or (m in ("A1", "A2", "A3") and "A1-A3" in dec)) else "ND"
-                                  for m in MODULES]], size=8)
-    report._note(doc, "X = module declared; ND = module not declared.", italic=True)
-    doc.add_heading("Environmental impact indicators per declared unit", 1)
-    cols = [c for c in COLUMNS]
-    report._table(doc, ["Indicator", "Unit"] + cols,
-                  [[m["category"], m["unit"]] + [_cell(m["modules"][c], c in dec) for c in cols] for m in mods],
-                  widths=[4.6, 2.0] + [1.32] * len(cols), size=6.5)
-    unc = result.get("uncertainty")
-    if unc:
-        report._note(doc, f"Uncertainty ({unc['iterations']} Monte Carlo iterations, modules A-C): " + "; ".join(
-            f"{r['category']} 95 % interval {report.fmt(m['p2_5'])} to {report.fmt(m['p97_5'])} {r['unit']}"
-            for r, m in zip(result["results"], unc["methods"])) + ".")
-    core = _match_core(result["results"])
-    if chk["core_missing"]:
-        report._note(doc, "Core indicators not calculated with the selected methods: " + ", ".join(chk["core_missing"]) +
-                     ". Import the EF 3.1 method (ecoinvent LCIA file or the EF package) to complete the declaration.",
-                     italic=True)
-    doc.add_heading("Resource use, waste and output flows", 1)
-    miss = [a for a, *_ in INVENTORY if a not in chk["inventory_found"]]
-    report._note(doc, ("The resource use, waste and output flow indicators of EN 15804+A2 Tables 4 to 6 are in the table "
-                       "above." if not miss else
-                       "Missing EN 15804+A2 indicators (Tables 4 to 6): " + ", ".join(miss) + ". Import a method package "
-                       "that provides them (for example the EN 15804 indicators in the ecoinvent LCIA file) and select them "
-                       "before generating the EPD. Output flows such as CRU, MFR and MER can also be entered as inventory "
-                       "indicators of the end-of-life lines."))
-    doc.add_heading("LCA information", 1)
-    used = sorted({l["db"] for l in result["lines"] if l["kind"] == "activity"})
-    report._table(doc, ["Item", "Content"], [
-        ["Background data", "; ".join(d["name"] + (f" v{d['version']}" if d.get("version") else "") for d in databases
-                                      if d["name"] in used) or "-"],
-        ["Characterisation", ", ".join(sorted({r["family"] for r in result["results"]}))],
-        ["Cut-off rules", sc.get("cutoff", "")], ["Allocation", sc.get("allocation", "") or "none"],
-        ["Time representativeness", sc.get("period", "")], ["Geography", sc.get("geography", "")],
-        ["Software", authors.short(version)]], widths=[7, 17])
-    doc.add_heading("Verification support checklist", 1)
-    report._table(doc, ["Requirement", "Status", "Reference"],
-                  [[i["text"], "met" if i["ok"] else "open", i["ref"]] for i in chk["items"]], widths=[14, 3, 7])
-    doc.add_heading("References", 1)
-    for t in ("EN 15804:2012+A2:2019 Sustainability of construction works. Environmental product declarations. Core rules "
-              "for the product category of construction products.", "ISO 14025:2026 Environmental statements and programmes for products. "
-              "Environmental product declarations (EPDs).", "ISO 14020:2022 Environmental statements and programmes for "
-              "products. Principles and general requirements.", "ISO 14044:2006 Environmental management. Life cycle assessment. "
-              "Requirements and guidelines."):
-        report._note(doc, t)
+    groups, abbr = _groups(result)
+    cols = list(COLUMNS)
+
+    def cell(v, declared):
+        if not declared:
+            return "ND"
+        if prof.get("zero_shown") and v == 0:
+            return "0"
+        return report.fmt(v)
+
+    def label(k, m):
+        a = abbr.get(k)
+        if fr and a in epd_profiles.LABELS_FR:
+            return f"{epd_profiles.LABELS_FR[a]} ({a})"
+        return f"{m['category']}" + (f" ({a})" if a and a not in m["category"] else "")
+
+    def indicator_table(keys, heading):
+        if not keys:
+            return
+        doc.add_heading(T(heading), 2)
+        report._table(doc, [T("Indicator"), T("Unit")] + cols,
+                      [[label(k, mods[k]), mods[k]["unit"]] + [cell(mods[k]["modules"][c], c in dec) for c in cols]
+                       for k in keys], widths=[4.6, 2.0] + [1.32] * len(cols), size=6.5)
+
+    for part in prof["sections"]:
+        if part == "title":
+            doc.add_heading(T("Environmental Product Declaration (EPD)"), 0)
+            report._note(doc, "According to ISO 14025:2026 and EN 15804+A2. Draft generated by Cyclia for verification; not "
+                              "valid until verified and published by a programme operator. Cyclia is not a verified EPD tool "
+                              "in the sense of ISO 14025:2026, so each EPD needs its own verification.", italic=True)
+            if prof["id"] != "generic":
+                report._note(doc, f"Layout: {prof['name']}. {prof.get('status', '')}", italic=True)
+        elif part == "readiness":
+            open_n = sum(1 for i in chk["items"] if not i["ok"])
+            report._note(doc, ("Readiness: all requirements of the checklist at the end are met; the draft can go to "
+                               "verification." if chk["ready"] else
+                               f"Readiness: NOT READY FOR SUBMISSION. {open_n} of {chk['total']} requirements of the "
+                               "checklist at the end are still open."), 10, italic=False)
+        elif part == "general":
+            doc.add_heading(T("General information"), 1)
+            rows = [[k, v] for k, v in (prof.get("fixed") or {}).items()]
+            rows += [
+                ["Product", model["product"] or model["name"]],
+                ["Manufacturer", epd.get("manufacturer", "")], ["Production site(s)", epd.get("site", "")]]
+            if prof["id"] == "generic":
+                rows += [["Programme operator", epd.get("programme", "")], ["Declaration number", epd.get("number", "")],
+                         ["Product category rules", epd.get("pcr", "") + (f", version {epd['pcr_version']}" if epd.get("pcr_version") else "")]]
+            rows += [["Date of issue", epd.get("issued", time.strftime("%Y-%m-%d"))], ["Valid until", epd.get("valid_until", "")],
+                     ["Declared / functional unit", report.fu_text(model)],
+                     ["Reference service life", epd.get("rsl", "") or "not declared"]]
+            if prof["id"] == "generic":
+                rows += [["Type of EPD", epd.get("type", "cradle to gate with modules C1-C4 and module D")],
+                         ["Verification", epd.get("verification", "")], ["Verifier", epd.get("verifier", "")]]
+            rows += [[f["label"], fval(f)] for f in prof["fields"] if f.get("type") != "textarea"]
+            rows += [
+                ["Intended audience", {"B2B": "business-to-business", "B2C": "business-to-consumer"}.get(
+                    (epd.get("audience") or "").upper(), epd.get("audience") or "business-to-business")],
+                ["Share of GWP-total from supply-chain-specific data", f"{spec * 100:.0f} %" if spec is not None else "not stated"],
+                ["Months of specific data", epd.get("specific_months", "") or "not stated"],
+                ["Prospective EPD", "yes (product not yet on the market; limited validity, re-evaluation after one year)"
+                 if epd.get("prospective") else "no"],
+                ["Biogenic carbon content of the product (kg C per unit)", epd.get("biogenic_product", "")],
+                ["Biogenic carbon content of the packaging (kg C per unit)", epd.get("biogenic_packaging", "")]]
+            report._table(doc, [T("Item"), T("Content")], rows, widths=[7, 17])
+        elif part == "programme":
+            if epd.get("programme_statements"):
+                doc.add_heading("Programme information", 1)
+                doc.add_paragraph(epd["programme_statements"])
+        elif part == "description":
+            doc.add_heading(T("Product description"), 1)
+            doc.add_paragraph(epd.get("description") or sc.get("fu_description") or "")
+            for f in prof["fields"]:
+                if f.get("type") == "textarea" and f["key"] not in ("content_declaration",) and fval(f):
+                    doc.add_heading(f["label"], 2)
+                    doc.add_paragraph(fval(f))
+        elif part == "content":
+            f = next((x for x in prof["fields"] if x["key"] == "content_declaration"), None)
+            if f:
+                doc.add_heading(f["label"], 1)
+                doc.add_paragraph(fval(f) or "-")
+        elif part == "ibu_product":
+            doc.add_heading("2. Product", 1)
+            doc.add_heading("2.1 Product description / product definition", 2)
+            doc.add_paragraph(epd.get("description") or sc.get("fu_description") or "")
+            for f in prof["fields"]:
+                if f.get("type") == "textarea" and f["key"] not in ("scope", "interpretation", "evidence") and fval(f):
+                    doc.add_heading(f["label"], 2)
+                    doc.add_paragraph(fval(f))
+            for k in ("svhc", "cmr", "biocides"):
+                f = next((x for x in prof["fields"] if x["key"] == k), None)
+                if f:
+                    doc.add_paragraph(f"{f['label']}: {fval(f) or '-'}")
+        elif part == "lca_rules":
+            doc.add_heading("3. LCA: Calculation rules", 1)
+            report._table(doc, ["Item", "Content"], [
+                ["3.1 Declared unit", report.fu_text(model) + (f"; conversion to 1 kg: {fields.get('conversion_kg')}"
+                                                              if fields.get("conversion_kg") else "")],
+                ["3.2 System boundary", ", ".join(dec)], ["3.4 Cut-off criteria", sc.get("cutoff", "")],
+                ["3.5 Background data", "; ".join(sorted({l["db"] for l in result["lines"] if l["kind"] == "activity"}))],
+                ["3.6 Data quality", sc.get("dq_requirements", "")], ["3.7 Period under review", sc.get("period", "")],
+                ["3.8 Allocation", sc.get("allocation", "") or "none"]], widths=[7, 17])
+        elif part == "ibu_interpretation":
+            f = next((x for x in prof["fields"] if x["key"] == "interpretation"), None)
+            doc.add_heading("6. LCA: Interpretation", 1)
+            doc.add_paragraph((fval(f) if f else "") or sc.get("conclusions") or "-")
+            f = next((x for x in prof["fields"] if x["key"] == "evidence"), None)
+            if f and fval(f):
+                doc.add_heading("7. Requisite evidence", 1)
+                doc.add_paragraph(fval(f))
+        elif part == "fdes_health":
+            doc.add_heading(T("Health and comfort"), 1)
+            for k in ("indoor_air", "soil_water", "comfort"):
+                f = next((x for x in prof["fields"] if x["key"] == k), None)
+                if f:
+                    doc.add_heading(f["label"], 2)
+                    doc.add_paragraph(fval(f) or "-")
+        elif part == "modules":
+            doc.add_heading(T("System boundary: modules declared"), 1)
+            report._table(doc, MODULES, [["X" if (m in dec or (m in ("A1", "A2", "A3") and "A1-A3" in dec)) else "ND"
+                                          for m in MODULES]], size=8)
+            report._note(doc, "X = module declared; ND = module not declared.", italic=True)
+        elif part == "indicators":
+            if prof.get("grouped_tables"):
+                doc.add_heading(T("Environmental impact indicators per declared unit") if not fr else
+                                "Résultats de l'analyse du cycle de vie par unité fonctionnelle", 1)
+                for grp, head in (("core", "Core environmental impact indicators"),
+                                  ("additional", "Additional environmental impact indicators"),
+                                  ("resource", "Resource use"), ("waste", "Waste categories"),
+                                  ("output", "Output flows"), ("other", "Other indicators")):
+                    indicator_table([k for k in range(len(mods)) if groups[k] == grp], head)
+            else:
+                doc.add_heading("Environmental impact indicators per declared unit", 1)
+                report._table(doc, ["Indicator", "Unit"] + cols,
+                              [[m["category"], m["unit"]] + [cell(m["modules"][c], c in dec) for c in cols] for m in mods],
+                              widths=[4.6, 2.0] + [1.32] * len(cols), size=6.5)
+            if chk["core_missing"]:
+                report._note(doc, "Core indicators not calculated with the selected methods: " + ", ".join(chk["core_missing"]) +
+                             ". Import the EF 3.1 method (ecoinvent LCIA file or the EF package) to complete the declaration.",
+                             italic=True)
+        elif part == "uncertainty":
+            unc = result.get("uncertainty")
+            if unc:
+                report._note(doc, f"Uncertainty ({unc['iterations']} Monte Carlo iterations, modules A-C): " + "; ".join(
+                    f"{r['category']} 95 % interval {report.fmt(m['p2_5'])} to {report.fmt(m['p97_5'])} {r['unit']}"
+                    for r, m in zip(result["results"], unc["methods"])) + ".")
+        elif part == "resource_note":
+            doc.add_heading("Resource use, waste and output flows", 1)
+            miss = [a for a, *_ in INVENTORY if a not in chk["inventory_found"]]
+            report._note(doc, ("The resource use, waste and output flow indicators of EN 15804+A2 Tables 4 to 6 are in the "
+                               "table above." if not miss else
+                               "Missing EN 15804+A2 indicators (Tables 4 to 6): " + ", ".join(miss) + ". Import a method "
+                               "package that provides them (for example the EN 15804 indicators in the ecoinvent LCIA file) "
+                               "and select them before generating the EPD. Output flows such as CRU, MFR and MER can also "
+                               "be entered as inventory indicators of the end-of-life lines."))
+        elif part == "lca_info":
+            doc.add_heading(T("LCA information"), 1)
+            used = sorted({l["db"] for l in result["lines"] if l["kind"] == "activity"})
+            report._table(doc, [T("Item"), T("Content")], [
+                ["Background data", "; ".join(d["name"] + (f" v{d['version']}" if d.get("version") else "") for d in databases
+                                              if d["name"] in used) or "-"],
+                ["Characterisation", ", ".join(sorted({r["family"] for r in result["results"]}))],
+                ["Cut-off rules", sc.get("cutoff", "")], ["Allocation", sc.get("allocation", "") or "none"],
+                ["Time representativeness", sc.get("period", "")], ["Geography", sc.get("geography", "")],
+                ["Software", authors.short(version)]], widths=[7, 17])
+        elif part == "statements":
+            st_ = list(epd.get("statements_override") or prof.get("statements") or [])
+            if epd.get("programme_statements") and "programme" not in prof["sections"]:
+                st_.append(epd["programme_statements"])
+            if st_:
+                doc.add_heading(T("Statements"), 1)
+                for t in st_:
+                    doc.add_paragraph(t, style="List Bullet")
+        elif part == "checklist":
+            doc.add_heading(T("Verification support checklist"), 1)
+            report._table(doc, ["Requirement", "Status", "Reference"],
+                          [[i["text"], "met" if i["ok"] else "open", i["ref"]] for i in chk["items"]], widths=[14, 3, 7])
+        elif part == "references":
+            doc.add_heading(T("References"), 1)
+            refs = ["EN 15804:2012+A2:2019 Sustainability of construction works. Environmental product declarations. Core "
+                    "rules for the product category of construction products.",
+                    "ISO 14025:2026 Environmental statements and programmes for products. Environmental product "
+                    "declarations (EPDs).", "ISO 14020:2022 Environmental statements and programmes for products. "
+                    "Principles and general requirements.", "ISO 14044:2006 Environmental management. Life cycle "
+                    "assessment. Requirements and guidelines."]
+            if fr:
+                refs.insert(1, "NF EN 15804+A2/CN Complément national à la NF EN 15804+A2.")
+            for t in refs:
+                report._note(doc, t)
     report._footer(doc, version)
     doc.save(path)
     return path

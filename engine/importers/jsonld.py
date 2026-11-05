@@ -259,3 +259,67 @@ def _processes(store, db_id, src, procs, flows, locations, ref_amount, elementar
     if co_products:
         warnings.append(f"{co_products} co-product exchanges were ignored; the database should already be allocated.")
     return {"activities": n_act, "warnings": warnings}
+
+
+def read_impact_factors(path):
+    """Impact categories of an openLCA JSON-LD export with their factors, without storing anything:
+    [{"method": family, "category": name, "unit": ref unit, "factors": [{uuid, name, comp, sub, unit, location, value}]}].
+    Values are converted to the flow's reference unit, exactly as the importer does."""
+    src = _Source(path)
+    unit_factor, group_ref_unit = {}, {}
+    for n in src.folder("unit_groups"):
+        g = src.load(n) or {}
+        for u in g.get("units", []):
+            unit_factor[u.get("@id")] = float(u.get("conversionFactor", 1.0))
+            if u.get("referenceUnit") or u.get("isRefUnit"):
+                group_ref_unit[g.get("@id")] = u.get("name")
+    prop_group = {}
+    for n in src.folder("flow_properties"):
+        p = src.load(n) or {}
+        prop_group[p.get("@id")] = (p.get("unitGroup") or {}).get("@id")
+    flows = {}
+    for n in src.folder("flows"):
+        f = src.load(n)
+        if not f:
+            continue
+        factors, ref_unit = {}, ""
+        for fp in f.get("flowProperties", []):
+            pid = (fp.get("flowProperty") or {}).get("@id")
+            factors[pid] = float(fp.get("conversionFactor", 1.0))
+            if fp.get("referenceFlowProperty") or fp.get("isRefFlowProperty"):
+                ref_unit = group_ref_unit.get(prop_group.get(pid), "")
+        flows[f["@id"]] = {"name": f.get("name", ""), "factors": factors, "ref_unit": ref_unit, "comp": _category_parts(f)}
+    locations = {}
+    for n in src.folder("locations"):
+        loc = src.load(n) or {}
+        locations[loc.get("@id")] = loc.get("code") or loc.get("name", "")
+    cat_method = {}
+    for n in src.folder("lcia_methods"):
+        m = src.load(n) or {}
+        for ic in m.get("impactCategories", []):
+            cat_method[ic.get("@id")] = m.get("name", "")
+    out = []
+    for n in src.folder("lcia_categories"):
+        cat = src.load(n)
+        if not cat:
+            continue
+        rows = []
+        for f in cat.get("impactFactors", []):
+            fref = f.get("flow") or {}
+            fuuid = fref.get("@id")
+            fl = flows.get(fuuid) or {"name": fref.get("name", ""), "comp": _category_parts(fref), "factors": {},
+                                      "ref_unit": fref.get("refUnit", "")}
+            uf = unit_factor.get((f.get("unit") or {}).get("@id"), 1.0)
+            pid = (f.get("flowProperty") or {}).get("@id")
+            pf = fl.get("factors", {}).get(pid, 1.0) if pid else 1.0
+            loc = ""
+            if isinstance(f.get("location"), dict):
+                loc = f["location"].get("code") or locations.get(f["location"].get("@id"), "")
+            rows.append({"uuid": fuuid, "name": fl["name"], "comp": fl["comp"][0], "sub": fl["comp"][1],
+                         "unit": fl.get("ref_unit", ""), "location": loc or "",
+                         "value": float(f.get("value", 0)) * pf / (uf or 1.0)})
+        out.append({"method": cat_method.get(cat.get("@id"), ""), "category": cat.get("name", ""),
+                    "unit": cat.get("refUnit") or cat.get("referenceUnitName", ""), "factors": rows})
+    if not out:
+        raise ValueError("No impact categories in this file. Export the impact method from openLCA as JSON-LD.")
+    return out

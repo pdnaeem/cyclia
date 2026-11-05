@@ -1,0 +1,221 @@
+"""Dynamic material flow analysis and circularity indicators (Cyclia 1.3.5).
+
+A dedicated MFA workspace, separate from the LCA model:
+
+- a system of processes, in-use stocks and final sinks, connected by flows with transfer coefficients;
+- external inflows per year (interpolated linearly between the given years, constant after the last one);
+- in-use stocks with a lifetime distribution (fixed, normal or Weibull): what enters a stock in year t leaves it
+  in the following years by the discrete retirement curve (no retirement in the year of entry);
+- loops inside a year (e.g. recycling back to production) are solved as a linear system;
+- results per year: throughput of every process, stock levels, inflows and outflows, losses to sinks, recycled
+  flows, the mass balance, and circularity indicators.
+
+Indicators: end-of-life recycling rate (recycled output / end-of-life outflow), recycled content (recycled input
+to the production process / total input to it), and, in the spirit of ISO 59020:2024, the share of recirculated
+inflow and the share of outflow that is recirculated. The Material Circularity Indicator of the Ellen MacArthur
+Foundation (2015) is available for a product from its recycled content, collection and efficiencies.
+"""
+import math
+
+import numpy as np
+
+
+def _interp(values, years):
+    """Linear interpolation between the given years, constant before the first and after the last one."""
+    pts = sorted((int(k), float(v)) for k, v in (values or {}).items())
+    if not pts:
+        return np.zeros(len(years))
+    return np.interp(years, [p[0] for p in pts], [p[1] for p in pts])
+
+
+def retirement(lifetime, n):
+    """Share of an inflow that leaves the stock at age a = 1..n-1 (index a); index 0 is 0."""
+    t = (lifetime or {}).get("type", "fixed")
+    out = np.zeros(n)
+    if t == "fixed":
+        L = int(round(float(lifetime.get("mean", 1))))
+        if L < 1:
+            raise ValueError("A fixed lifetime must be at least one year.")
+        if L < n:
+            out[L] = 1.0
+        return out
+    if t == "normal":
+        mu, sd = float(lifetime["mean"]), float(lifetime["sd"])
+        if sd <= 0:
+            raise ValueError("The standard deviation of a normal lifetime must be positive.")
+        cdf = lambda x: 0.5 * (1 + math.erf((x - mu) / (sd * math.sqrt(2))))
+        # nothing retires in the year of entry: whatever the distribution puts at ages below 1.5 retires at age 1
+        for a in range(1, n):
+            out[a] = cdf(1.5) if a == 1 else cdf(a + 0.5) - cdf(a - 0.5)
+        return out
+    if t == "weibull":
+        k, lam = float(lifetime["shape"]), float(lifetime["scale"])
+        if k <= 0 or lam <= 0:
+            raise ValueError("Weibull shape and scale must be positive.")
+        cdf = lambda x: 1 - math.exp(-((max(x, 0.0) / lam) ** k))
+        for a in range(1, n):
+            out[a] = cdf(a) - cdf(a - 1) if a > 1 else cdf(1)
+        return out
+    raise ValueError("Lifetime type must be fixed, normal or weibull.")
+
+
+def validate(defn):
+    procs = defn.get("processes") or []
+    if not procs:
+        raise ValueError("Define at least one process.")
+    ids = [p.get("id") for p in procs]
+    if len(set(ids)) != len(ids) or not all(ids):
+        raise ValueError("Every process needs a unique id.")
+    pid = set(ids)
+    for f in defn.get("flows") or []:
+        if f.get("from") not in pid or f.get("to") not in pid:
+            raise ValueError(f"Flow {f.get('from')} -> {f.get('to')}: both ends must be defined processes.")
+        if not 0 <= float(f.get("share", -1)) <= 1:
+            raise ValueError(f"Flow {f['from']} -> {f['to']}: the transfer coefficient must be between 0 and 1.")
+    for p in procs:
+        if p.get("sink"):
+            if any(f["from"] == p["id"] for f in defn.get("flows") or []):
+                raise ValueError(f"'{p['id']}' is a final sink and cannot have outgoing flows.")
+            continue
+        tot = sum(float(f["share"]) for f in defn.get("flows") or [] if f["from"] == p["id"])
+        if abs(tot - 1) > 1e-6:
+            raise ValueError(f"The transfer coefficients leaving '{p['id']}' add up to {tot:g}; they must add up to 1 "
+                             "(send losses to a sink).")
+        if p.get("stock") and not p.get("lifetime"):
+            raise ValueError(f"The stock '{p['id']}' needs a lifetime.")
+    for e in defn.get("inflows") or []:
+        if e.get("to") not in pid:
+            raise ValueError("Every external inflow must go to a defined process.")
+    y = defn.get("years") or []
+    if len(y) != 2 or int(y[1]) < int(y[0]):
+        raise ValueError("Give the first and last year, e.g. [2020, 2050].")
+    return True
+
+
+def run(defn):
+    validate(defn)
+    years = list(range(int(defn["years"][0]), int(defn["years"][1]) + 1))
+    ny = len(years)
+    procs = defn["processes"]
+    ids = [p["id"] for p in procs]
+    ix = {k: i for i, k in enumerate(ids)}
+    stock = [i for i, p in enumerate(procs) if p.get("stock")]
+    sink = [i for i, p in enumerate(procs) if p.get("sink")]
+    flowp = [i for i, p in enumerate(procs) if not p.get("stock") and not p.get("sink")]
+    n = len(procs)
+    T = np.zeros((n, n))
+    for f in defn.get("flows") or []:
+        T[ix[f["from"]], ix[f["to"]]] += float(f["share"])
+    ext = np.zeros((ny, n))
+    for e in defn.get("inflows") or []:
+        ext[:, ix[e["to"]]] += _interp(e.get("values"), years)
+    rcurve = {i: retirement(procs[i]["lifetime"], ny + 1) for i in stock}
+    Tnn = T[np.ix_(flowp, flowp)]
+    Msys = np.eye(len(flowp)) - Tnn.T
+    try:
+        Minv = np.linalg.inv(Msys) if flowp else np.zeros((0, 0))
+    except np.linalg.LinAlgError:
+        raise ValueError("A loop of flows has no loss and never leaves the system. Send part of it to a sink or a stock.")
+    if flowp and np.linalg.cond(Msys) > 1e12:
+        raise ValueError("A loop of flows has no loss and never leaves the system. Send part of it to a sink or a stock.")
+    thr = np.zeros((ny, n))         # throughput of flow processes; inflow of stocks and sinks
+    s_in, s_out = np.zeros((ny, n)), np.zeros((ny, n))
+    level = np.zeros((ny, n))
+    F = np.zeros((ny, n, n))        # flows from i to j in year t
+    for t in range(ny):
+        for s in stock:
+            s_out[t, s] = sum(s_in[t0, s] * rcurve[s][t - t0] for t0 in range(t))
+        b = ext[t].copy()
+        for s in stock:
+            b += s_out[t, s] * T[s]
+        x = Minv @ b[flowp] if flowp else np.zeros(0)
+        out_np = np.zeros(n)
+        out_np[flowp] = x
+        thr[t, flowp] = x
+        for i in flowp:
+            F[t, i] = out_np[i] * T[i]
+        for s in stock:
+            F[t, s] = s_out[t, s] * T[s]
+        inc = F[t].sum(axis=0) + ext[t]
+        for s in stock:
+            s_in[t, s] = inc[s]
+            level[t, s] = (level[t - 1, s] if t else 0.0) + s_in[t, s] - s_out[t, s]
+            thr[t, s] = s_in[t, s]
+        for k in sink:
+            level[t, k] = (level[t - 1, k] if t else 0.0) + inc[k]
+            thr[t, k] = inc[k]
+    rec = [ix[r] for r in defn.get("recycling_processes") or [] if r in ix]
+    prod = ix.get(defn.get("production_process") or "", None)
+    rows = []
+    for t, y in enumerate(years):
+        eol = float(sum(s_out[t, s] for s in stock))
+        recycled_out = float(sum(F[t, i, j] for i in rec for j in range(n) if j not in rec and not procs[j].get("sink")))
+        rc_in = float(sum(F[t, i, prod] for i in rec)) if prod is not None else None
+        prod_in = float(F[t, :, prod].sum() + ext[t, prod]) if prod is not None else None
+        loss = float(sum(F[t, :, k].sum() + ext[t, k] for k in sink))
+        tot_in = float(ext[t].sum())
+        d_stock = float(sum(level[t, s] - (level[t - 1, s] if t else 0.0) for s in stock))
+        rows.append({"year": y, "external_inflow": tot_in, "stock": float(sum(level[t, s] for s in stock)),
+                     "stock_inflow": float(sum(s_in[t, s] for s in stock)), "end_of_life_outflow": eol,
+                     "recycled": recycled_out, "losses": loss,
+                     "recycling_rate": (recycled_out / eol) if eol > 1e-12 and rec else None,
+                     "recycled_content": (rc_in / prod_in) if prod is not None and prod_in and prod_in > 1e-12 else None,
+                     "recirculated_inflow_share": (rc_in / (rc_in + tot_in)) if prod is not None and (rc_in + tot_in) > 1e-12 else None,
+                     "outflow_recirculated_share": (recycled_out / (recycled_out + loss)) if (recycled_out + loss) > 1e-12 else None,
+                     "balance_error": tot_in - d_stock - loss})
+    worst = max(abs(r["balance_error"]) / max(1.0, abs(r["external_inflow"])) for r in rows)
+    return {"years": years, "rows": rows,
+            "processes": [{"id": p["id"], "name": p.get("name", p["id"]), "kind": "stock" if p.get("stock") else
+                           "sink" if p.get("sink") else "process",
+                           "throughput": thr[:, i].tolist(), "level": level[:, i].tolist()} for i, p in enumerate(procs)],
+            "mass_balance_ok": worst < 1e-9, "max_balance_error": worst,
+            "note": "Inflows interpolated linearly between the given years. Stocks retire their inflow by the lifetime "
+                    "distribution, starting the year after entry; the stock is zero at the start. Loops within a year "
+                    "are solved exactly. Mass balance: external inflow = change of stocks + flows to sinks, every year."}
+
+
+def mci(Fr=0.0, Fu=0.0, Cr=0.0, Cu=0.0, Ec=1.0, Ef=1.0, L_ratio=1.0, U_ratio=1.0, M=1.0):
+    """Material Circularity Indicator (Ellen MacArthur Foundation and Granta Design, 2015), technical cycle only.
+    Fr, Fu: fractions of feedstock from recycled and reused sources; Cr, Cu: fractions collected for recycling and
+    reuse at end of use; Ec: efficiency of the recycling process; Ef: efficiency of producing the recycled feedstock;
+    L_ratio, U_ratio: lifetime and intensity of use against the industry average."""
+    for k, v in (("Fr", Fr), ("Fu", Fu), ("Cr", Cr), ("Cu", Cu)):
+        if not 0 <= v <= 1:
+            raise ValueError(f"{k} must be between 0 and 1.")
+    if Fr + Fu > 1 + 1e-9 or Cr + Cu > 1 + 1e-9:
+        raise ValueError("Recycled and reused fractions cannot add up to more than 1.")
+    if not (0 < Ec <= 1 and 0 < Ef <= 1):
+        raise ValueError("Efficiencies must be above 0 and at most 1.")
+    if L_ratio <= 0 or U_ratio <= 0:
+        raise ValueError("Lifetime and use ratios must be positive.")
+    V = M * (1 - Fr - Fu)
+    W0 = M * (1 - Cr - Cu)
+    Wc = M * (1 - Ec) * Cr
+    Wf = M * (1 - Ef) * Fr / Ef
+    W = W0 + (Wf + Wc) / 2
+    LFI = (V + W) / (2 * M + (Wf - Wc) / 2)
+    X = L_ratio * U_ratio
+    F = 0.9 / X
+    return {"MCI": max(0.0, 1 - LFI * F), "LFI": LFI, "utility": X, "V": V, "W": W,
+            "note": "Ellen MacArthur Foundation (2015) Circularity Indicators methodology, technical cycle; MCI is 0.1 "
+                    "for a fully linear product with average utility and 1 for a fully circular one."}
+
+
+EXAMPLE = {
+    "name": "Aluminium in buildings (example, invented numbers)", "years": [2020, 2060],
+    "production_process": "prod", "recycling_processes": ["rec"],
+    "processes": [
+        {"id": "prod", "name": "Semi-finished production"},
+        {"id": "use", "name": "Buildings in use", "stock": True, "lifetime": {"type": "normal", "mean": 40, "sd": 10}},
+        {"id": "eol", "name": "Demolition and collection"},
+        {"id": "rec", "name": "Recycling (remelting)"},
+        {"id": "loss", "name": "Losses and landfill", "sink": True},
+    ],
+    "inflows": [{"to": "prod", "values": {"2020": 100, "2040": 130, "2060": 130}}],
+    "flows": [
+        {"from": "prod", "to": "use", "share": 0.97}, {"from": "prod", "to": "loss", "share": 0.03},
+        {"from": "use", "to": "eol", "share": 1.0},
+        {"from": "eol", "to": "rec", "share": 0.85}, {"from": "eol", "to": "loss", "share": 0.15},
+        {"from": "rec", "to": "prod", "share": 0.95}, {"from": "rec", "to": "loss", "share": 0.05},
+    ],
+}

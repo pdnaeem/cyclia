@@ -1,8 +1,8 @@
 # Cyclia feature assessment and roadmap
 
-Version: 1.3.4. Author: Naeem Ur Rehman. This document lists what Cyclia does, which standards it follows,
+Version: 1.3.5. Author: Naeem Ur Rehman. This document lists what Cyclia does, which standards it follows,
 what was added in 1.3.2 after a full feature review, what 1.3.3 and 1.3.4 corrected after two external audits,
-and what is still planned. Competitor capabilities are
+what 1.3.5 added after a third audit, and what is still planned. Competitor capabilities are
 only listed where the vendor's own documentation describes them (sources at the end).
 
 Priority classes: **P0** needed for a scientifically reliable study; **P1** needed for consulting and
@@ -105,6 +105,25 @@ planned (section 5).
 | Allocation management | P1 | Added: allocation overview and physical causality |
 | Programme-specific EPD templates | P1 | Partly: PCR version and programme statements; layouts per programme still planned |
 
+## 2c. Added in 1.3.5 (third external audit, of the 1.3.4 roadmap)
+
+The acceptance criteria, tests and demonstration data for every item are in docs/ACCEPTANCE_1.3.5.md.
+
+| Requested | Status in 1.3.5 |
+|---|---|
+| Factor matching validation against openLCA and Brightway | Done: flow-by-flow comparison with openLCA JSON-LD, a Brightway export script and CSV; effect on every model; split of result differences. Not yet run on a real openLCA or Brightway installation |
+| Programme-specific EPD templates | Done as profiles (EPD International, IBU, INIES, custom JSON) that set the Word layout, fields, statements and checks. Drafts, not approved by the operators |
+| EF dataset DQR | Done for ILCD/EF imports |
+| Grouped results tabs | Done |
+| Consequential marginal-supplier guidance | Done: constrained suppliers excluded, proposal, consequential scenario in one step |
+| More complete LCC | Partly: cost types, replacements within a study period. Residual value and escalation are not done |
+| AWARE 2.0 | Done as a regionalised method engine; official factors must be imported |
+| LANCA | Done as a regionalised method engine; official factors must be imported |
+| Social LCA | Done as a risk-hour screening; PSILCA/SOCA data must be imported |
+| MFA | Done: dynamic MFA with stocks, lifetimes, loops and mass balance; MCI |
+| IMPACT World+, official USEtox 2, biodiversity, multi-user, dynamic characterisation beyond climate | Not implemented |
+| Advanced regionalisation | Partly: sub-national codes with fallbacks in AWARE and LANCA |
+
 ---
 
 ## 3. Existing features by LCA phase
@@ -141,20 +160,20 @@ database and method fingerprints.
 
 "Not documented" means the page reviewed did not describe it, not that the product lacks it.
 
-| Feature | Cyclia 1.3.4 | openLCA 2 | SimaPro Expert | Sphera LCA for Experts | Brightway / Activity Browser |
+| Feature | Cyclia 1.3.5 | openLCA 2 | SimaPro Expert | Sphera LCA for Experts | Brightway / Activity Browser |
 |---|---|---|---|---|---|
 | Monte Carlo | Yes, with Sobol, comparative probabilities, correlated parameters, convergence | Yes | Yes | Not documented | Yes, plus global sensitivity analysis |
 | Parameters and scenarios | Yes | Yes | Yes | Key parameters through an interface | Yes, with premise scenarios |
 | Data quality | Pedigree per line, weighted DQR, primary share, provenance | Custom data quality systems, aggregated in results | Not documented | Not documented | Uncertainty information |
-| Regionalisation | Regional factors, map | Regionalised calculation | Not documented | Not documented | Not documented |
-| Social LCA | No (planned) | Social aspects with PSILCA or SOCA data | Not documented | Not documented | Not documented |
-| Life cycle costing | Yes (entered prices, discounting) | Manual has an LCC chapter | Not documented | Not documented | Not documented |
-| EPD | ISO 14025:2026 and EN 15804+A2 draft and checklist | Import and create EPDs | Import scenarios with Report Maker for recurring reports such as EPDs | Used for EPD models (customer case) | Not documented |
+| Regionalisation | Regional factors, map, AWARE and LANCA per process location (factors imported) | Regionalised calculation | Not documented | Not documented | Not documented |
+| Social LCA | Risk-hour screening with imported data | Social aspects with PSILCA or SOCA data | Not documented | Not documented | Not documented |
+| Life cycle costing | Yes (entered prices, discounting, cost types, replacements) | Manual has an LCC chapter | Not documented | Not documented | Not documented |
+| EPD | ISO 14025:2026 and EN 15804+A2 draft and checklist; programme profiles (EPD International, IBU, INIES drafts) | Import and create EPDs | Import scenarios with Report Maker for recurring reports such as EPDs | Used for EPD models (customer case) | Not documented |
 | Reports | Report centre, Word, Excel, executive summary, figures | Not documented | Report Maker in Word and Excel | Customisable report templates | Not documented |
 | Multi-user | No | Collaboration Server | Multi-user version with central database | Sharing with stakeholders | Not documented |
 | Hotspots and burden shifting | Automatic findings | Contribution analysis | Weak-point analysis | Hotspots and burden shifting described | Contribution analysis |
 | Database version comparison | Yes | Not documented | Not documented | Not documented | Not documented |
-| Validation against reference results | Built-in suite, independent cross-check and ecoinvent benchmark | Not documented | Not documented | Not documented | Not documented |
+| Validation against reference results | Built-in suite, independent cross-check, ecoinvent benchmark, factor matching against openLCA, Brightway or CSV | Not documented | Not documented | Not documented | Not documented |
 | Prebuilt models | Sector templates | Not documented | Not documented | 1,000 prebuilt models | Not documented |
 | Price | Free, open source | Free, open source | Commercial | Commercial | Free, open source |
 
@@ -164,16 +183,14 @@ database and method fingerprints.
 
 | Item | Priority | How it should work | Complexity |
 |---|---|---|---|
-| Land use deviation | P0 | Cyclia is up to 5 % lower than ecoinvent's LCIA results for some datasets (median 0.4 %); trace the transformation flows with the benchmark workbook | M |
-| openLCA and Brightway comparison | P0 | The same inventories calculated in openLCA and Brightway to compare factor matching, published as a validation report | M |
-| EPD programme templates | P1 | Word templates per programme operator (layout and mandatory statements of each programme) | M |
-| Consequential guidance | P1 | Marginal supplier finder per market linked to the modelling approach | M |
-| Dataset DQR from EF datasets | P2 | Read the TeR, GeR, TiR and P of ILCD/EF datasets and combine them with the foreground PEF scores | M |
-| Basin-level water footprint | P2 | Water scarcity by location of the withdrawal (AWARE) on top of the water inventory | M |
-| Grouped results tabs | P2 | Keep Summary, Contributions, Checks and Compare in front; group the rest under "More analyses" | S |
-| Further LCIA methods | P2 | AWARE 2.0 for water scarcity, IMPACT World+, LANCA land use, official USEtox 2 factors, where licences allow redistribution; until then through CSV import | M each |
-| Social LCA (ISO 14075:2024) | P3 | Import PSILCA or SOCA data when the user has a licence; risk hotspots per working hour | XL |
-| Material flow analysis | P3 | Mass flows per functional unit as a Sankey with stocks and recycling loops; ISO 59020 circularity indicators | L |
+| Land use deviation | P0 | Cyclia is up to 5 % lower than ecoinvent's LCIA results for some datasets (median 0.4 %); run the land use reconciliation with a licensed ecoinvent results file | M |
+| Published openLCA and Brightway comparison | P0 | Export EF 3.1 from openLCA and Brightway, run the factor matching validation, publish the reports in docs/CROSS_VALIDATION.md | S |
+| Operator review of EPD profiles | P1 | Ask EPD International, IBU and the FDES-INIES programme to review the profiles; ILCD+EPD XML export | M |
+| LCC residual value and escalation | P2 | Residual value at the end of the study period, price escalation per cost type, ISO 15686-5 cost categories | S |
+| IMPACT World+ | P2 | Native method with regionalised factors where the licence allows | M |
+| Official USEtox 2 | P2 | Official USEtox 2.x factors, tested against the USEtox reference results | M |
+| MFA linked to LCA | P2 | MFA flows as inventory lines of a model; cohorts per product type; parameter uncertainty | M |
+| Social LCA formats | P3 | Read the PSILCA database format directly; reference-scale methods | M |
 | Multi-user projects | P3 | Shared project server with roles and review comments | XL |
 | Dynamic characterisation beyond climate | P3 | Time-dependent factors for other categories | L |
 | Biodiversity | P3 | Species-loss methods where licences allow | M |
@@ -196,3 +213,9 @@ database and method fingerprints.
 - Sphera LCA for Experts: https://sphera.com/product-sustainability-software/
 - Activity Browser: https://github.com/LCA-ActivityBrowser/activity-browser
 - PEF method: Commission Recommendation (EU) 2021/2279
+- AWARE: Boulay A.-M. et al. (2018) Int. J. Life Cycle Assess. 23, 368-378
+- LANCA: Bos U. et al. (2016) LANCA Characterization Factors for Life Cycle Impact Assessment, Version 2.0. Fraunhofer
+- UNEP (2020) Guidelines for Social Life Cycle Assessment of Products and Organizations
+- Ellen MacArthur Foundation (2015) Circularity Indicators: methodology
+- EPD International GPI 5: https://environdec.com/news/gpi_500
+- IBU PCR Part A: https://ibu-epd.com/wp-content/uploads/2026/08/260702_ENG-PCR-Part-AA2_v.1.5.pdf

@@ -283,6 +283,7 @@
         <div class="form-grid">
           <label>Currency<input name="lcc_currency" placeholder="EUR" maxlength="8"></label>
           <label>Discount rate (% per year)<input name="lcc_rate" type="number" step="any" min="0" max="50" placeholder="0"></label>
+          <label>Study period (years, for replacements)<input name="lcc_period" type="number" step="any" min="0" placeholder="60"></label>
         </div>
         <div class="row"><button class="primary" type="submit">Save goal &amp; scope</button><span class="hint" id="scopeSaved" role="status"></span></div>
       </form>
@@ -390,6 +391,8 @@
             <label>Year of the data<input name="data_year" type="number" min="1900" max="2100" step="1" placeholder="2024"></label>
             <label>Supplier or site<input name="supplier" placeholder="Plant in Lyon"></label>
             <label>Price per <span id="provUnit">unit</span><input name="unit_cost" type="number" step="any" placeholder="0.00"></label>
+            <label>Cost type<select name="cost_type"><option value="">not classified</option><option value="capex">investment (CAPEX)</option><option value="opex">operation (OPEX)</option><option value="maintenance">maintenance</option><option value="replacement">replacement</option><option value="end of life">end of life</option></select></label>
+            <label>Replaced every (years)<input name="replace_every" type="number" step="any" min="0" placeholder="e.g. 25"></label>
             <label class="inline"><input type="checkbox" name="verified"> Checked or verified by a third party</label>
             <fieldset class="wide pef-set"><legend>PEF data quality scores (optional, 1 best to 5 worst) <button type="button" class="q" data-help="PEF data quality rating" aria-label="Help">?</button></legend>
               <label>TeR technological<select name="pef0"><option value="">-</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
@@ -505,13 +508,14 @@
           <button data-rt="stages">Stages</button>
           <button data-rt="sens">Sensitivity</button>
           <button data-rt="unc">Uncertainty</button>
-          <button data-rt="dyn" id="tabDyn" hidden>Dynamic climate</button>
-          <button data-rt="map">Map</button>
-          <button data-rt="explore">Explore parameters</button>
-          <button data-rt="pef">PEF</button>
           <button data-rt="lci">Inventory results</button>
           <button data-rt="checks">Checks <span id="checkCount"></span></button>
           <button data-rt="compare">Compare</button>
+          <span class="tab-group-label" aria-hidden="true">More analyses</span>
+          <button data-rt="dyn" id="tabDyn" class="tab-more" hidden>Dynamic climate</button>
+          <button data-rt="map" class="tab-more">Map</button>
+          <button data-rt="explore" class="tab-more">Explore parameters</button>
+          <button data-rt="pef" class="tab-more">PEF</button>
         </div>
         <div class="row cat-row" id="catRow"><label for="catSelect" class="inline">Impact category</label><select id="catSelect"></select></div>
 
@@ -629,6 +633,14 @@
         <h2>Standards and declarations</h2>
         <details class="connector">
           <summary><b>EPD according to ISO 14025:2026 and EN 15804+A2</b><span>Declaration draft with modules A1 to D, ND for modules not declared, the share of supply-chain-specific data, and a verification checklist.</span></summary>
+          <div class="row"><label class="grow">Programme layout (profile)<select id="epdProfile"></select></label></div>
+          <p class="hint" id="epdProfileNote"></p>
+          <details class="sub"><summary>Your own programme profile</summary>
+            <p class="hint">Export the selected profile as JSON, change its id, name, sections, fields and statements, then load it. Built-in profiles cannot be replaced. The keys are listed in the Methods document (section 12.2), and an example is online at https://github.com/pdnaeem/cyclia/tree/main/docs/examples (epd_profile_example.json).</p>
+            <div class="row"><button id="btnProfileExport">Copy the selected profile as JSON</button></div>
+            <div class="row"><input id="profilePath" class="grow" placeholder="Full path of your profile .json"><button data-pick="file" data-target="profilePath" data-ext="json">Browse</button><button id="btnProfileLoad">Load profile</button></div>
+          </details>
+          <div id="epdProfileFields" class="form-grid"></div>
           <form id="epdInfo" class="form-grid" novalidate>
             <label>Manufacturer<input name="manufacturer"></label><label>Production site<input name="site"></label>
             <label>Programme operator<input name="programme"></label><label>Declaration number<input name="number"></label>
@@ -640,6 +652,7 @@
             <label>Biogenic carbon in product (kg C)<input name="biogenic_product" type="number" step="any"></label><label>Biogenic carbon in packaging (kg C)<input name="biogenic_packaging" type="number" step="any"></label>
             <label class="wide">Product description<textarea name="description" rows="2"></textarea></label>
             <label class="wide">Programme operator statements (the mandatory text of your programme, e.g. on comparability and verification)<textarea name="programme_statements" rows="3"></textarea></label>
+            <label class="wide">Replace the profile's default statements (one per line; leave empty to keep them)<textarea name="statements_override" rows="3"></textarea></label>
             <div class="wide"><span class="hint">Modules declared in addition to those with inventory lines:</span><div class="modchecks" id="epdModules"></div></div>
           </form>
           <div class="row"><button id="btnEpdSave">Save EPD details</button><button id="btnEpdCheck">Check requirements</button><button class="primary" id="btnEpdWord">Create EPD (Word)</button><button id="btnEpdExcel">EPD data for the verifier (Excel)</button></div>
@@ -679,6 +692,7 @@
         <button data-tt="chem">Chemicals and site factors</button><button data-tt="tpl">Templates</button>
         <button data-tt="code">Python, R and other software</button><button data-tt="teach">Teaching</button>
         <button data-tt="dbs">Database versions</button><button data-tt="dash">Project overview</button><button data-tt="alloc">Allocation</button>
+        <button data-tt="regional">Regional methods</button><button data-tt="social">Social LCA</button><button data-tt="mfa">Material flows</button>
       </div>
       <div class="tt" id="tt-valid">
         <div class="block">
@@ -686,6 +700,14 @@
           <p class="hint">Runs 35 small product systems with known exact answers (chains, loops, waste treatment, allocation, system expansion, nesting, units, regional and site factors, background scenarios, scenario files, module D, dynamic GWP, Monte Carlo, Sobol, fate model) in a temporary library and compares Cyclia with them. Attach the report to a paper or a thesis.</p>
           <div class="row"><button class="primary" id="btnValidate">Run validation suite</button><button id="btnValidReport" disabled>Save report (Word)</button></div>
           <div id="validOut"></div>
+        </div>
+        <div class="block">
+          <h2>Factor matching validation</h2>
+          <p class="hint">Compares the characterisation factors Cyclia has matched to your flows with the factors another tool assigns, flow by flow: an openLCA JSON-LD export of the impact method, a Brightway export (script engine/tools/brightway_export_factors.py, run in your Brightway environment), or a CSV table (category, flow_uuid, flow_name, compartment, subcompartment, unit, cf). Optionally add the other tool's results for your models (CSV: model, category, value) to split any difference into factors and the rest. Uses the impact categories of step 4.</p>
+          <div class="row"><input id="fmPath" class="grow" placeholder="Full path of the openLCA .zip, Brightway or CSV file"><button data-pick="file" data-target="fmPath">Browse</button></div>
+          <div class="row"><input id="fmResPath" class="grow" placeholder="Optional: full path of the other tool's results (CSV)"><button data-pick="file" data-target="fmResPath" data-ext="csv">Browse</button></div>
+          <div class="row"><button class="primary" id="btnFm">Compare factors</button><button id="btnFmExport" disabled>Save report (Excel)</button></div>
+          <div id="fmOut"></div>
         </div>
         <div class="block">
           <h2>Independent cross-check</h2>
@@ -723,6 +745,63 @@
           <div id="dashOut"></div>
         </div>
       </div>
+      <div class="tt" id="tt-regional" hidden>
+        <div class="block">
+          <h2>Regionalised methods: AWARE water scarcity and LANCA land use</h2>
+          <p class="hint">Calculated per process at its own location, with completeness and fallbacks shown. Cyclia ships no official factors: import the official AWARE 2.0 country or watershed table and the LANCA factors from the method owners with the templates below. The demo factors are invented numbers for trying the workflow only.</p>
+          <div id="regStatus"></div>
+          <div class="form-grid">
+            <label>Method<select id="regMethod"><option>AWARE</option><option>LANCA</option></select></label>
+            <label class="wide">Factor table (CSV)<input id="regPath" placeholder="Full path of the CSV file"></label>
+          </div>
+          <div class="row"><button data-pick="file" data-target="regPath" data-ext="csv">Browse</button><button class="primary" id="btnRegImport">Import factors</button><button id="btnRegTemplate">Show template</button><button class="ghost" id="btnRegDemo">Load demo factors</button></div>
+          <pre id="regTemplate" class="code" hidden></pre>
+        </div>
+        <div class="block">
+          <h2>Assess the open model</h2>
+          <div class="form-grid">
+            <label>Site or watershed of the model's own water use (AWARE location code)<input id="awareLoc" placeholder="e.g. FR, or a basin id of your AWARE table"></label>
+            <label>Type of water use of the model and its suppliers<select id="awareUse"><option value="unknown">unknown</option><option value="non-agri">non-agricultural</option><option value="agri">agricultural</option></select></label>
+          </div>
+          <div class="row"><button class="primary" id="btnAware">AWARE water scarcity</button><button class="primary" id="btnLanca">LANCA land use</button></div>
+          <div id="regOut"></div>
+        </div>
+      </div>
+      <div class="tt" id="tt-social" hidden>
+        <div class="block">
+          <h2>Social LCA: social risk screening</h2>
+          <p class="hint">A separate assessment, not mixed with the environmental results. Every process gets worker hours per unit of its product and a risk level per social indicator (from your licensed PSILCA or SOCA extract, or your own assessment); Cyclia multiplies with the output of each process per functional unit. Stakeholder categories of the UNEP 2020 guidelines and ISO 14075:2024. The demo data are invented.</p>
+          <div id="slcaStatus"></div>
+          <div class="row"><input id="slcaPath" class="grow" placeholder="Full path of the social data table (CSV)"><button data-pick="file" data-target="slcaPath" data-ext="csv">Browse</button><button class="primary" id="btnSlcaImport">Import</button><button id="btnSlcaTemplate">Show template</button><button class="ghost" id="btnSlcaDemo">Load demo data</button></div>
+          <pre id="slcaTemplate" class="code" hidden></pre>
+          <div class="row"><button class="primary" id="btnSlca">Assess the open model</button></div>
+          <div id="slcaOut"></div>
+        </div>
+      </div>
+      <div class="tt" id="tt-mfa" hidden>
+        <div class="block">
+          <h2>Dynamic material flow analysis</h2>
+          <p class="hint">A separate workspace for material stocks and flows over time: processes, in-use stocks with a lifetime (fixed, normal or Weibull), final sinks, transfer coefficients (each process's outgoing shares add up to 1), recycling loops, and external inflows per year. Edit the definition (JSON) and run.</p>
+          <div class="row"><button id="btnMfaExample">Load example</button><button class="primary" id="btnMfaRun">Run</button></div>
+          <textarea id="mfaDef" rows="16" class="code" spellcheck="false"></textarea>
+          <div id="mfaOut"></div>
+        </div>
+        <div class="block">
+          <h2>Material Circularity Indicator</h2>
+          <p class="hint">Ellen MacArthur Foundation (2015), technical cycle. 0.1 for a fully linear product, 1 for a fully circular one.</p>
+          <div class="form-grid mci-grid">
+            <label>Recycled feedstock Fr<input data-mci="Fr" type="number" step="0.05" min="0" max="1" value="0"></label>
+            <label>Reused feedstock Fu<input data-mci="Fu" type="number" step="0.05" min="0" max="1" value="0"></label>
+            <label>Collected for recycling Cr<input data-mci="Cr" type="number" step="0.05" min="0" max="1" value="0"></label>
+            <label>Collected for reuse Cu<input data-mci="Cu" type="number" step="0.05" min="0" max="1" value="0"></label>
+            <label>Recycling efficiency Ec<input data-mci="Ec" type="number" step="0.05" min="0.01" max="1" value="1"></label>
+            <label>Feedstock recycling efficiency Ef<input data-mci="Ef" type="number" step="0.05" min="0.01" max="1" value="1"></label>
+            <label>Lifetime / industry average<input data-mci="L_ratio" type="number" step="0.1" min="0.01" value="1"></label>
+            <label>Intensity of use / industry average<input data-mci="U_ratio" type="number" step="0.1" min="0.01" value="1"></label>
+          </div>
+          <div class="row"><button class="primary" id="btnMci">Calculate MCI</button><span id="mciOut"></span></div>
+        </div>
+      </div>
       <div class="tt" id="tt-alloc" hidden>
         <div class="block">
           <div class="row head-row"><h2 class="grow">Allocation and system expansion in this project</h2><button id="btnAllocLoad">Refresh</button></div>
@@ -731,6 +810,12 @@
         </div>
       </div>
       <div class="tt" id="tt-bg" hidden>
+        <div class="block">
+          <div class="row head-row"><h2 class="grow">Marginal suppliers for a consequential study</h2><button id="btnMarginal">Find markets of the open model</button></div>
+          <p class="hint" id="marginalNote">For each market in the supply chain, Cyclia lists the suppliers, marks the ones that look constrained (by-products, recycled or waste-based supply) and proposes an unconstrained marginal supplier. Confirm or change each choice with market data, then create the consequential scenario.</p>
+          <div id="marginalOut"></div>
+          <div class="row" id="marginalAct" hidden><input id="marginalName" placeholder="Scenario name" value="Consequential, marginal suppliers"><button class="primary" id="btnMarginalSave">Create consequential scenario</button></div>
+        </div>
         <div class="block">
           <h2>Background scenarios</h2>
           <p class="hint">Change the background database before calculating, without editing it. <b>Prospective</b>: scale emissions or inputs of selected datasets towards a target year (linear between the base year and the years you give), in the spirit of premise. <b>Consequential</b>: replace the suppliers of a market by its marginal supplier. Choose a scenario in step 4.</p>
@@ -880,5 +965,6 @@
 <script src="guide.js"></script>
 <script src="setup.js"></script>
 <script src="pro.js"></script>
+<script src="v135.js"></script>
 </body>
 </html>

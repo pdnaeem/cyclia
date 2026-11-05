@@ -400,6 +400,7 @@ def import_ilcd(store, path, name, progress=lambda *a: None):
                       "sub": "/".join(cats[1:]), "unit": unit}
     b = _Builder(store, name, "ILCD")
     loaded, ref_flow_owner = [], {}
+    dq_rows = {}
     for k, n in enumerate(procs):
         r = files.parse(n)
         if r is None:
@@ -421,6 +422,9 @@ def import_ilcd(store, path, name, progress=lambda *a: None):
         direction = _lang_text(ref, NSP + "exchangeDirection")
         ai = b.activity(_lang_text(r, f".//{NSC}UUID") or pname, pname or fl["name"], fl["name"], loc, fl["unit"],
                         (-amt if direction == "Input" else amt) or 1.0, "")
+        dq = dataset_dqr(r)
+        if dq:
+            dq_rows[_lang_text(r, f".//{NSC}UUID") or pname] = dq
         ref_flow_owner.setdefault(fuid, ai)
         loaded.append((ai, exs, ref))
         if k % 100 == 0:
@@ -453,4 +457,49 @@ def import_ilcd(store, path, name, progress=lambda *a: None):
                 continue  # co-products
             target = ref_flow_owner.get(fuid)
             b.input(ai, fl["name"], fl["unit"], amt if not waste else -amt, "", unc, link=target)
-    return b.write(progress)
+    res = b.write(progress)
+    if dq_rows:
+        with store.lock:
+            for key, dq in dq_rows.items():
+                row = store.conn.execute("SELECT id FROM activities WHERE db_id=? AND key=?", (b.db_id, key)).fetchone()
+                if row:
+                    store.conn.execute("INSERT OR REPLACE INTO activity_dq VALUES(?,?,?,?,?,?,?,?,?)",
+                                       (row[0], dq.get("TeR"), dq.get("GeR"), dq.get("TiR"), dq.get("P"), dq.get("C"),
+                                        dq.get("M"), dq.get("overall", ""), "ILCD dataQualityIndicators"))
+            store.conn.commit()
+        if isinstance(res, dict):
+            res["datasets_with_dqr"] = len(dq_rows)
+    return res
+
+
+DQ_LEVELS = {"very good": 1.0, "good": 2.0, "fair": 3.0, "poor": 4.0, "very poor": 5.0}
+DQ_NAMES = {"technological representativeness": "TeR", "geographical representativeness": "GeR",
+            "time representativeness": "TiR", "precision": "P", "completeness": "C",
+            "methodological appropriateness and consistency": "M", "overall quality": "overall"}
+
+
+def dataset_dqr(root):
+    """Data quality indicators of an ILCD/EF process dataset (common:dataQualityIndicator name/value), as numbers
+    1 (very good) to 5 (very poor). Numeric values are kept; 'not evaluated' and 'not applicable' are skipped."""
+    out = {}
+    for el in root.iter():
+        tag = el.tag.split("}")[-1]
+        if tag != "dataQualityIndicator":
+            continue
+        name = (el.get("name") or "").strip().lower()
+        val = (el.get("value") or "").strip()
+        key = DQ_NAMES.get(name)
+        if not key:
+            continue
+        if key == "overall":
+            out["overall"] = val
+            continue
+        num = DQ_LEVELS.get(val.lower())
+        if num is None:
+            try:
+                num = float(val)
+            except ValueError:
+                continue
+        if 1 <= num <= 5:
+            out[key] = num
+    return out if any(k in out for k in ("TeR", "GeR", "TiR", "P")) else {}

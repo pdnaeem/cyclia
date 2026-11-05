@@ -404,7 +404,7 @@ document.addEventListener("click", async (e) => {
 /* ---------------- models & scope ---------------- */
 const SCOPE_FIELDS = ["fu_description", "goal", "reasons", "application", "audience", "comparative", "author", "boundary",
   "stage_system", "geography", "period", "allocation", "alloc_share", "alloc_basis", "main_mass", "cutoff", "assumptions", "dq_requirements", "horizon",
-  "approach", "technology", "lcc_currency", "lcc_rate", "alloc_property"];
+  "approach", "technology", "lcc_currency", "lcc_rate", "alloc_property", "lcc_period"];
 const CONC_FIELDS = ["conclusions", "limitations", "recommendations", "review", "review_status"];
 
 function fillStageSystems() {

@@ -62,6 +62,13 @@ CREATE TABLE IF NOT EXISTS lib.unlinked (id INTEGER PRIMARY KEY, db_id INTEGER, 
 CREATE INDEX IF NOT EXISTS lib.idx_unlinked_db ON unlinked(db_id, product);
 CREATE TABLE IF NOT EXISTS lib.templates (id INTEGER PRIMARY KEY, name TEXT UNIQUE, category TEXT, description TEXT,
     spec TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS lib.activity_dq (activity_id INTEGER PRIMARY KEY, ter REAL, ger REAL, tir REAL, p REAL,
+    completeness REAL, methodological REAL, overall TEXT, source TEXT);
+CREATE TABLE IF NOT EXISTS lib.native_factors (id INTEGER PRIMARY KEY, method TEXT, indicator TEXT, key TEXT, location TEXT,
+    value REAL, unit TEXT, source TEXT);
+CREATE INDEX IF NOT EXISTS lib.idx_native ON native_factors(method, indicator, key, location);
+CREATE TABLE IF NOT EXISTS lib.slca_data (id INTEGER PRIMARY KEY, match TEXT, location TEXT, worker_hours REAL, stakeholder TEXT,
+    indicator TEXT, risk TEXT, source TEXT);
 CREATE TABLE IF NOT EXISTS lib.chemicals (id INTEGER PRIMARY KEY, name TEXT UNIQUE, cas TEXT, props TEXT, result TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 """
@@ -76,7 +83,8 @@ CREATE TABLE IF NOT EXISTS model_inputs (
     label TEXT, comment TEXT, pedigree TEXT DEFAULT '[3,3,3,3,3]', position INTEGER DEFAULT 0,
     stage TEXT DEFAULT '', input_amount REAL, input_unit TEXT, avoided INTEGER DEFAULT 0,
     ref_db TEXT, ref_key TEXT, formula TEXT, year REAL DEFAULT 0, fixed TEXT, data_type TEXT DEFAULT '',
-    source_ref TEXT DEFAULT '', data_year REAL, supplier TEXT DEFAULT '', verified INTEGER DEFAULT 0, unit_cost REAL, pef TEXT);
+    source_ref TEXT DEFAULT '', data_year REAL, supplier TEXT DEFAULT '', verified INTEGER DEFAULT 0, unit_cost REAL, pef TEXT,
+    cost_type TEXT DEFAULT '', replace_every REAL);
 CREATE INDEX IF NOT EXISTS idx_inputs_model ON model_inputs(model_id);
 CREATE TABLE IF NOT EXISTS parameters (
     id INTEGER PRIMARY KEY, model_id INTEGER, name TEXT, value REAL, formula TEXT, unit TEXT, comment TEXT,
@@ -98,14 +106,15 @@ PROJECT_MIGRATIONS = {
                      ("avoided", "INTEGER DEFAULT 0"), ("ref_db", "TEXT"), ("ref_key", "TEXT"),
                      ("formula", "TEXT"), ("year", "REAL DEFAULT 0"), ("fixed", "TEXT"),
                      ("data_type", "TEXT DEFAULT ''"), ("source_ref", "TEXT DEFAULT ''"), ("data_year", "REAL"),
-                     ("supplier", "TEXT DEFAULT ''"), ("verified", "INTEGER DEFAULT 0"), ("unit_cost", "REAL"), ("pef", "TEXT")],
+                     ("supplier", "TEXT DEFAULT ''"), ("verified", "INTEGER DEFAULT 0"), ("unit_cost", "REAL"), ("pef", "TEXT"),
+                     ("cost_type", "TEXT DEFAULT ''"), ("replace_every", "REAL")],
 }
 LIB_MIGRATIONS = {"tech": [("src_unlinked", "INTEGER")], "flow_mapping": [("s_uuid", "TEXT")],
                   "activities": [("product_uuid", "TEXT")]}
 LEGACY_DATA_TABLES = ["databases", "activities", "activities_fts", "tech", "flows", "bio", "methods", "cfs", "nw"]
 INPUT_COLUMNS = ["id", "model_id", "kind", "ref_id", "amount", "label", "comment", "pedigree", "position", "stage",
                  "input_amount", "input_unit", "avoided", "ref_db", "ref_key", "formula", "year", "fixed", "data_type",
-                 "source_ref", "data_year", "supplier", "verified", "unit_cost", "pef"]
+                 "source_ref", "data_year", "supplier", "verified", "unit_cost", "pef", "cost_type", "replace_every"]
 UNCERTAINTY_TYPES = {0: "none", 1: "lognormal", 2: "normal", 3: "triangular", 4: "uniform"}
 
 
@@ -668,7 +677,7 @@ class ProjectStore:
     def update_input(self, input_id, fields):
         allowed = {"amount", "label", "comment", "stage", "input_amount", "input_unit", "avoided", "pedigree",
                    "formula", "year", "fixed", "ref_id", "ref_db", "ref_key", "data_type", "source_ref", "data_year",
-                   "supplier", "verified", "unit_cost", "pef"}
+                   "supplier", "verified", "unit_cost", "pef", "cost_type", "replace_every"}
         with self.lock:
             for k, v in fields.items():
                 if k not in allowed:
@@ -679,7 +688,7 @@ class ProjectStore:
                     v = 1 if v else 0
                 elif k == "pef":
                     v = json.dumps([min(5, max(1, int(x))) for x in v][:4]) if v else None
-                elif k in ("data_year", "unit_cost"):
+                elif k in ("data_year", "unit_cost", "replace_every"):
                     v = None if v in (None, "") else float(v)
                 elif k == "fixed":
                     v = json.dumps(v) if v else None

@@ -1,0 +1,8 @@
+# Demonstration results of 'another tool' for two demo models, to try the results comparison.
+# Climate change = Cyclia inventory x the external factors (fully explained by the factors).
+# Acidification of the concrete wall is 2 % higher with identical factors (an inventory or linking difference).
+model,category,value
+Hempcrete wall (demo),climate change,74.73222318
+Concrete wall (demo),climate change,86.08569757
+Hempcrete wall (demo),acidification,0.4576035858
+Concrete wall (demo),acidification,0.2522047065

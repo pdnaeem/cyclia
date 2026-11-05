@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fragment of an ILCD / EF process dataset with its data quality indicators, to show what Cyclia reads.
+     Cyclia stores TeR, GeR, TiR and P (and C when present) per dataset and uses them for the
+     data quality of lines that have no pedigree of their own. Values: Very good 1, Good 2, Fair 3, Poor 4,
+     Very poor 5; "Not evaluated / unknown" and "Not applicable" are skipped. -->
+<processDataSet xmlns="http://lca.jrc.it/ILCD/Process" xmlns:common="http://lca.jrc.it/ILCD/Common" version="1.1">
+  <modellingAndValidation>
+    <validation>
+      <review type="Independent external review">
+        <common:dataQualityIndicators>
+          <common:dataQualityIndicator name="Technological representativeness" value="Good"/>
+          <common:dataQualityIndicator name="Geographical representativeness" value="Very good"/>
+          <common:dataQualityIndicator name="Time representativeness" value="Fair"/>
+          <common:dataQualityIndicator name="Precision" value="Good"/>
+          <common:dataQualityIndicator name="Completeness" value="Not evaluated / unknown"/>
+          <common:dataQualityIndicator name="Overall quality" value="Good quality"/>
+        </common:dataQualityIndicators>
+      </review>
+    </validation>
+  </modellingAndValidation>
+</processDataSet>

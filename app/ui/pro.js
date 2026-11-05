@@ -23,6 +23,7 @@
     f.supplier.value = r.supplier || "";
     f.unit_cost.value = r.unit_cost ?? "";
     f.verified.checked = !!r.verified;
+    f.cost_type.value = r.cost_type || ""; f.replace_every.value = r.replace_every ?? "";
     [0, 1, 2, 3].forEach((i) => (f["pef" + i].value = r.pef ? String(r.pef[i]) : ""));
     $("#provSaved").textContent = "";
     $("#provPanel").hidden = false;
@@ -39,7 +40,7 @@
       const pef = [0, 1, 2, 3].map((i) => f["pef" + i].value);
       if (pef.some((v) => v) && !pef.every((v) => v)) throw new Error("Give all four PEF scores, or none.");
       await patchLine(provLine, { source_ref: f.source_ref.value.trim(), data_year: y, supplier: f.supplier.value.trim(),
-        unit_cost: f.unit_cost.value.trim(), verified: f.verified.checked, pef: pef.every((v) => v) ? pef.map(Number) : null }, true);
+        unit_cost: f.unit_cost.value.trim(), verified: f.verified.checked, cost_type: f.cost_type.value, replace_every: f.replace_every.value.trim(), pef: pef.every((v) => v) ? pef.map(Number) : null }, true);
       $("#provSaved").textContent = "Saved.";
     });
   });
@@ -152,11 +153,13 @@
     const r = S.result, lc = r.lcc, w = r.water;
     let h = "";
     if (lc) {
+      const types = (lc.by_type || []).filter((t) => t.cost);
       h += `<h2>Life cycle cost <button type="button" class="q" data-help="life cycle costing" aria-label="Help">?</button></h2>
         <p><b>${money(lc.total, lc.currency)}</b> per functional unit${lc.rate_percent ? `; net present cost ${money(lc.total_discounted, lc.currency)} at ${lc.rate_percent}% per year` : ""}${lc.beyond_boundary ? `; beyond the boundary (module D) ${money(lc.beyond_boundary, lc.currency)}` : ""}.</p>
         <div class="table-wrap"><table><thead><tr><th>Line</th><th>Stage</th><th class="num">Cost</th>${lc.rate_percent ? '<th class="num">Discounted</th>' : ""}</tr></thead><tbody>` +
         lc.lines.slice(0, 12).map((l) => `<tr><td>${esc(l.name)}${l.source === "sub-model" ? ' <span class="hint">(from its model)</span>' : ""}${l.revenue ? ' <span class="hint">(revenue)</span>' : ""}</td><td>${esc(l.stage)}</td><td class="num">${money(l.cost, lc.currency)}</td>${lc.rate_percent ? `<td class="num">${money(l.discounted, lc.currency)}</td>` : ""}</tr>`).join("") +
-        `</tbody></table></div><p class="hint">${esc(lc.note)}${lc.n_uncosted ? ` ${lc.n_uncosted} line(s) have no price.` : ""}</p>`;
+        `</tbody></table></div>` + (types.length > 1 || (types[0] && types[0].type !== "not classified") ? `<p>By cost type: ${types.map((t) => `${esc(t.type)} ${money(t.cost, lc.currency)}`).join("; ")}.</p>` : "") +
+        `<p class="hint">${esc(lc.note)}${lc.n_uncosted ? ` ${lc.n_uncosted} line(s) have no price.` : ""}</p>`;
     }
     if (w) {
       h += `<h2>Water inventory</h2><p>Withdrawal <b>${fmt(w.withdrawal)} m3</b>${w.withdrawal_turbine ? ` (of which ${fmt(w.withdrawal_turbine)} m3 turbine water)` : ""}, released ${fmt(w.release)} m3, consumption <b>${fmt(w.consumption)} m3</b> per functional unit.</p><p class="hint">${esc(w.note)}</p>`;

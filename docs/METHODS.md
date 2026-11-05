@@ -319,7 +319,7 @@ changes α_g that best explain the gap, (ref_d - cyclia_d) = Σ_g α_g c_dg, are
 (weights 1 / |ref_d|), with the share of the gap variance explained. Land flows of the inventories without a
 factor, and raw factors that give one flow two different values, are listed.
 
-`engine/tests` holds 64 automated tests, including: a hand-calculated wall model; agreement with an
+`engine/tests` holds 137 automated tests (1.3.5), including: a hand-calculated wall model; agreement with an
 independent dense solution to 10⁻⁹; supply loops and waste treatment from ecoSpold2; unit conversion and
 waste flows from openLCA JSON-LD; ecoSpold1, SimaPro CSV and ILCD imports against hand calculations;
 cross-database linking and unlinking; flow mapping; regional factors; module D; co-product allocation;
@@ -349,6 +349,126 @@ and gap_d its difference to the reference, it selects a few flows *f* and factor
 orthogonal matching pursuit on gap_d / |ref_d| = Σ_f g_df Δ_f / |ref_d| and reports the factor the
 reference appears to use (CF + Δ_f), the share of the deviation it explains, and the factors the method
 file holds for that flow name.
+
+## 12. Added in 1.3.5
+
+### 12.1 Factor matching validation (Toolbox > Validation)
+
+Cyclia's characterisation factors are compared flow by flow with the factors another tool assigns. External
+sources: an openLCA JSON-LD export of the method (factors per flow UUID), a Brightway export written by
+`engine/tools/brightway_export_factors.py` (run inside a Brightway environment; it writes `bd.Method(key).load()`
+rows with the flow keys, names, categories and units), or a CSV with the columns category, flow_uuid, flow_name,
+compartment, subcompartment, unit, cf (and location). Lines starting with `#` are comments.
+
+1. **Pairing of categories**: each selected Cyclia category is paired with the external category of the highest
+   word overlap (Jaccard index of the words), scored on the category name alone and on category plus
+   indicator; the higher score counts and a pair needs at least 0.4. Pairs can be set by hand.
+2. **Resolving flows**: an external factor is attached to a Cyclia flow by UUID; without a UUID, by canonical
+   name, compartment and subcompartment. Rows that match no flow of the library are *unresolved*, rows that match
+   several flows are *ambiguous*, and rows whose unit differs from the flow's unit are *unit issues*. External
+   files that give one flow two different factors are counted as *external conflicts*.
+3. **Comparison**: over every flow that the library or the project's models use and that has a non-zero factor in
+   either tool (global factors only), each flow is *same* (relative difference up to 1e-6), *different*,
+   *only in Cyclia* or *only in the external tool*.
+4. **Effect on models**: with g the elementary flows per functional unit of a model (module D excluded) and Δc the
+   factor differences, the result with the external factors is h_ext = h + Σ_f g_f Δc_f. The table lists
+   h, h_ext and the effect in percent, and each flow's largest effect on any model.
+5. **External results (optional)**: a CSV with model, category, value. The difference to Cyclia is split into the
+   part explained by the factors (h_ext − h) and the rest (inventory, linking, allocation or solver differences).
+
+Excel report: Summary, Flow by flow, Effect on models, Unpaired external categories. The validation passes only
+when no relevant flow differs and no category is unpaired.
+
+### 12.2 EPD programme profiles (step 6)
+
+A profile describes one programme's EPD: the order of sections of the Word file, extra general-information
+fields (with required ones marked), the mandatory statements, the required additional indicators, the maximum
+validity in years, the language of labels and fixed texts. Built in: Cyclia generic (ISO 14025:2026 and
+EN 15804+A2), the International EPD System (GPI 5), IBU and INIES FDES (French labels). The three programme
+profiles are drafts modelled on EPDs published by those programmes and are **not approved by the programme
+operators**. The checklist adds, per profile: every required field filled, every required indicator calculated,
+and validity (valid until minus issued) not above the profile's maximum. Custom profiles are JSON files with the
+keys id, name, language, status, based_on, validity_years, fields (key, label, required, type, options),
+statements, required_indicators, grouped_tables and sections; the section names must be known to Cyclia. An
+example is `docs/examples/epd_profile_example.json`.
+
+### 12.3 Data quality of EF and ILCD datasets
+
+On ILCD/EF import, the `common:dataQualityIndicator` values of each process dataset are read: Very good 1,
+Good 2, Fair 3, Poor 4, Very poor 5 (numbers kept as they are; "not evaluated" and "not applicable" skipped).
+TeR, GeR, TiR and P are stored per dataset. For lines without PEF scores of their own, the data quality of a
+category uses the dataset scores, DQR = (TeR + GeR + TiR + P) / 4 (Commission Recommendation (EU) 2021/2279),
+weighted by the line's contribution like the foreground scores; the share of the result scored this way is shown
+as "from datasets".
+
+### 12.4 Marginal supplier guidance (Toolbox > Background)
+
+For every market with several suppliers in the supply chain of a model, a supplier is marked as *constrained*
+when its name or product contains a word that indicates by-product, recycled or waste-based supply (recycled,
+secondary, by-product, co-product, waste, treatment of, scrap, used, reuse, residue, cut-off), after Weidema et al.
+(2009). The unconstrained supplier with the largest current share is proposed. The user confirms or changes the
+choice with market data (growing, competitive technology), and Cyclia creates a consequential background
+scenario with a swap rule per market (the market's supply replaced by the chosen supplier). The proposal is a
+starting point, not a marginal-supplier identification.
+
+### 12.5 Life cycle costing: cost types and replacements
+
+Each costed line has a cost type (capital, operating, maintenance, replacement, end of life). With a study period
+T (step 2) and a replacement interval R on a line in year y₀, the line's cost occurs in years y₀ + kR for
+k = 0, 1, ... while y₀ + kR < T; the net present cost is Σ c / (1 + r)^(y₀ + kR). Results are given by line,
+stage and cost type.
+
+### 12.6 AWARE water scarcity (Toolbox > Regional methods)
+
+Water consumption of every process per functional unit, from the engine's scaling vector:
+consumption = Σ water taken from nature − Σ water returned to nature (m³). AWARE result =
+Σ_processes consumption × CF(location of the process, type of use). Type of use: agricultural for processes
+whose name mentions irrigation, otherwise the type chosen for the model (unknown by default). The model's own
+water flows use the model's AWARE location (site or watershed, set in Toolbox > Regional methods), else the
+study geography. Location lookup:
+exact code, then the country of a sub-national code (CN-HB → CN), then the global value (GLO). Completeness
+gives the share of the water consumption characterised exactly, by fallback, or not at all. Factors are imported
+from the official AWARE tables (Boulay et al. 2018); Cyclia ships only a labelled demonstration set.
+
+### 12.7 LANCA land use
+
+Land occupation (m²·a), transformation to and transformation from (m²) of every process, times the LANCA factor
+for the indicator, kind of intervention, land use type and process location (same fallbacks as AWARE).
+Indicators: erosion resistance, mechanical filtration, physicochemical filtration, groundwater regeneration,
+biotic production, and the EF soil quality index when its factors are imported. Land flows without a factor
+are listed with their area. Factors must come from the LANCA owners (Bos et al. 2016); demo values only show the
+workflow.
+
+### 12.8 Social LCA screening (Toolbox > Social LCA)
+
+Activity variable: worker hours per unit of each process's reference product, with a risk level per social
+indicator and stakeholder category (UNEP 2020 Guidelines, ISO 14075:2024: workers, local community, society,
+consumers, value chain actors, children). Worker hours per functional unit = output of each process (s × the
+diagonal of A) × worker hours per unit. Risk hours = hours × factor of the risk level (no risk 0, very low 0.01,
+low 0.1, medium 1, high 10, very high 100; editable). Each process takes the most specific data row: the longest
+matching name fragment, a row for its location before a row without location. Coverage per indicator is the share
+of the worker hours with data; processes without data are listed. This is a hotspot screening, not a
+measurement of social performance. Cyclia ships no social data.
+
+### 12.9 Dynamic material flow analysis and circularity (Toolbox > Material flows)
+
+A system of processes, in-use stocks and sinks connected by transfer coefficients (shares per process summing to
+1, sinks excepted). External inflows are interpolated linearly between the given years and kept constant after
+the last one. A stock retires its inflow of year t in the following years by a discrete lifetime distribution:
+fixed (all at age L ≥ 1); normal with mean μ and standard deviation σ (share retiring at age a = F(a + 0.5) −
+F(a − 0.5), with age 1 taking F(1.5), so nothing retires in the year of entry); Weibull with shape k and scale λ
+(share at age a = F(a) − F(a − 1), age 1 taking F(1)). Retirements that fall after the last year of the study are
+not counted; over a long enough horizon every inflow retires (tested to 1e-9). Flows within a year, including recycling back
+to production, are solved as x = (I − Tᵀ)⁻¹ u; a loop with no exit raises an error. Every year is checked for
+mass balance (external inflow = change in stocks + flows to sinks). Indicators per year: end-of-life recycling
+rate (recycled output / end-of-life outflow), recycled content (recycled input to production / total input to
+production), and the recirculated share of inflow and of outflow in the spirit of ISO 59020:2024.
+
+The **Material Circularity Indicator** (Ellen MacArthur Foundation and Granta Design 2015, technical cycle):
+V = M(1 − F_R − F_U); W₀ = M(1 − C_R − C_U); W_C = M(1 − E_C)C_R; W_F = M(1 − E_F)F_R / E_F;
+W = W₀ + (W_F + W_C)/2; LFI = (V + W) / (2M + (W_F − W_C)/2); F(X) = 0.9 / X with X = (L/L_av)(U/U_av);
+MCI = max(0, 1 − LFI · F(X)).
+A fully linear product gives 0.1, a fully circular one 1.
 
 ## References
 
