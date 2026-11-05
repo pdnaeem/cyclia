@@ -30,6 +30,7 @@ import epd_profiles  # noqa: E402
 import factormatch  # noqa: E402
 import ilcd_epd  # noqa: E402
 import compare_kit  # noqa: E402
+import lci_check  # noqa: E402,F401  (used by trust; imported here so the packaged engine includes it)
 import staging  # noqa: E402
 import mfa  # noqa: E402
 import regional  # noqa: E402
@@ -51,7 +52,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.3.8"
+VERSION = "1.3.9"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -512,17 +513,31 @@ def ei_install(st, body, q):
         calc.invalidate()
         if validate:
             res["benchmark"] = _ei_validate(st, store, user, pw, version, model, name, sample,
-                                            lambda pc, m: progress(70 + pc * 0.3, m))
+                                            lambda pc, m: progress(70 + pc * 0.3, m),
+                                            inventories=bool(body.get("inventories", True)))
         return res
     return _import_job(st, f"Install {name}", job)
 
 
-def _ei_validate(st, store, user, pw, version, model, db_name, sample, progress):
-    """Download ecoinvent's own LCIA results and compare Cyclia with them. Never fails the installation."""
+def _ei_validate(st, store, user, pw, version, model, db_name, sample, progress, inventories=True):
+    """Download ecoinvent's own LCIA results and compare Cyclia with them. With inventories, ecoinvent's cumulative
+    LCI is downloaded too and the gap of each result is split into an inventory part and a factor part.
+    Never fails the installation."""
     try:
-        path = ecoinvent_login.download_cumulative_lcia(user, pw, version, model, lambda pc, m: progress(pc * 0.3, m))
+        path = ecoinvent_login.download_cumulative_lcia(user, pw, version, model, lambda pc, m: progress(pc * 0.2, m))
+        lci, lci_error = None, ""
+        if inventories:
+            try:
+                lci = ecoinvent_login.download_cumulative_lci(user, pw, version, model,
+                                                              lambda pc, m: progress(20 + pc * 0.2, m))
+            except Exception as e:
+                lci_error = str(e)
         st.last_bench = trust.benchmark_ecoinvent(store, path, trust.preferred_family(store), sample,
-                                                  progress=lambda pc, m: progress(30 + pc * 0.7, m), db_name=db_name)
+                                                  progress=lambda pc, m: progress(40 + pc * 0.6, m), db_name=db_name,
+                                                  lci_path=lci)
+        if lci_error:
+            st.last_bench["inventory"] = {"error": "ecoinvent's cumulative LCI could not be downloaded, so the inventory "
+                                                   f"check was not run ({lci_error})."}
         out = dict(st.last_bench)
         out["rows"] = []
         return out
@@ -541,7 +556,8 @@ def ei_validate(st, body, q):
         raise ApiError(f"'{db_name}' is not in the library. Install it first, or choose the database it was imported as.")
 
     def job(progress, cancelled):
-        r = _ei_validate(st, store, user, pw, version, model, db_name, int(body.get("sample") or 100), progress)
+        r = _ei_validate(st, store, user, pw, version, model, db_name, int(body.get("sample") or 100), progress,
+                         inventories=bool(body.get("inventories", True)))
         if r.get("error"):
             raise ValueError(r["error"])
         return r
@@ -1974,8 +1990,9 @@ def bench_ei(st, body, q):
 
     def job(progress, cancelled):
         try:
+            lci = _check_path(body["lci_path"]) if body.get("lci_path") else None
             st.last_bench = trust.benchmark_ecoinvent(store, path, body.get("family") or "", sample, progress=progress,
-                                                      db_name=body.get("db_name") or None)
+                                                      db_name=body.get("db_name") or None, lci_path=lci)
         except calc.LCAError as e:
             raise ValueError(str(e))
         out = dict(st.last_bench)

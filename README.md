@@ -117,7 +117,7 @@ USLCI, Agribalyse or ELCD. Your data stays on your computer.
 
 LCA results only matter if they are right. Cyclia checks itself in six independent ways:
 
-1. **196 automated tests** of the calculation engine (`engine/tests`), each audit finding with a regression test
+1. **199 automated tests** of the calculation engine (`engine/tests`), each audit finding with a regression test
 2. **A validation suite of 35 product systems with exact known answers**: supply chains, loops,
    allocation, system expansion, units, regional and site factors, background scenarios, module D,
    dynamic GWP, Monte Carlo, Sobol and the fate model. Run it in the app (Toolbox > Validation) and
@@ -130,7 +130,7 @@ LCA results only matter if they are right. Cyclia checks itself in six independe
    JSON-LD export, a Brightway export or a CSV, with the effect of every difference on your models.
 6. **A comparison kit** that runs the same database in Brightway and openLCA and reports the differences.
 
-What each feature does, how it is tested and what it does not do yet: [`docs/ACCEPTANCE_1.3.5.md`](docs/ACCEPTANCE_1.3.5.md) the audit fixes of 1.3.6 in [`docs/ACCEPTANCE_1.3.6.md`](docs/ACCEPTANCE_1.3.6.md), 1.3.7 in [`docs/ACCEPTANCE_1.3.7.md`](docs/ACCEPTANCE_1.3.7.md), and the database integrity work of 1.3.8 in [`docs/ACCEPTANCE_1.3.8.md`](docs/ACCEPTANCE_1.3.8.md).
+What each feature does, how it is tested and what it does not do yet: [`docs/ACCEPTANCE_1.3.5.md`](docs/ACCEPTANCE_1.3.5.md) the audit fixes of 1.3.6 in [`docs/ACCEPTANCE_1.3.6.md`](docs/ACCEPTANCE_1.3.6.md), 1.3.7 in [`docs/ACCEPTANCE_1.3.7.md`](docs/ACCEPTANCE_1.3.7.md), the database integrity work of 1.3.8 in [`docs/ACCEPTANCE_1.3.8.md`](docs/ACCEPTANCE_1.3.8.md), and the inventory check of 1.3.9 in [`docs/ACCEPTANCE_1.3.9.md`](docs/ACCEPTANCE_1.3.9.md).
 
 The calculation method, with references, is documented in [`docs/METHODS.md`](docs/METHODS.md).
 
@@ -184,7 +184,7 @@ login or to check for updates.
 
 If Cyclia helps your research, please cite it. Citing is how free scientific software gets credit.
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.3.8)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.3.9)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [`CITATION.cff`](CITATION.cff). Inside
@@ -216,7 +216,7 @@ python -m unittest discover -s engine/tests -v
 ```
 
 On Windows, `build-windows.bat` runs the tests, builds the engine and produces the installer in
-`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.3.8` makes GitHub
+`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.3.9` makes GitHub
 Actions build Windows, macOS and Linux installers and publish them as a release.
 
 ```

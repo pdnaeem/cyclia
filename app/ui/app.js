@@ -397,7 +397,7 @@ $("#eiVersion").addEventListener("change", fillEiModels);
 $("#btnEiInstall").addEventListener("click", (e) => guard(e.target, async () => {
   const validate = $("#eiValidate").checked;
   const { job } = await api("POST", "/api/ecoinvent/install", { username: $("#eiUser").value, password: $("#eiPass").value,
-    version: $("#eiVersion").value, system_model: $("#eiModel").value, validate, sample: Number($("#eiSample").value) });
+    version: $("#eiVersion").value, system_model: $("#eiModel").value, validate, sample: Number($("#eiSample").value), inventories: $("#eiInventories").checked });
   await watchJob(job, { onDone: async (j) => {
     S.result = null; await refreshStatus();
     const b = j.result && j.result.benchmark;
@@ -406,7 +406,7 @@ $("#btnEiInstall").addEventListener("click", (e) => guard(e.target, async () => 
 }));
 $("#btnEiValidate").addEventListener("click", (e) => guard(e.target, async () => {
   const { job } = await api("POST", "/api/ecoinvent/validate", { username: $("#eiUser").value, password: $("#eiPass").value,
-    version: $("#eiVersion").value, system_model: $("#eiModel").value, sample: Number($("#eiSample").value) });
+    version: $("#eiVersion").value, system_model: $("#eiModel").value, sample: Number($("#eiSample").value), inventories: $("#eiInventories").checked });
   $("#eiValOut").innerHTML = '<p class="hint">Downloading ecoinvent\'s results and comparing; progress is shown at the bottom left.</p>';
   const fin = await watchJob(job, { quiet: true, onDone: async (j) => renderBench(j.result, $("#eiValOut")) });
   if (fin && fin.status === "error") $("#eiValOut").innerHTML = `<p class="danger">${esc(fin.error)}</p>`;

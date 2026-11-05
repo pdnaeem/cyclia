@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.3.9 (2026-11-05)
+
+Finding the cause of the land use deviation in the ecoinvent benchmark. Details: docs/ACCEPTANCE_1.3.9.md.
+
+- **Inventory check against ecoinvent's cumulative LCI**: validation can also download ecoinvent's cumulative LCI
+  (option "Compare inventories too", on by default; or choose the file for a manual benchmark). The gap of every
+  result is split into an inventory part (Cyclia's factors times the difference of the cumulative inventories) and a
+  factor part (ecoinvent's result minus Cyclia's factors times ecoinvent's own inventory). Each deviating category
+  gets a measured cause: inventory (an import or linking difference, with the flows that carry it), factors
+  (ecoinvent's results use factors that are not in its LCIA implementation file, with the factors they imply), or
+  both. New sheets in the Excel report: "Cause of deviations" and "Inventory check".
+- The LCI workbook is read as a stream of XML rows; only the compared datasets are kept.
+- **Corrected hint**: "Cyclia is lower ... N flows used by the database have no factor" pointed to the wrong cause.
+  Most flows of a database never have a factor in a given category, also in categories that agree exactly (climate
+  change: 3,270 such flows and 100 % within 0.1 %). The hint now says which check measures the cause.
+- 199 automated tests (3 new).
+
 ## 1.3.8 (2026-11-05)
 
 Database integrity release: the findings of the third database audit (of 1.3.6). Details, tests and limits:

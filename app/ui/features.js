@@ -879,13 +879,26 @@ $("#eiBenchBox").addEventListener("toggle", (e) => {
 $("#btnEiBench").addEventListener("click", (e) => guard(e.target, async () => {
   if (!S.status.project) throw new Error("Open a project first.");
   if (!$("#ebPath").value.trim()) throw new Error("Choose the cumulative LCIA results file first.");
-  const { job } = await api("POST", "/api/benchmark-ecoinvent", { path: $("#ebPath").value, family: $("#ebFamily").value, sample: Number($("#ebSample").value) });
+  const { job } = await api("POST", "/api/benchmark-ecoinvent", { path: $("#ebPath").value, lci_path: $("#ebLciPath").value.trim(), family: $("#ebFamily").value, sample: Number($("#ebSample").value) });
   $("#ebOut").innerHTML = '<p class="hint">Running; progress is shown at the bottom left.</p>';
   const fin = await watchJob(job, { quiet: true, onDone: async (j) => renderBench(j.result, $("#ebOut")) });
   if (fin && fin.status === "error") $("#ebOut").innerHTML = `<p class="danger">${esc(fin.error)}</p>`;
 }));
 $("#btnEiBenchSave").addEventListener("click", (e) => guard(e.target, () => exportTo("/api/export/benchmark", "Cyclia benchmark against ecoinvent.xlsx", "xlsx")));
 
+function benchCause(inv) {
+  if (!inv) return "";
+  if (inv.error) return `<h4>Cause of the deviations</h4><p class="warn">${esc(inv.error)}</p>`;
+  const pc = (x) => (x == null ? "-" : x.toFixed(0) + " %");
+  const dev = inv.categories.filter((c) => c.deviating);
+  return `<h4>Cause of the deviations (inventory check)</h4>
+    <p class="hint">${inv.datasets} datasets compared with ecoinvent's cumulative LCI; ${inv.columns_matched.toLocaleString("en-US")} of ${inv.columns_in_file.toLocaleString("en-US")} flow columns matched to Cyclia's flows${inv.sign_converted.length ? "; ecoinvent reports " + esc(inv.sign_converted.join(", ")) + " with the opposite sign (converted)" : ""}. The gap of each result = inventory part (Cyclia's factors times the difference of the inventories) + factor part (ecoinvent's result minus Cyclia's factors times ecoinvent's own inventory).</p>
+    ${dev.length ? `<div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Deviating</th><th class="num">Inventory part</th><th class="num">Factor part</th><th>Cause</th></tr></thead><tbody>
+    ${dev.map((c) => `<tr><td>${esc(c.category)}</td><td class="num">${c.deviating} of ${c.results}</td><td class="num">${pc(c.inventory_share)}</td><td class="num">${pc(c.factor_share)}</td><td class="hint">${esc(c.cause)}</td></tr>`).join("")}</tbody></table></div>
+    ${dev.map((c) => `<details><summary><b>${esc(c.category)}</b>: flows</summary>
+      ${c.inventory_flows.length ? `<p class="hint">Flows that carry the inventory part:</p><table><thead><tr><th>Flow</th><th>Compartment</th><th class="num">Datasets differing</th><th class="num">ecoinvent / Cyclia</th></tr></thead><tbody>${c.inventory_flows.slice(0, 8).map((f) => `<tr><td>${esc(f.flow)}</td><td>${esc(f.compartment)}</td><td class="num">${f.datasets_differing}</td><td class="num">${f.median_ratio_ecoinvent_to_cyclia == null ? "-" : fmt(f.median_ratio_ecoinvent_to_cyclia)}</td></tr>`).join("")}</tbody></table>` : ""}
+      ${c.implied_factors.length ? `<p class="hint">Flows without a factor in Cyclia that would explain the factor part (${c.implied_explained == null ? "-" : (100 * c.implied_explained).toFixed(0) + " %"} explained). Add a factor only from the method's source.</p><table><thead><tr><th>Flow</th><th>Compartment</th><th class="num">Factor ecoinvent's results imply</th><th class="num">Datasets</th></tr></thead><tbody>${c.implied_factors.map((f) => `<tr><td>${esc(f.flow)}</td><td>${esc(f.compartment)}</td><td class="num">${fmt(f.implied_factor)} ${esc(f.unit ? "/" + f.unit : "")}</td><td class="num">${f.datasets_with_flow}</td></tr>`).join("")}</tbody></table>` : ""}</details>`).join("")}` : '<p class="ok">No category deviates by more than 0.1 %.</p>'}`;
+}
 function renderBench(r, el) {
   if (r && r.error) { el.innerHTML = `<p class="danger">The database is installed, but the automatic validation could not run: ${esc(r.error)}</p><p class="hint">You can run it later with "Validate only", or with a downloaded results file under "Validate against ecoinvent".</p>`; return; }
   const sm = r.summary, pc = (x) => (x == null ? "-" : x.toFixed(x < 1 ? 3 : 1) + " %");
@@ -899,6 +912,7 @@ function renderBench(r, el) {
       ${r.by_group.filter((g) => g.n).map((g) => `<tr><td>${esc(g.group)}</td><td class="num">${g.n}</td><td class="num">${pc(g.median)}</td><td class="num">${g.within_0_1.toFixed(0)} %</td></tr>`).join("")}</tbody></table>
       <h4>Largest deviations</h4><div class="table-wrap"><table><thead><tr><th>Dataset</th><th>Category</th><th class="num">ecoinvent</th><th class="num">Cyclia</th><th class="num">Deviation</th><th></th></tr></thead><tbody>
       ${r.worst.slice(0, 15).map((x) => `<tr><td>${esc(x.activity)} [${esc(x.location)}]</td><td>${esc(x.category)}</td><td class="num">${fmt(x.reference)}</td><td class="num">${fmt(x.cyclia)}</td><td class="num">${x.deviation_percent == null ? "-" : x.deviation_percent.toFixed(3) + " %"}</td><td class="hint">${esc(x.note)}</td></tr>`).join("")}</tbody></table></div>
+      ${benchCause(r.inventory)}
       ${(r.diagnosis || []).length ? `<h4>Why some results differ</h4><p class="hint">For the datasets with the largest deviation: elementary flows that have no factor in Cyclia although the method has a factor for a flow of the same name. "Explained" compares these missing factors with the gap to ecoinvent.</p>
       ${r.diagnosis.slice(0, 8).map((d) => `<details><summary><b>${esc(d.category)}</b>: ${esc(d.dataset)} [${esc(d.location)}], gap ${fmt(d.gap)}, ${d.explained_percent == null ? "-" : d.explained_percent.toFixed(0) + " % explained"}</summary>
         ${d.flows.length ? `<table><thead><tr><th>Flow without factor</th><th>Its compartment</th><th class="num">Amount</th><th>The method has</th><th class="num">Missing</th></tr></thead><tbody>${d.flows.slice(0, 6).map((f) => `<tr><td>${esc(f.flow)}</td><td>${esc(f.flow_context)}</td><td class="num">${fmt(f.amount)} ${esc(f.unit)}</td><td class="hint">${esc(f.method_has)}</td><td class="num">${fmt(f.missing_contribution)}</td></tr>`).join("")}</tbody></table>` : '<p class="hint">No unmatched factor with the same flow name: the cause is elsewhere (flow names that differ, or the database).</p>'}</details>`).join("")}` : ""}

@@ -2,7 +2,7 @@
 
 For each finding: what was changed, how it is tested, and what is still not done.
 - Tests: `engine/tests/test_v138.py` (12 tests).
-- All 196 tests pass.
+- All 196 tests pass (1.3.8).
 
 | Finding | Status |
 |---|---|

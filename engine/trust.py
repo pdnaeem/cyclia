@@ -559,10 +559,12 @@ def header_sample(cols, n=4):
     return "; ".join(" / ".join(c["labels"][:5]) for c in cols[:n])
 
 
-def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=lambda *a: None, db_name=None):
+def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=lambda *a: None, db_name=None,
+                        lci_path=None):
     """Compare Cyclia with ecoinvent's own cumulative LCIA results for a stratified sample of datasets and every
     category of one method family. Datasets are matched by 'Activity UUID_Product UUID', the key Cyclia stores
-    for ecoSpold2 imports, otherwise by name, geography and reference product."""
+    for ecoSpold2 imports, otherwise by name, geography and reference product. With lci_path (ecoinvent's cumulative
+    LCI workbook), the gap of every result is split into an inventory part and a factor part (lci_check)."""
     cols, rows = read_lcia_results(path, progress, family)
     progress(32, "Matching categories")
     mcols = match_columns(store, cols, family)
@@ -684,7 +686,33 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
     res["factor_finder"] = factor_finder(store, mc, M, mcols, out, G)
     res["land_use"] = land_use_reconciliation(store, mc, M, mcols, out, G)
     res["cf_conflicts"] = cf_conflicts(store, [c["method"]["id"] for c in mcols])
+    if lci_path:
+        import lci_check
+        progress(99, "Reading ecoinvent's cumulative LCI for the compared datasets")
+        try:
+            keys = {r["key"] for _, r, _ in chosen if r.get("key")}
+            names_ = {(_norm(r["name"]), _norm(r["location"]), _norm(r["product"])) for _, r, _ in chosen}
+            cols_, rows_, n_ = lci_check.read_lci(lci_path, keys, names_, lambda pc, m: progress(99, m))
+            res["inventory"] = lci_check.inventory_check(store, mc, M, mcols, out, chosen, G, cols_, rows_, n_)
+        except Exception as e:  # the inventory check is an extra: the LCIA comparison stays valid
+            res["inventory"] = {"error": f"The cumulative LCI could not be compared: {e}"}
+        _apply_causes(res)
     return res
+
+
+def _apply_causes(res):
+    """Write the measured cause of each deviating category into its hint and the verdict."""
+    inv = res.get("inventory") or {}
+    causes = {(c["category"], c["indicator"]): c for c in inv.get("categories") or [] if c.get("cause")}
+    named = []
+    for c in res["by_category"]:
+        x = causes.get((c["category"], c["indicator"]))
+        if x and c.get("hint"):
+            c["hint"] = "Measured cause: " + x["cause"]
+            named.append(f"{c['category']}: {x['cause'].split(':')[0]} ({x['inventory_share']:.0f} % inventory, "
+                         f"{x['factor_share']:.0f} % factors)")
+    if named:
+        res["verdict"] += " Cause of the deviations (inventory check against ecoinvent's cumulative LCI): " + "; ".join(named) + "."
 
 
 LAND_GROUPS = (("occupation", lambda n: n.startswith("occupation")),
@@ -933,10 +961,14 @@ def _bench_summary(store, mc, M, mcols, out, n_datasets, n_file, n_matched, grou
         hint = ""
         if s.get("n") and s["median"] > 0.1:
             if bias < -0.1:
-                hint = (f"Cyclia is lower for most datasets: some elementary flows probably have no factor ({no_cf:,} flows "
-                        "used by the database have none in this category). Check the flow names or import a mapping.")
+                # the number of flows without a factor is no evidence here: most flows of a database never have a factor
+                # in a given category, also in categories that agree exactly
+                hint = ("Cyclia is lower for most datasets: either a flow carries a factor in ecoinvent's results that "
+                        "Cyclia lacks, or the cumulative inventory differs. Run the validation with ecoinvent's cumulative "
+                        "LCI ('Compare inventories too') to measure which of the two it is.")
             elif bias > 0.1:
-                hint = "Cyclia is higher for most datasets: check for duplicated factors (two method versions mixed)."
+                hint = ("Cyclia is higher for most datasets: check for duplicated factors (two method versions mixed), or "
+                        "run the validation with ecoinvent's cumulative LCI to compare the inventories.")
             else:
                 hint = "Deviations in both directions: check regional factors and the datasets with the largest deviation."
         by_cat.append(dict(s, category=c["method"]["category"], indicator=c["method"]["indicator"],
@@ -987,7 +1019,7 @@ def benchmark_excel(path, res):
         ws.append([k, v])
     ws2 = wb.create_sheet("By category")
     ws2.append(["Family", "Category", "Indicator", "Unit", "Results", "Median |dev| %", "95th pct |dev| %", "Max |dev| %",
-                "Within 0.1 %", "Within 1 %", "Flows without factor", "Hint"])
+                "Within 0.1 %", "Within 1 %", "Flows used without a factor (most are not part of the category)", "Hint"])
     for c in res["by_category"]:
         ws2.append([c["family"], c["category"], c["indicator"], c["unit"], c.get("n"), c.get("median"), c.get("p95"),
                     c.get("max"), c.get("within_0_1"), c.get("within_1"), c["flows_without_factor"], c["hint"]])
@@ -1037,6 +1069,68 @@ def benchmark_excel(path, res):
         wc.append(["Category", "Flow (canonical)", "Compartment", "Location", "Different values", "Min", "Max"])
         for c_ in res["cf_conflicts"]:
             wc.append([c_["category"], c_["flow"], c_["compartment"], c_["location"], c_["values"], c_["min"], c_["max"]])
+    inv = res.get("inventory")
+    if inv:
+        wi = wb.create_sheet("Cause of deviations", 1)
+        wi.append(["Inventory check against ecoinvent's cumulative LCI"])
+        wi["A1"].font = b
+        if inv.get("error"):
+            wi.append([inv["error"]])
+        else:
+            for k, v in (("Datasets compared", inv["datasets"]), ("Datasets in the LCI file", inv["rows_in_file"]),
+                         ("Flow columns in the LCI file", inv["columns_in_file"]),
+                         ("Flow columns matched to Cyclia's flows", inv["columns_matched"]),
+                         ("Sign converted (ecoinvent reports these compartments with the opposite sign)",
+                          ", ".join(inv["sign_converted"]) or "none")):
+                wi.append([k, v])
+            wi.append([])
+            wi.append(["gap = ecoinvent - Cyclia = inventory part + factor part. Inventory part = Cyclia's factors x "
+                       "(ecoinvent's cumulative LCI - Cyclia's). Factor part = ecoinvent's result - Cyclia's factors x "
+                       "ecoinvent's cumulative LCI."])
+            wi.append([])
+            hdr = ["Category", "Indicator", "Results", "Deviating > 0.1 %", "Inventory part of the gap %",
+                   "Factor part of the gap %", "ecoinvent LCI x Cyclia factors within 0.1 % of ecoinvent's result (%)",
+                   "Cause"]
+            wi.append(hdr)
+            for c_ in inv["categories"]:
+                wi.append([c_["category"], c_["indicator"], c_["results"], c_["deviating"], c_["inventory_share"],
+                           c_["factor_share"], c_["ecoinvent_lci_times_factors_within_0_1"], c_["cause"]])
+            wi.append([])
+            wi.append(["Category", "Flow carrying the inventory part", "Compartment", "Unit", "Factor", "Weight",
+                       "Datasets where the amount differs", "Median ratio ecoinvent / Cyclia"])
+            for c_ in inv["categories"]:
+                for f_ in c_["inventory_flows"]:
+                    wi.append([c_["category"], f_["flow"], f_["compartment"], f_["unit"], f_["factor"], f_["weight"],
+                               f_["datasets_differing"], f_["median_ratio_ecoinvent_to_cyclia"]])
+            wi.append([])
+            wi.append(["Category", "Flow without a factor in Cyclia (factor part)", "Compartment", "Unit",
+                       "Factor ecoinvent's results imply", "Datasets with the flow", "Share of the factor part explained"])
+            for c_ in inv["categories"]:
+                for f_ in c_["implied_factors"]:
+                    wi.append([c_["category"], f_["flow"], f_["compartment"], f_["unit"], f_["implied_factor"],
+                               f_["datasets_with_flow"], c_["implied_explained"]])
+            wi.append([])
+            wi.append(["Category", "Dataset", "Location", "ecoinvent", "Cyclia", "ecoinvent LCI x Cyclia factors",
+                       "Inventory part", "Factor part"])
+            for c_ in inv["categories"]:
+                for d_ in c_["datasets"]:
+                    wi.append([c_["category"], d_["dataset"], d_["location"], d_["ecoinvent"], d_["cyclia"],
+                               d_["ecoinvent_lci_times_factors"], d_["inventory_part"], d_["factor_part"]])
+            wf = wb.create_sheet("Inventory check")
+            wf.append(["Flow", "Compartment", "Unit", "Datasets where the cumulative amount differs (> 0.1 %)",
+                       "Median ratio ecoinvent / Cyclia", "Only in ecoinvent", "Only in Cyclia"])
+            for f_ in inv["flows_differing"]:
+                wf.append([f_["flow"], f_["compartment"], f_["unit"], f_["datasets_differing"],
+                           f_["median_ratio_ecoinvent_to_cyclia"], f_["only_in_ecoinvent"], f_["only_in_cyclia"]])
+            wf.append([])
+            wf.append(["Flow in ecoinvent's LCI that is not among Cyclia's flows", "Datasets", "Sum of |amount|"])
+            for f_ in inv["flows_not_in_cyclia"]:
+                wf.append([f_["flow"], f_["datasets"], f_["sum_abs_amount"]])
+            for c in wf[1]:
+                c.font = b
+            wf.column_dimensions["A"].width = 50
+        wi.column_dimensions["A"].width = 34
+        wi.column_dimensions["B"].width = 44
     ws5 = wb.create_sheet("Factor finder")
     ws5.append(["Category", "Indicator", "Results compared", "Deviating > 0.1 %", "Deviation explained %", "Flow",
                 "Compartment", "Unit", "Factor in Cyclia", "Factor ecoinvent appears to use", "Factors in the method file"])

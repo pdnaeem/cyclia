@@ -91,6 +91,7 @@
             </div>
             <div id="eiInstallRow" hidden>
               <label class="inline"><input type="checkbox" id="eiValidate" checked> Then validate Cyclia against ecoinvent's own LCIA results (recommended; a few extra minutes)</label>
+              <label class="inline"><input type="checkbox" id="eiInventories" checked> Compare inventories too (downloads ecoinvent's cumulative LCI, a large file; tells an inventory difference from a factor difference)</label>
               <label class="inline">Datasets to compare <select id="eiSample"><option value="100">100</option><option value="500">500</option><option value="0">all</option></select></label>
               <div class="row"><button class="primary" id="btnEiInstall">Download, connect and validate</button>
                 <button id="btnEiValidate" title="For a release that is already in the library">Validate only</button>
@@ -189,6 +190,7 @@
             </ol>
             <div class="form-grid">
               <label class="wide">Cumulative LCIA results file (.xlsx)<span class="pathpick"><input id="ebPath"><button data-pick="file" data-target="ebPath" data-ext="xlsx">Browse</button></span></label>
+              <label class="wide">Cumulative LCI file (.xlsx, optional: tells an inventory difference from a factor difference)<span class="pathpick"><input id="ebLciPath"><button data-pick="file" data-target="ebLciPath" data-ext="xlsx">Browse</button></span></label>
               <label>Method<select id="ebFamily"></select></label>
               <label>Datasets<select id="ebSample"><option value="100">100 (a few minutes)</option><option value="500">500</option><option value="0">All datasets (long)</option></select></label>
             </div>

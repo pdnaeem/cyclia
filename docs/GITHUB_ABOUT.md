@@ -22,8 +22,8 @@ life-cycle-assessment lca lca-software iso-14044 ecoinvent carbon-footprint epd 
 
 Settings > General > Social preview: upload `.github/social-preview.png`.
 
-## Release title for 1.3.8
+## Release title for 1.3.9
 
-Cyclia 1.3.8: database integrity (non-finite values, external providers, per-database check), explorer paging, streaming imports
+Cyclia 1.3.9: inventory check against ecoinvent's cumulative LCI (cause of benchmark deviations)
 
-Paste the text of `docs/RELEASE_NOTES_v1.3.8.md` as the release description.
+Paste the text of `docs/RELEASE_NOTES_v1.3.9.md` as the release description.

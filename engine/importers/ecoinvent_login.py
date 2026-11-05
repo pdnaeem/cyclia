@@ -139,3 +139,19 @@ def download_cumulative_lcia(username, password, version, system_model, progress
     if not x:
         raise ValueError("The downloaded LCIA results contain no Excel file.")
     return x
+
+
+def download_cumulative_lci(username, password, version, system_model, progress=lambda *a: None):
+    """ecoinvent's cumulative LCI (every elementary flow of every dataset, Excel), used to tell an inventory
+    difference from a factor difference. A large download; it is cached by ecoinvent_interface."""
+    from ecoinvent_interface import ReleaseType
+    rel, _ = _client(username, password)
+    progress(2, f"Downloading ecoinvent's cumulative LCI for {version} {system_model} (a large file)")
+    try:
+        path = rel.get_release(version=version, system_model=system_model, release_type=ReleaseType.cumulative_lci)
+    except Exception as e:
+        raise ValueError(f"ecoinvent did not provide the cumulative LCI for {version} {system_model} ({e}).")
+    x = find_xlsx(path, ("lci",))
+    if not x:
+        raise ValueError("The downloaded cumulative LCI contains no Excel file.")
+    return x

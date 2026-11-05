@@ -693,6 +693,119 @@ class TestOfficial(unittest.TestCase):
         wb.save(path)
         return path, len(acts), len(meths)
 
+    def _lci_file(self, scale=None, flip_resources=False, drop=None):
+        """A workbook in the shape of ecoinvent's cumulative LCI: one row per dataset, one column per elementary flow
+        (name, compartment, subcompartment, unit above the column), with Cyclia's own cumulative inventory."""
+        import calc as c
+        from openpyxl import Workbook
+        st = self.st
+        mc = c.get_mc(st)
+        acts = st.q("SELECT id, key, name, location, product, unit FROM activities")
+        flows = [st.flow(int(i)) for i in mc.flow_ids]
+        keep = [j for j, f in enumerate(flows) if f["name"] != drop]
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "LCI"
+        ws.append([""] * 5 + [flows[j]["name"] for j in keep])
+        ws.append([""] * 5 + [flows[j]["compartment"] for j in keep])
+        ws.append([""] * 5 + [flows[j]["subcompartment"] for j in keep])
+        ws.append(["Activity UUID_Product UUID", "Activity Name", "Geography", "Reference Product Name",
+                   "Reference Product Unit"] + [flows[j]["unit"] for j in keep])
+        for a in acts:
+            f = np.zeros(mc.n)
+            f[mc.act_index[a["id"]]] = 1.0
+            g = mc.B @ mc.solve(f)
+            vals = []
+            for j in keep:
+                v = float(g[j])
+                if scale and flows[j]["name"] == scale[0]:
+                    v *= scale[1]
+                if flip_resources and (flows[j]["compartment"] or "").lower().startswith("natural resource"):
+                    v = -v
+                vals.append(v)
+            ws.append([a["key"], a["name"], a["location"], a["product"], a["unit"]] + vals)
+        path = os.path.join(self.dir, "lci.xlsx")
+        wb.save(path)
+        return path
+
+    def test_inventory_check_factor_cause(self):
+        """1.3.8: a factor missing in Cyclia, with equal inventories, is reported as a factor cause and the factor is
+        recovered from ecoinvent's results and inventory."""
+        st = self.st
+        path, n_acts, n_m = self._results_file("labels_above")
+        lci = self._lci_file(flip_resources=True)
+        eco = next(m["id"] for m in st.methods() if m["family"] == demo.FAMILY and m["category"] == "ecotoxicity, freshwater")
+        zn = st.one("SELECT id FROM flows WHERE name='Zinc, ion'")["id"]
+        old = st.one("SELECT value FROM cfs WHERE method_id=? AND flow_id=?", (eco, zn))["value"]
+        st.x("DELETE FROM cfs WHERE method_id=? AND flow_id=?", (eco, zn))
+        calc.invalidate()
+        try:
+            r = self.api.job("/api/benchmark-ecoinvent", {"path": path, "lci_path": lci, "family": demo.FAMILY, "sample": 0})
+            inv = r["inventory"]
+            self.assertNotIn("error", inv)
+            self.assertEqual(inv["datasets"], n_acts)
+            self.assertIn("natural resource", inv["sign_converted"][0])
+            c = next(x for x in inv["categories"] if x["category"] == "ecotoxicity, freshwater")
+            self.assertTrue(c["cause"].startswith("factors"), c)
+            self.assertAlmostEqual(c["factor_share"], 100.0, delta=0.5)
+            zf = next(f for f in c["implied_factors"] if f["flow"] == "Zinc, ion")
+            self.assertAlmostEqual(zf["implied_factor"], old, delta=abs(old) * 1e-3)
+            self.assertIn("Measured cause: factors", next(x for x in r["by_category"] if x["category"] == "ecotoxicity, freshwater")["hint"])
+            others = [x for x in inv["categories"] if x["category"] != "ecotoxicity, freshwater"]
+            self.assertTrue(all(x["ecoinvent_lci_times_factors_within_0_1"] >= 95 for x in others))
+        finally:
+            st.x("INSERT OR REPLACE INTO cfs VALUES(?,?,?)", (eco, zn, old))
+            calc.invalidate()
+        from openpyxl import load_workbook
+        wb = load_workbook(self.api("POST", "/api/export/benchmark", {})["path"])
+        self.assertIn("Cause of deviations", wb.sheetnames)
+        self.assertIn("Inventory check", wb.sheetnames)
+
+    def test_inventory_check_inventory_cause(self):
+        """1.3.8: when ecoinvent's inventory has more of a flow than Cyclia's, the deviation is an inventory cause and
+        that flow is named."""
+        st = self.st
+        cc = next(m for m in st.methods() if m["family"] == demo.FAMILY and m["category"] == "climate change")
+        co2 = st.one("SELECT f.name FROM flows f JOIN cfs c ON c.flow_id=f.id WHERE c.method_id=? ORDER BY c.value * "
+                     "(SELECT SUM(abs(amount)) FROM bio WHERE flow_id=f.id) DESC LIMIT 1", (cc["id"],))["name"]
+        lci = self._lci_file(scale=(co2, 1.2))
+        # ecoinvent's LCIA results consistent with that inventory: Cyclia's factors times ecoinvent's inventory
+        import calc as c
+        from openpyxl import Workbook, load_workbook
+        meths = [m for m in st.methods() if m["family"] == demo.FAMILY]
+        mc = c.get_mc(st)
+        M = c.Methods(st, mc, [m["id"] for m in meths], regional=False)
+        src = load_workbook(lci, read_only=True)
+        rows = list(src.active.iter_rows(values_only=True))
+        flows = [st.flow(int(i)) for i in mc.flow_ids]
+        wb = Workbook()
+        ws = wb.active
+        ws.append([""] * 5 + [demo.FAMILY] + [""] * (len(meths) - 1))
+        ws.append([""] * 5 + [m["category"] for m in meths])
+        ws.append(list(rows[3][:5]) + [m["indicator"] for m in meths])
+        for r in rows[4:]:
+            g = np.array(r[5:], dtype=float)
+            assert len(g) == len(flows)
+            ws.append(list(r[:5]) + (M.C @ g).tolist())
+        path = os.path.join(self.dir, "lcia_inv.xlsx")
+        wb.save(path)
+        r = self.api.job("/api/benchmark-ecoinvent", {"path": path, "lci_path": lci, "family": demo.FAMILY, "sample": 0})
+        x = next(x for x in r["inventory"]["categories"] if x["category"] == "climate change")
+        self.assertTrue(x["deviating"] > 0)
+        self.assertTrue(x["cause"].startswith("inventory"), x)
+        self.assertAlmostEqual(x["inventory_share"], 100.0, delta=0.5)
+        self.assertEqual(x["inventory_flows"][0]["flow"], co2)
+        self.assertAlmostEqual(x["inventory_flows"][0]["median_ratio_ecoinvent_to_cyclia"], 1.2, places=6)
+
+    def test_lci_reader_streams_only_wanted_rows(self):
+        import lci_check
+        lci = self._lci_file()
+        a = self.st.q("SELECT key FROM activities LIMIT 2")
+        cols, rows, n = lci_check.read_lci(lci, {x["key"] for x in a}, set())
+        self.assertEqual(set(rows), {x["key"] for x in a})
+        self.assertEqual(n, self.st.one("SELECT COUNT(*) AS n FROM activities")["n"])
+        self.assertEqual(len(cols), len(calc.get_mc(self.st).flow_ids))
+
     def test_benchmark_ecoinvent(self):
         st = self.st
         for m in [m for m in st.methods() if m["family"] == demo.FAMILY]:  # a decoy family with the same categories

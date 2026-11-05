@@ -619,6 +619,17 @@ elementary exchanges in batches of 20,000. Technosphere inputs are kept in compa
 because a supplier is chosen only when every producer of the import is known. Everything is one transaction in the
 staging library.
 
+### 15.5 Cause of benchmark deviations (1.3.9)
+For a compared dataset with cumulative inventory g (Cyclia) and g_e (ecoinvent's cumulative LCI, flows matched by
+UUID or by name and compartment) and the factors C of one category, ecoinvent's result r_e and Cyclia's result Cg:
+r_e - Cg = (r_e - C g_e) + C (g_e - g). The second term is the inventory part, the first the factor part. Over the
+deviating datasets (more than 0.1 %), each part is summed with the sign of the gap and divided by the sum of the
+absolute gaps. A part of 80 % or more names the cause. When ecoinvent reports a compartment with the opposite sign
+(the median ratio of the matched amounts is negative), its amounts are converted and this is reported. For the factor
+part, the factors that ecoinvent's results imply for flows without a factor in Cyclia (land flows for land use,
+otherwise flows whose name the method file has) are estimated by least squares over the deviating datasets, rows
+weighted by 1/|r_e|. They are a diagnosis; factors are added only from the method's source.
+
 ## References
 
 Andreasi Bassi S., Biganzoli F., Ferrara N., Amadei A., Valente A., Sala S., Ardente F. (2023) Updated characterisation and normalisation factors for the Environmental Footprint 3.1 method. JRC130796, Publications Office of the European Union.
