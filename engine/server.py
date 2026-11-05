@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import analysis  # noqa: E402
+import crosscheck  # noqa: E402
 import calc  # noqa: E402
 import formula as fm  # noqa: E402
 import interop  # noqa: E402
@@ -41,7 +42,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.3.3"
+VERSION = "1.3.4"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -1607,7 +1608,7 @@ def epd_info(st, body, q, mid):
     sc = m["scope"]
     keep = ("manufacturer", "site", "programme", "number", "pcr", "issued", "valid_until", "rsl", "type", "verification",
             "verifier", "biogenic_product", "biogenic_packaging", "description", "declared", "specific_months",
-            "prospective", "audience")
+            "prospective", "audience", "programme_statements", "pcr_version")
     sc["epd"] = {k: body.get(k) for k in keep if body.get(k) not in (None, "")}
     store.save_model({"id": m["id"], "name": m["name"], "product": m["product"], "unit": m["unit"], "amount": m["amount"],
                       "scope": sc})
@@ -2001,7 +2002,8 @@ def dashboard(st, body, q):
             try:
                 r = calc.run(store, m["id"], mids, top=3)
                 row["results"] = [{"category": x["category"], "unit": x["unit"], "total": x["total"]} for x in r["results"]]
-                row["dqr"] = [c["dqr"] for c in r["data_quality"]["by_category"]]
+                dq = {(c["family"], c["category"], c["indicator"]): c["dqr"] for c in r["data_quality"]["by_category"]}
+                row["dqr"] = [dq.get((x["family"], x["category"], x["indicator"])) for x in r["results"]]
                 row["errors"] = sum(1 for c in r["checks"] if c["level"] == "error")
                 row["warnings"] = sum(1 for c in r["checks"] if c["level"] == "warning")
                 if r.get("lcc"):
@@ -2010,6 +2012,76 @@ def dashboard(st, body, q):
                 row["error"] = str(e)
         out.append(row)
     return {"models": out}
+
+
+@route("GET", "/api/allocation-overview")
+def allocation_overview(st, body, q):
+    """Every model of the project with its multi-functionality handling: allocation rule and share, co-products,
+    avoided products (system expansion), module D, and where the model is used."""
+    store = st.store
+    models = store.models()
+    used_in = {}
+    for m in models:
+        for i in store.model(m["id"])["inputs"]:
+            if i["kind"] == "model" and i["ref_id"]:
+                used_in.setdefault(i["ref_id"], []).append(m["name"])
+    out = []
+    for m in models:
+        full = store.model(m["id"])
+        sc = full["scope"] or {}
+        share = calc.allocation_share(sc)
+        basis = sc.get("alloc_basis") or ""
+        cps = sc.get("coproducts") or []
+        av = [i["label"] or i["target"]["name"] for i in full["inputs"] if i["avoided"]]
+        rule = {"mass": "mass", "price": "economic value", "energy": "energy content",
+                "physical": f"physical causality ({sc.get('alloc_property') or 'property'})"}.get(basis, "manual share" if share < 1 else "")
+        issues = []
+        if share < 1 and not (sc.get("allocation") or "").strip():
+            issues.append("allocation procedure not described")
+        if basis and not cps:
+            issues.append("allocation basis chosen but no co-products entered")
+        if basis == "physical" and not sc.get("alloc_property"):
+            issues.append("physical property not named")
+        if share < 1 and (sc.get("approach") or "").startswith("conseq"):
+            issues.append("consequential study with allocation: use system expansion")
+        if share < 1 and av:
+            issues.append("allocation and system expansion in the same model: check for double counting")
+        out.append({"id": m["id"], "name": m["name"], "share": share, "rule": rule,
+                    "coproducts": [{"name": c.get("name") or "", "mass": c.get("mass"), "price": c.get("price"),
+                                    "energy": c.get("energy"), "physical": c.get("physical")} for c in cps],
+                    "main": {k: sc.get(f"main_{k}") for k in ("mass", "price", "energy", "physical")},
+                    "avoided": av, "module_d": sum(1 for i in full["inputs"] if calc.is_module_d(sc, i["stage"])),
+                    "used_in": used_in.get(m["id"], []), "procedure": sc.get("allocation") or "", "issues": issues})
+    return {"models": out, "note": "ISO 14044 4.3.4.2: avoid allocation by subdivision or system expansion where possible; "
+                                   "otherwise allocate by physical relationships, and only then by other relationships "
+                                   "such as economic value."}
+
+
+@route("POST", "/api/crosscheck")
+def cross_check(st, body, q):
+    mids = _need(body, "method_ids")[0]
+    store = st.store
+    sample = int(_num(body.get("sample") or 200, "Sample size"))
+    if not 5 <= sample <= 5000:
+        raise ApiError("Sample size must be between 5 and 5000.")
+    model_ids = [m["id"] for m in store.models()] if body.get("models", True) else []
+
+    def job(progress, cancelled):
+        res = crosscheck.run(store, [int(x) for x in mids], sample, model_ids=model_ids, progress=progress)
+        st.last_crosscheck = res
+        return res
+    return {"job": st.start_job("Independent cross-check", job, exclusive=False)}
+
+
+@route("POST", "/api/export/crosscheck")
+def export_crosscheck(st, body, q):
+    res = getattr(st, "last_crosscheck", None)
+    if not res:
+        raise ApiError("Run the independent cross-check first.")
+    path = _export_path(st, body, {"name": "Cyclia independent cross-check"}, "xlsx")
+    _writable(path)
+    crosscheck.to_excel(path, res, VERSION)
+    return {"path": path, "file": os.path.basename(path)}
 
 
 # ------------------------------------------------------------------ HTTP plumbing

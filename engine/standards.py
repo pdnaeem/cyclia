@@ -28,6 +28,68 @@ CORE = [  # EN 15804+A2 core environmental impact indicators: (abbreviation, nam
     ("WDP", "Water use (deprivation potential)", [("water use",), ("water scarcity",), ("water",)]),
 ]
 
+CORE_UNITS = {"GWP-total": ("co2",), "GWP-fossil": ("co2",), "GWP-biogenic": ("co2",), "GWP-luluc": ("co2",),
+              "ODP": ("cfc",), "AP": ("mol h",), "EP-freshwater": ("p eq", "p-eq", "kg p", "po4"), "EP-marine": ("n eq", "n-eq", "kg n"),
+              "EP-terrestrial": ("mol n",), "POCP": ("nmvoc",), "ADP-minerals&metals": ("sb",), "ADP-fossil": ("mj",),
+              "WDP": ("m3", "m³")}
+
+# EN 15804+A2 Tables 4 to 6: indicators describing resource use, waste categories and output flows.
+# (abbreviation, name, table, test on the lower-case "category indicator" text, expected unit tokens)
+def _has(*words):
+    return lambda t: all(w in t for w in words)
+
+
+def _nonren(t):
+    return "non-renewable" in t or "non renewable" in t or "nonrenewable" in t
+
+
+INVENTORY = [
+    ("PERE", "Renewable primary energy used as energy carrier", "4",
+     lambda t: "renewable primary energy" in t and not _nonren(t) and ("excluding" in t or "energy carrier" in t or "as energy" in t), ("mj",)),
+    ("PERM", "Renewable primary energy used as raw material", "4",
+     lambda t: "renewable primary energy" in t and not _nonren(t) and ("raw material" in t or "as material" in t), ("mj",)),
+    ("PERT", "Total use of renewable primary energy", "4",
+     lambda t: "renewable primary energy" in t and not _nonren(t) and "total" in t, ("mj",)),
+    ("PENRE", "Non-renewable primary energy used as energy carrier", "4",
+     lambda t: "primary energy" in t and _nonren(t) and ("excluding" in t or "energy carrier" in t or "as energy" in t), ("mj",)),
+    ("PENRM", "Non-renewable primary energy used as raw material", "4",
+     lambda t: "primary energy" in t and _nonren(t) and ("raw material" in t or "as material" in t), ("mj",)),
+    ("PENRT", "Total use of non-renewable primary energy", "4",
+     lambda t: "primary energy" in t and _nonren(t) and "total" in t, ("mj",)),
+    ("SM", "Use of secondary material", "4", _has("secondary material"), ("kg",)),
+    ("RSF", "Use of renewable secondary fuels", "4", lambda t: "secondary fuel" in t and not _nonren(t), ("mj",)),
+    ("NRSF", "Use of non-renewable secondary fuels", "4", lambda t: "secondary fuel" in t and _nonren(t), ("mj",)),
+    ("FW", "Net use of fresh water", "4", lambda t: "fresh water" in t or "freshwater use" in t, ("m3", "m³")),
+    ("HWD", "Hazardous waste disposed", "5", lambda t: "hazardous waste" in t and "non-hazardous" not in t and "non hazardous" not in t, ("kg",)),
+    ("NHWD", "Non-hazardous waste disposed", "5", lambda t: "non-hazardous waste" in t or "non hazardous waste" in t, ("kg",)),
+    ("RWD", "Radioactive waste disposed", "5", _has("radioactive waste"), ("kg",)),
+    ("CRU", "Components for re-use", "6", lambda t: "re-use" in t or "reuse" in t, ("kg",)),
+    ("MFR", "Materials for recycling", "6", _has("materials for recycling"), ("kg",)),
+    ("MER", "Materials for energy recovery", "6", _has("energy recovery"), ("kg",)),
+    ("EEE", "Exported energy, electricity", "6", lambda t: "exported energy" in t and "electric" in t, ("mj",)),
+    ("EET", "Exported energy, thermal", "6", lambda t: "exported energy" in t and ("thermal" in t or "heat" in t), ("mj",)),
+]
+
+
+def match_inventory(results):
+    """Which EN 15804+A2 resource, waste and output indicators are among the selected categories. The abbreviation in
+    the name (e.g. 'PERE') identifies an indicator first, the wording otherwise."""
+    found = {}
+    for k, r in enumerate(results):
+        raw = f"{r['category']} {r['indicator']}"
+        t = raw.lower()
+        hit = next((a for a, *_ in INVENTORY if re.search(r"(?<![A-Za-z])" + re.escape(a) + r"(?![A-Za-z])", raw)), None)
+        if hit is None:
+            hit = next((a for a, _n, _t, test, _u in INVENTORY if test(t)), None)
+        if hit and hit not in found:
+            found[hit] = k
+    return found
+
+
+def unit_ok(unit, tokens):
+    u = (unit or "").lower().replace(" ", "")
+    return any(tok.replace(" ", "") in u for tok in tokens)
+
 
 def module_of(stage):
     s = str(stage or "").strip().upper()
@@ -158,8 +220,26 @@ def epd_checklist(model, result):
         add(conv, "Prospective EPD: uncertainty of the results quantified with a converged Monte Carlo run" +
             ("" if conv else (" (the run has not converged; use more iterations)" if u else " (run Monte Carlo in step 4)")),
             "ISO 14025:2026")
+    inv = match_inventory(result["results"])
+    for table, label in (("4", "Resource use indicators"), ("5", "Waste category indicators"), ("6", "Output flow indicators")):
+        need = [a for a, _n, t, *_ in INVENTORY if t == table]
+        miss = [a for a in need if a not in inv]
+        add(not miss, f"{label} calculated" + (f" (missing: {', '.join(miss)})" if miss else f" ({', '.join(need)})"),
+            f"EN 15804+A2 7.2.4, Table {table}")
+    bad_units = [f"{a} in {result['results'][k]['unit'] or 'no unit'}" for a, k in core.items()
+                 if not unit_ok(result["results"][k]["unit"], CORE_UNITS[a])]
+    exp = {a: u for a, _n, _t, _test, u in INVENTORY}
+    bad_units += [f"{a} in {result['results'][k]['unit'] or 'no unit'}" for a, k in inv.items()
+                  if not unit_ok(result["results"][k]["unit"], exp[a])]
+    add(not bad_units, "Indicator units as required" + (f" (check: {'; '.join(bad_units)})" if bad_units else ""),
+        "EN 15804+A2 Tables 3 to 6")
+    nocf = [result["results"][k]["category"] for k in list(core.values()) + list(inv.values())
+            if result["results"][k]["cfs_matched"] == 0]
+    add(not nocf, "Every declared indicator has characterisation factors for the inventory" +
+        (f" (none for: {', '.join(nocf)})" if nocf else ""), "EN 15804+A2 Annex C")
     add(not [c for c in result["checks"] if c["level"] == "error"], "No errors in the Cyclia checks", "ISO 14044 4.5.3")
-    return {"items": items, "declared": dec, "core_found": list(core), "core_missing": missing,
+    ready = all(i["ok"] for i in items)
+    return {"ready": ready, "inventory_found": list(inv), "items": items, "declared": dec, "core_found": list(core), "core_missing": missing,
             "passed": sum(i["ok"] for i in items), "total": len(items)}
 
 
@@ -212,13 +292,18 @@ def epd_word(path, model, result, databases, version=""):
     report._note(doc, "According to ISO 14025:2026 and EN 15804+A2. Draft generated by Cyclia for verification; not valid "
                       "until verified and published by a programme operator. Cyclia is not a verified EPD tool in the "
                       "sense of ISO 14025:2026, so each EPD needs its own verification.", italic=True)
+    open_n = sum(1 for i in chk["items"] if not i["ok"])
+    report._note(doc, ("Readiness: all requirements of the checklist at the end are met; the draft can go to verification."
+                       if chk["ready"] else
+                       f"Readiness: NOT READY FOR SUBMISSION. {open_n} of {chk['total']} requirements of the checklist at "
+                       "the end are still open."), 10, italic=False)
     spec = specific_share(result)
     doc.add_heading("General information", 1)
     report._table(doc, ["Item", "Content"], [
         ["Product", model["product"] or model["name"]],
         ["Manufacturer", epd.get("manufacturer", "")], ["Production site(s)", epd.get("site", "")],
         ["Programme operator", epd.get("programme", "")], ["Declaration number", epd.get("number", "")],
-        ["Product category rules", epd.get("pcr", "")], ["Date of issue", epd.get("issued", time.strftime("%Y-%m-%d"))],
+        ["Product category rules", epd.get("pcr", "") + (f", version {epd['pcr_version']}" if epd.get("pcr_version") else "")], ["Date of issue", epd.get("issued", time.strftime("%Y-%m-%d"))],
         ["Valid until", epd.get("valid_until", "")], ["Declared / functional unit", report.fu_text(model)],
         ["Reference service life", epd.get("rsl", "") or "not declared"],
         ["Type of EPD", epd.get("type", "cradle to gate with modules C1-C4 and module D")],
@@ -231,6 +316,9 @@ def epd_word(path, model, result, databases, version=""):
          if epd.get("prospective") else "no"],
         ["Biogenic carbon content of the product (kg C per unit)", epd.get("biogenic_product", "")],
         ["Biogenic carbon content of the packaging (kg C per unit)", epd.get("biogenic_packaging", "")]], widths=[7, 17])
+    if epd.get("programme_statements"):
+        doc.add_heading("Programme information", 1)
+        doc.add_paragraph(epd["programme_statements"])
     doc.add_heading("Product description", 1)
     doc.add_paragraph(epd.get("description") or sc.get("fu_description") or "")
     doc.add_heading("System boundary: modules declared", 1)
@@ -253,10 +341,13 @@ def epd_word(path, model, result, databases, version=""):
                      ". Import the EF 3.1 method (ecoinvent LCIA file or the EF package) to complete the declaration.",
                      italic=True)
     doc.add_heading("Resource use, waste and output flows", 1)
-    report._note(doc, "EN 15804+A2 also requires the inventory indicators PERE, PERM, PERT, PENRE, PENRM, PENRT, SM, RSF, "
-                      "NRSF, FW, HWD, NHWD, RWD, CRU, MFR, MER, EEE and EET. Import a method package that provides them "
-                      "(for example the EN 15804 indicators in the ecoinvent LCIA file) and select them before generating "
-                      "the EPD; they then appear in the table above.")
+    miss = [a for a, *_ in INVENTORY if a not in chk["inventory_found"]]
+    report._note(doc, ("The resource use, waste and output flow indicators of EN 15804+A2 Tables 4 to 6 are in the table "
+                       "above." if not miss else
+                       "Missing EN 15804+A2 indicators (Tables 4 to 6): " + ", ".join(miss) + ". Import a method package "
+                       "that provides them (for example the EN 15804 indicators in the ecoinvent LCIA file) and select them "
+                       "before generating the EPD. Output flows such as CRU, MFR and MER can also be entered as inventory "
+                       "indicators of the end-of-life lines."))
     doc.add_heading("LCA information", 1)
     used = sorted({l["db"] for l in result["lines"] if l["kind"] == "activity"})
     report._table(doc, ["Item", "Content"], [
@@ -298,9 +389,14 @@ def epd_excel(path, model, result):
     for i in epd_checklist(model, result)["items"]:
         ws2.append([i["text"], "met" if i["ok"] else "open", i["ref"]])
     ws3 = wb.create_sheet("Inventory")
-    ws3.append(["Stage", "Line", "Amount", "Unit", "Data source", "Data quality (R,C,T,G,Te)"])
-    for l in result["lines"]:
-        ws3.append([l["stage"], l["name"], l["input_amount"], l["input_unit"], l["comment"], ",".join(map(str, l["pedigree"]))])
+    ws3.append(["Model", "Level", "Stage", "Line", "Amount per unit of model", "Unit", "Amount per declared unit", "Unit",
+                "Avoided", "Data type", "Data year", "Supplier / site", "Reference", "Verified", "Data quality (R,C,T,G,Te)",
+                "PEF (TeR,GeR,TiR,P)"])
+    for x in result.get("foreground") or []:
+        ws3.append([x["model"], x["depth"], x["stage"], x["name"], x["amount"], x["unit"], x["per_fu"], x["per_fu_unit"],
+                    "yes" if x["avoided"] else "", x["data_type"], x["data_year"], x["supplier"], x["reference"],
+                    "yes" if x["verified"] else "", ",".join(map(str, x["pedigree"])),
+                    ",".join(map(str, x["pef"])) if x["pef"] else ""])
     for w in (ws, ws2, ws3):
         w.column_dimensions["A"].width = 46
         w.column_dimensions["B"].width = 30

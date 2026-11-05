@@ -205,10 +205,43 @@
   const _showToolTab = showToolTab;
   showToolTab = function (t) {
     _showToolTab.apply(this, arguments);
-    if ((t === "dbs" || t === "dash") && !(S.status && S.status.project)) { toast("Open a project first (step 1).", true); return; }
+    if ((t === "dbs" || t === "dash" || t === "alloc") && !(S.status && S.status.project)) { toast("Open a project first (step 1).", true); return; }
     if (t === "dbs") fillDbSelects();
     if (t === "dash") loadDash(false);
+    if (t === "alloc") loadAlloc().catch((e) => toast(e.message, true));
   };
+  async function loadAlloc() {
+    const r = await api("GET", "/api/allocation-overview");
+    $("#allocNote").textContent = r.note;
+    const v = (x) => (x === "" || x == null ? "-" : fmt(Number(x)));
+    $("#allocOut").innerHTML = r.models.length ? `<div class="table-wrap"><table><thead><tr><th>Model</th><th>Rule</th><th class="num">Share for the product</th><th>Co-products</th><th>Avoided products</th><th class="num">Module D lines</th><th>Used in</th><th>To check</th></tr></thead><tbody>` +
+      r.models.map((m) => `<tr><td><a href="#" data-openmodel="${m.id}">${esc(m.name)}</a></td><td>${esc(m.rule || "none")}</td><td class="num">${(100 * m.share).toFixed(2)} %</td>
+        <td>${m.coproducts.length ? m.coproducts.map((c) => `${esc(c.name || "?")} <span class="hint">(${[["mass", "kg"], ["price", ""], ["energy", "MJ"], ["physical", ""]].filter(([k]) => c[k] !== "" && c[k] != null).map(([k, u]) => `${k} ${v(c[k])}${u ? " " + u : ""}`).join(", ")})</span>`).join("<br>") : "-"}</td>
+        <td>${m.avoided.length ? m.avoided.map(esc).join("<br>") : "-"}</td><td class="num">${m.module_d || "-"}</td><td>${m.used_in.length ? m.used_in.map(esc).join(", ") : "-"}</td>
+        <td>${m.issues.length ? `<span class="danger">${m.issues.map(esc).join("; ")}</span>` : '<span class="ok">ok</span>'}</td></tr>`).join("") + "</tbody></table></div>"
+      : '<p class="empty">No models in this project yet.</p>';
+  }
+  $("#btnAllocLoad").addEventListener("click", (e) => guard(e.target, loadAlloc));
+  $("#allocOut").addEventListener("click", (e) => {
+    const a = e.target.closest("[data-openmodel]");
+    if (!a) return;
+    e.preventDefault();
+    guard(null, async () => { await loadModel(Number(a.dataset.openmodel)); renderModelSelect(); go("scope"); });
+  });
+  $("#btnXc").addEventListener("click", (e) => guard(e.target, async () => {
+    if (!S.selectedMethods.size) throw new Error("Pick impact categories in step 4 first.");
+    const { job } = await api("POST", "/api/crosscheck", { method_ids: [...S.selectedMethods], sample: Number($("#xcN").value) || 200 });
+    $("#xcOut").innerHTML = '<p class="hint">Running; progress is shown at the bottom left.</p>';
+    watchJob(job, { quiet: true, onDone: (j) => {
+      const r = j.result;
+      $("#xcOut").innerHTML = `<p class="${r.passed ? "ok" : "danger"}"><b>${esc(r.verdict)}</b></p><p class="hint">${esc(r.scope)} Solver: ${esc(r.solver)}; library of ${r.n_library.toLocaleString()} datasets.</p>
+        <div class="table-wrap"><table><thead><tr><th>Kind</th><th>Name</th><th class="num">Largest relative difference</th></tr></thead><tbody>${r.rows.slice(0, 15).map((x) => `<tr><td>${esc(x.kind)}</td><td>${esc(x.name)}</td><td class="num">${Math.max(...x.relative_difference).toExponential(1)}</td></tr>`).join("")}</tbody></table></div>`;
+      $("#btnXcExport").disabled = false;
+    } });
+  }));
+  $("#btnXcExport").addEventListener("click", (e) => guard(e.target, async () => {
+    await exportTo("/api/export/crosscheck", "Cyclia independent cross-check.xlsx", "xlsx", {});
+  }));
   $("#btnDbc").addEventListener("click", (e) => guard(e.target, async () => {
     if (!S.selectedMethods.size) throw new Error("Pick impact categories in step 4 first.");
     const a = Number($("#dbcA").value), b = Number($("#dbcB").value);
@@ -262,7 +295,7 @@
     $("#dashOut").innerHTML = r.models.length ? `<div class="table-wrap"><table><thead><tr><th>Model</th><th>Functional unit</th><th class="num">Lines</th><th class="num">Default data quality</th><th class="num">Data type given</th><th>Review</th>${cats.map((c) => `<th class="num">${esc(c.category)} [${esc(c.unit)}]</th>`).join("")}${withCalc ? '<th class="num">Pedigree indicator</th><th class="num">Checks</th>' : ""}</tr></thead><tbody>` +
       r.models.map((m) => `<tr><td><a href="#" data-openmodel="${m.id}">${esc(m.name)}</a>${m.locked ? ' <span class="hint">(locked)</span>' : ""}${m.missing ? ` <span class="danger hint">${m.missing} missing</span>` : ""}</td><td>${esc(m.fu)}</td><td class="num">${m.n_inputs}</td>
         <td class="num">${m.n_inputs ? m.default_pedigree + " of " + m.n_inputs : "-"}</td><td class="num">${m.n_inputs ? m.typed + " (" + m.primary + " primary)" : "-"}</td><td>${REV[m.review_status] || esc(m.review_status)}</td>
-        ${withCalc ? (m.results ? m.results.map((x) => `<td class="num">${fmt(x.total)}</td>`).join("") + `<td class="num">${m.dqr.length ? m.dqr[0].toFixed(1) : "-"}</td><td class="num">${m.errors ? `<span class="danger">${m.errors} error(s)</span>` : m.warnings + " warning(s)"}</td>` : `<td colspan="${cats.length + 2}" class="hint">${esc(m.error || "no inputs")}</td>`) : ""}</tr>`).join("") + "</tbody></table></div>"
+        ${withCalc ? (m.results ? m.results.map((x) => `<td class="num">${fmt(x.total)}</td>`).join("") + `<td class="num">${m.dqr.filter((v) => v != null).length ? m.dqr.map((v) => (v == null ? "-" : v.toFixed(1))).join(" / ") : "-"}</td><td class="num">${m.errors ? `<span class="danger">${m.errors} error(s)</span>` : m.warnings + " warning(s)"}</td>` : `<td colspan="${cats.length + 2}" class="hint">${esc(m.error || "no inputs")}</td>`) : ""}</tr>`).join("") + "</tbody></table></div>"
       : '<p class="empty">No models in this project yet.</p>';
   }
   $("#btnDash").addEventListener("click", (e) => guard(e.target, () => loadDash(false)));

@@ -1,8 +1,8 @@
 # Cyclia feature assessment and roadmap
 
-Version: 1.3.3. Author: Naeem Ur Rehman. This document lists what Cyclia does, which standards it follows,
-what was added in 1.3.2 after a full feature review, what 1.3.3 corrected after an external audit, and what is
-still planned. Competitor capabilities are
+Version: 1.3.4. Author: Naeem Ur Rehman. This document lists what Cyclia does, which standards it follows,
+what was added in 1.3.2 after a full feature review, what 1.3.3 and 1.3.4 corrected after two external audits,
+and what is still planned. Competitor capabilities are
 only listed where the vendor's own documentation describes them (sources at the end).
 
 Priority classes: **P0** needed for a scientifically reliable study; **P1** needed for consulting and
@@ -91,6 +91,22 @@ planned (section 5).
 
 ---
 
+## 2b. Corrections in 1.3.4 (second external audit, of 1.3.3)
+
+| Audit finding | Priority | Status in 1.3.4 |
+|---|---|---|
+| Land use deviation from ecoinvent | P0 | Still open. New diagnostics: occupation and transformation split, factor change per group, uncharacterised land flows, conflicting factors. Needs a run with a licensed ecoinvent results file |
+| Independent numerical cross-check | P0 | Done inside the app (second implementation, other solver): agreement 5.7e-14 on the shipped data; openLCA and Brightway comparison of factor matching still planned |
+| Data age not checked in nested models | P1 | Fixed: every nested model, model named |
+| Comparison data quality only for the first category | P1 | Fixed: every category |
+| System model and approach checks not recursive | P1 | Fixed |
+| Nested inventory missing from reports | P1 | Fixed: complete foreground inventory in Word, Excel, EPD Excel and the app |
+| EPD resource, waste and output indicators not validated | P1 | Fixed: Tables 4 to 6, units, factors; "not ready for submission" status |
+| Allocation management | P1 | Added: allocation overview and physical causality |
+| Programme-specific EPD templates | P1 | Partly: PCR version and programme statements; layouts per programme still planned |
+
+---
+
 ## 3. Existing features by LCA phase
 
 **Goal and scope**: functional unit and reference flow, boundary (gate-to-gate, cradle-to-gate, -grave,
@@ -125,7 +141,7 @@ database and method fingerprints.
 
 "Not documented" means the page reviewed did not describe it, not that the product lacks it.
 
-| Feature | Cyclia 1.3.3 | openLCA 2 | SimaPro Expert | Sphera LCA for Experts | Brightway / Activity Browser |
+| Feature | Cyclia 1.3.4 | openLCA 2 | SimaPro Expert | Sphera LCA for Experts | Brightway / Activity Browser |
 |---|---|---|---|---|---|
 | Monte Carlo | Yes, with Sobol, comparative probabilities, correlated parameters, convergence | Yes | Yes | Not documented | Yes, plus global sensitivity analysis |
 | Parameters and scenarios | Yes | Yes | Yes | Key parameters through an interface | Yes, with premise scenarios |
@@ -138,7 +154,7 @@ database and method fingerprints.
 | Multi-user | No | Collaboration Server | Multi-user version with central database | Sharing with stakeholders | Not documented |
 | Hotspots and burden shifting | Automatic findings | Contribution analysis | Weak-point analysis | Hotspots and burden shifting described | Contribution analysis |
 | Database version comparison | Yes | Not documented | Not documented | Not documented | Not documented |
-| Validation against reference results | Built-in suite and ecoinvent benchmark | Not documented | Not documented | Not documented | Not documented |
+| Validation against reference results | Built-in suite, independent cross-check and ecoinvent benchmark | Not documented | Not documented | Not documented | Not documented |
 | Prebuilt models | Sector templates | Not documented | Not documented | 1,000 prebuilt models | Not documented |
 | Price | Free, open source | Free, open source | Commercial | Commercial | Free, open source |
 
@@ -149,12 +165,11 @@ database and method fingerprints.
 | Item | Priority | How it should work | Complexity |
 |---|---|---|---|
 | Land use deviation | P0 | Cyclia is up to 5 % lower than ecoinvent's LCIA results for some datasets (median 0.4 %); trace the transformation flows with the benchmark workbook | M |
-| Independent numerical cross-check | P0 | The same inventories calculated in openLCA and Brightway, published as a validation report | M |
+| openLCA and Brightway comparison | P0 | The same inventories calculated in openLCA and Brightway to compare factor matching, published as a validation report | M |
 | EPD programme templates | P1 | Word templates per programme operator (layout and mandatory statements of each programme) | M |
 | Consequential guidance | P1 | Marginal supplier finder per market linked to the modelling approach | M |
 | Dataset DQR from EF datasets | P2 | Read the TeR, GeR, TiR and P of ILCD/EF datasets and combine them with the foreground PEF scores | M |
 | Basin-level water footprint | P2 | Water scarcity by location of the withdrawal (AWARE) on top of the water inventory | M |
-| Allocation manager | P1 | One table of every multi-output process in the project with its rule and shares; physical causality by a user-defined property | M |
 | Grouped results tabs | P2 | Keep Summary, Contributions, Checks and Compare in front; group the rest under "More analyses" | S |
 | Further LCIA methods | P2 | AWARE 2.0 for water scarcity, IMPACT World+, LANCA land use, official USEtox 2 factors, where licences allow redistribution; until then through CSV import | M each |
 | Social LCA (ISO 14075:2024) | P3 | Import PSILCA or SOCA data when the user has a licence; risk hotspots per working hour | XL |

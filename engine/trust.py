@@ -662,6 +662,99 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
     progress(99, "Looking for the causes of deviations")
     res["diagnosis"] = diagnose(store, mc, M, mcols, out)
     res["factor_finder"] = factor_finder(store, mc, M, mcols, out, G)
+    res["land_use"] = land_use_reconciliation(store, mc, M, mcols, out, G)
+    res["cf_conflicts"] = cf_conflicts(store, [c["method"]["id"] for c in mcols])
+    return res
+
+
+LAND_GROUPS = (("occupation", lambda n: n.startswith("occupation")),
+               ("transformation, from", lambda n: n.startswith("transformation, from")),
+               ("transformation, to", lambda n: n.startswith("transformation, to")))
+
+
+def _land_group(name):
+    n = (name or "").strip().lower()
+    return next((g for g, t in LAND_GROUPS if t(n)), None)
+
+
+def cf_conflicts(store, method_ids):
+    """Raw characterisation factors that map to the same flow key (name, compartment, subcompartment, location) with
+    different values. Matching keeps the first one, so a conflict can make a category deviate."""
+    if not method_ids:
+        return []
+    rows = store.q(f"SELECT r.method_id, m.category, r.c_name, r.c_comp, r.c_sub, r.location, COUNT(DISTINCT r.value) AS n, "
+                   f"MIN(r.value) AS lo, MAX(r.value) AS hi FROM cf_raw r JOIN methods m ON m.id=r.method_id "
+                   f"WHERE r.method_id IN ({','.join('?' * len(method_ids))}) "
+                   f"GROUP BY r.method_id, r.c_name, r.c_comp, r.c_sub, r.location HAVING COUNT(DISTINCT r.value) > 1",
+                   list(method_ids))
+    return [{"category": r["category"], "flow": r["c_name"], "compartment": "/".join(x for x in (r["c_comp"], r["c_sub"]) if x),
+             "location": r["location"] or "global", "values": r["n"], "min": r["lo"], "max": r["hi"]} for r in rows]
+
+
+def land_use_reconciliation(store, mc, M, mcols, out, G):
+    """For land use categories: split Cyclia's result of every compared dataset into occupation, transformation-from
+    and transformation-to contributions, estimate by least squares how much each group would have to change to
+    explain the gap to ecoinvent (gap_d = sum_g alpha_g c_dg), and list land flows of the inventories that have no
+    factor in Cyclia. This separates a factor problem in one flow group from flows that are not characterised."""
+    names = {}
+
+    def fname(i):
+        if i not in names:
+            r = store.flow(int(mc.flow_ids[i]))
+            names[i] = (r["name"] if r else "", "/".join(x for x in ((r or {}).get("compartment"), (r or {}).get("subcompartment")) if x))
+        return names[i]
+    land_idx = None
+    res = []
+    for k, c in enumerate(mcols):
+        m = c["method"]
+        if "land" not in f"{m['category']} {m['indicator']}".lower():
+            continue
+        if land_idx is None:
+            land_idx = [i for i in range(len(mc.flow_ids)) if _land_group(fname(i)[0])]
+        items = [x for x in out if x["category"] == m["category"] and x["indicator"] == m["indicator"] and x["reference"]
+                 and x["act_id"] in G and x["note"] == ""]
+        if len(items) < 3:
+            continue
+        groups = [g for g, _ in LAND_GROUPS]
+        X, y, w = [], [], []
+        missing = {}
+        for x in items:
+            g = G[x["act_id"]]
+            row = []
+            for gname in groups:
+                idx = [i for i in land_idx if _land_group(fname(i)[0]) == gname]
+                row.append(float(sum(M.C[k, i] * g[i] for i in idx)))
+            X.append(row)
+            y.append(x["reference"] - x["cyclia"])
+            w.append(1.0 / abs(x["reference"]))
+            for i in land_idx:
+                if g[i] and M.C[k, i] == 0:
+                    key = fname(i)
+                    missing[key] = missing.get(key, 0.0) + abs(float(g[i])) / abs(x["reference"])
+        X, y, w = np.array(X), np.array(y), np.array(w)
+        Xw, yw = X * w[:, None], y * w
+        use = [j for j in range(len(groups)) if np.any(np.abs(Xw[:, j]) > 0)]
+        alpha = [None] * len(groups)
+        explained = None
+        if use and np.any(yw):
+            sol, *_ = np.linalg.lstsq(Xw[:, use], yw, rcond=None)
+            for j, a_ in zip(use, sol):
+                alpha[j] = float(a_)
+            fit = Xw[:, use] @ sol
+            explained = float(1 - np.sum((yw - fit) ** 2) / np.sum(yw ** 2)) if np.sum(yw ** 2) else None
+        tot = np.abs(X).sum(axis=0)
+        share = (tot / tot.sum()).tolist() if tot.sum() else [0.0] * len(groups)
+        res.append({"category": m["category"], "indicator": m["indicator"], "n": len(items),
+                    "groups": [{"group": g, "share_of_result": share[j],
+                                "factor_change_percent": (alpha[j] * 100) if alpha[j] is not None else None}
+                               for j, g in enumerate(groups)],
+                    "explained": explained,
+                    "uncharacterised_land_flows": [{"flow": n_, "compartment": c_, "weight": v}
+                                                   for (n_, c_), v in sorted(missing.items(), key=lambda t: -t[1])[:15]],
+                    "note": "factor_change_percent: the uniform change of the factors of that flow group that best explains "
+                            "the gap to ecoinvent (e.g. +8 means ecoinvent's factors of that group appear 8 % higher). "
+                            "explained: share of the gap variance explained. A high weight for an uncharacterised land "
+                            "flow means that flow carries much of the result in ecoinvent but has no factor in Cyclia."})
     return res
 
 
@@ -865,6 +958,26 @@ def benchmark_excel(path, res):
                                fl["missing_contribution"]])
     for c in ws4[1]:
         c.font = b
+    if res.get("land_use"):
+        wl = wb.create_sheet("Land use reconciliation")
+        wl.append(["Category", "Indicator", "Datasets", "Flow group", "Share of Cyclia result", "Factor change that explains the gap (%)",
+                   "Gap variance explained"])
+        for c_ in res["land_use"]:
+            for g in c_["groups"]:
+                wl.append([c_["category"], c_["indicator"], c_["n"], g["group"], g["share_of_result"],
+                           g["factor_change_percent"], c_["explained"]])
+        wl.append([])
+        wl.append(["Category", "Land flow without a factor in Cyclia", "Compartment", "Weight (sum of amount / |result|)"])
+        for c_ in res["land_use"]:
+            for f_ in c_["uncharacterised_land_flows"]:
+                wl.append([c_["category"], f_["flow"], f_["compartment"], f_["weight"]])
+        wl.append([])
+        wl.append([res["land_use"][0]["note"]])
+    if res.get("cf_conflicts"):
+        wc = wb.create_sheet("Conflicting factors")
+        wc.append(["Category", "Flow (canonical)", "Compartment", "Location", "Different values", "Min", "Max"])
+        for c_ in res["cf_conflicts"]:
+            wc.append([c_["category"], c_["flow"], c_["compartment"], c_["location"], c_["values"], c_["min"], c_["max"]])
     ws5 = wb.create_sheet("Factor finder")
     ws5.append(["Category", "Indicator", "Results compared", "Deviating > 0.1 %", "Deviation explained %", "Flow",
                 "Compartment", "Unit", "Factor in Cyclia", "Factor ecoinvent appears to use", "Factors in the method file"])

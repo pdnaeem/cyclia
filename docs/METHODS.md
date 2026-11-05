@@ -169,6 +169,16 @@ dataset. The validation test recomputes the formula by hand and compares with th
 
 **Data age**: producer-specific (primary) data older than 5 years and other data older than 10 years raise a
 warning (EN 15804+A2 6.3.8.2); primary data outside the study period and lines without a data year are listed.
+These checks, the default data quality check, the system model check and the approach check cover every line of
+the model and of every nested model, and name the model a line belongs to.
+
+**Complete foreground inventory**: for every line of every nested model, the amount per unit of its own model and
+the amount per functional unit, which is the product of the line factors along each chain from the top-level
+model (amount, sign, allocation share, 1 / reference amount of each sub-model), summed over every place the line
+occurs.
+
+**Physical causality**: the allocation share is p_main / (p_main + sum p_coproducts) for a physical property the
+user names (ISO 14044 4.3.4.2, step 2), next to mass, energy and economic value.
 
 **Database migration**: the open model and every model nested in it are switched to the new database (matching as
 below). Each changed model gets one undo step, and the whole migration can be undone at once; results before and
@@ -261,6 +271,11 @@ its non-dominated points form the Pareto front.
 
 ## 10. Standards outputs
 
+* **EPD indicators**: the 13 core indicators and the 18 indicators of EN 15804+A2 Tables 4 to 6 (PERE, PERM, PERT,
+  PENRE, PENRM, PENRT, SM, RSF, NRSF, FW, HWD, NHWD, RWD, CRU, MFR, MER, EEE, EET) are identified by their
+  abbreviation or wording; missing indicators, units that do not match the standard (kg CO2 eq, kg CFC-11 eq,
+  mol H+ eq, kg P eq, kg N eq, mol N eq, kg NMVOC eq, kg Sb eq, MJ, m3, kg) and indicators without factors are
+  listed. A draft can always be written; it states "not ready for submission" while any requirement is open.
 * **EPD module table**: every line must be in an EN 15804 module; stages with other names block the EPD. A1-A3 is
   declared only when it has lines. The module table must add up to the LCA result (A-C) and module D, otherwise
   the EPD is not written. The reference service life is required when B modules are declared. Every indicator
@@ -291,6 +306,18 @@ its non-dominated points form the Pareto front.
   reviewer's status and comment.
 
 ## 11. Validation and reproducibility
+
+**Independent cross-check**: datasets and models are recalculated by a second implementation that rebuilds A and B
+from the library tables, solves with LAPACK dense LU (up to 4,000 datasets) or GMRES with an ILU preconditioner
+and iterative refinement, applies factors per flow and site factors from their own table, and flattens nested
+models separately. Agreement: relative difference below 1e-5, with values below 1e-12 of the largest result of a
+category taken as zero. Details and results: docs/CROSS_VALIDATION.md.
+
+**Land use reconciliation** (ecoinvent benchmark): for each land use category, Cyclia's result of every compared
+dataset is split into occupation, transformation-from and transformation-to contributions c_dg; the factor
+changes α_g that best explain the gap, (ref_d - cyclia_d) = Σ_g α_g c_dg, are estimated by weighted least squares
+(weights 1 / |ref_d|), with the share of the gap variance explained. Land flows of the inventories without a
+factor, and raw factors that give one flow two different values, are listed.
 
 `engine/tests` holds 64 automated tests, including: a hand-calculated wall model; agreement with an
 independent dense solution to 10⁻⁹; supply loops and waste treatment from ecoSpold2; unit conversion and

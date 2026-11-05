@@ -432,7 +432,7 @@ async function renderPef() {
 const EPD_COLUMNS = ["A1-A3", "A4", "A5", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "C1", "C2", "C3", "C4", "D"];
 function fillEpdForm() {
   const f = $("#epdInfo"), e = (S.model && S.model.scope && S.model.scope.epd) || {};
-  ["manufacturer", "site", "programme", "number", "pcr", "rsl", "issued", "valid_until", "verification", "verifier", "biogenic_product", "biogenic_packaging", "description", "specific_months"]
+  ["manufacturer", "site", "programme", "number", "pcr", "rsl", "issued", "valid_until", "verification", "verifier", "biogenic_product", "biogenic_packaging", "description", "specific_months", "pcr_version", "programme_statements"]
     .forEach((k) => (f[k].value = e[k] ?? ""));
   f.audience.value = e.audience || "B2B"; f.prospective.checked = !!e.prospective;
   const dec = new Set(e.declared || []);
@@ -441,7 +441,7 @@ function fillEpdForm() {
 async function saveEpd() {
   needModel();
   const f = $("#epdInfo"), body = {};
-  ["manufacturer", "site", "programme", "number", "pcr", "rsl", "issued", "valid_until", "verification", "verifier", "biogenic_product", "biogenic_packaging", "description", "specific_months"]
+  ["manufacturer", "site", "programme", "number", "pcr", "rsl", "issued", "valid_until", "verification", "verifier", "biogenic_product", "biogenic_packaging", "description", "specific_months", "pcr_version", "programme_statements"]
     .forEach((k) => (body[k] = f[k].value.trim()));
   body.audience = f.audience.value; body.prospective = f.prospective.checked ? "yes" : "";
   body.declared = $$("#epdModules input:checked").map((i) => i.value);
@@ -453,7 +453,7 @@ $("#btnEpdCheck").addEventListener("click", (e) => guard(e.target, async () => {
   await saveEpd();
   const r = await api("POST", "/api/epd/check", calcBody());
   const c = r.checklist;
-  $("#epdOut").innerHTML = `<p><b>${c.passed} of ${c.total} requirements met.</b> Declared modules: ${r.declared.join(", ")}.</p>
+  $("#epdOut").innerHTML = `<p><b>${c.passed} of ${c.total} requirements met.</b> ${c.ready ? '<span class="ok">Ready for verification.</span>' : '<span class="danger">Not ready for submission: the draft can be created, but the open items must be solved first.</span>'} Declared modules: ${r.declared.join(", ") || "none"}.</p>
     <ul class="checks-list">${c.items.map((i) => `<li><span class="lvl ${i.ok ? "info" : "warning"}">${i.ok ? "met" : "open"}</span><span>${esc(i.text)}</span><span class="hint">${esc(i.ref)}</span></li>`).join("")}</ul>
     <div class="table-wrap"><table><thead><tr><th>Indicator</th><th>Unit</th>${r.columns.map((x) => `<th class="num">${x}</th>`).join("")}</tr></thead><tbody>
     ${r.modules.map((m) => `<tr><td>${esc(m.category)}</td><td>${esc(m.unit)}</td>${r.columns.map((x) => `<td class="num">${r.declared.includes(x) ? fmt(m.modules[x]) : "ND"}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;

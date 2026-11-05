@@ -297,6 +297,17 @@ class TestFeatures(unittest.TestCase):
         prev = self.api("POST", "/api/cff/preview", {"params": {"R1": 0.5, "A": 0.5}})
         self.assertAlmostEqual(next(x["coefficient"] for x in prev["lines"] if x["role"] == "recycled"), 0.25)
 
+    def test_crosscheck_and_allocation_overview(self):
+        r = self.api.job("/api/crosscheck", {"method_ids": self.methods, "sample": 500})
+        self.assertTrue(r["passed"], r["verdict"])
+        self.assertGreaterEqual(r["n_models"], 7)
+        out = self.api("POST", "/api/export/crosscheck", {"path": os.path.join(self.dir, "xc.xlsx")})
+        self.assertTrue(os.path.exists(out["path"]))
+        al = self.api("GET", "/api/allocation-overview")
+        kiln = next(m for m in al["models"] if m["id"] == self.kiln)
+        self.assertLess(kiln["share"], 1)
+        self.assertTrue(kiln["rule"])
+
     def test_templates(self):
         t = self.api("GET", "/api/model-templates")["templates"]
         self.assertGreaterEqual(len(t), 4)

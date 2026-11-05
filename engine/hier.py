@@ -39,8 +39,9 @@ def build(ctx, model_id, keep=None):
                                     "the line.")
             if inp["id"] not in out["index"]:
                 out["index"][inp["id"]] = len(out["lines"])
-                out["lines"].append({"inp": inp, "owner": mid, "owner_name": m["name"], "depth": depth,
+                out["lines"].append({"inp": inp, "owner": mid, "owner_name": m["name"], "depth": depth, "occ": [],
                                      "sigma": calc.pedigree_sigma(inp["pedigree"], inp["kind"], inp["target"]["name"])})
+            out["lines"][out["index"][inp["id"]]]["occ"].append(chain)
             ch = chain + (out["index"][inp["id"]],)
             if inp["kind"] == "model":
                 walk(inp["ref_id"], ch, depth + 1)
@@ -209,3 +210,26 @@ def path_multipliers(T, mult):
         return np.zeros((mult.shape[0], 0))
     logm = np.log(mult)
     return np.exp(np.column_stack([logm[:, list(lf["chain"])].sum(axis=1) for lf in T["leaves"]]))
+
+
+def foreground_inventory(ctx, T):
+    """Every line of the model and of all nested models, with its amount per unit of its own model and per
+    functional unit (summed over every place it occurs), for the complete inventory and provenance annex."""
+    fac = [line_factor(ctx, T, li) for li in range(len(T["lines"]))]
+    rows = []
+    for li, L in enumerate(T["lines"]):
+        inp = L["inp"]
+        own = fac[li] * ((ctx.model(inp["ref_id"])["amount"] or 1.0) if inp["kind"] == "model" else 1.0)
+        per_fu = sum(math.prod(fac[p] for p in prefix) * own for prefix in L["occ"])
+        path = [T["lines"][prefix[-1]]["owner_name"] for prefix in L["occ"] if prefix] if L["depth"] else []
+        rows.append({"input_id": inp["id"], "model": L["owner_name"], "depth": L["depth"],
+                     "name": inp["label"] or inp["target"]["name"], "kind": inp["kind"],
+                     "dataset_db": inp["target"].get("db", ""), "location": inp["target"].get("location", ""),
+                     "stage": inp["stage"] or "", "amount": inp["input_amount"] if inp["input_amount"] is not None else inp["amount"],
+                     "unit": inp["input_unit"] or inp["target"]["unit"], "per_fu": per_fu, "per_fu_unit": inp["target"]["unit"],
+                     "avoided": bool(inp["avoided"]), "data_type": inp.get("data_type") or "",
+                     "data_year": inp.get("data_year"), "supplier": inp.get("supplier") or "",
+                     "reference": inp.get("source_ref") or inp.get("comment") or "", "verified": bool(inp.get("verified")),
+                     "pedigree": list(inp["pedigree"]), "pef": inp.get("pef"), "formula": inp.get("formula") or "",
+                     "occurrences": len(L["occ"])})
+    return rows

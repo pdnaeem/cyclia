@@ -404,7 +404,7 @@ document.addEventListener("click", async (e) => {
 /* ---------------- models & scope ---------------- */
 const SCOPE_FIELDS = ["fu_description", "goal", "reasons", "application", "audience", "comparative", "author", "boundary",
   "stage_system", "geography", "period", "allocation", "alloc_share", "alloc_basis", "main_mass", "cutoff", "assumptions", "dq_requirements", "horizon",
-  "approach", "technology", "lcc_currency", "lcc_rate"];
+  "approach", "technology", "lcc_currency", "lcc_rate", "alloc_property"];
 const CONC_FIELDS = ["conclusions", "limitations", "recommendations", "review", "review_status"];
 
 function fillStageSystems() {
@@ -467,6 +467,7 @@ function renderCoproducts(cps) {
     <td><input data-cp="mass" type="number" step="any" min="0" value="${esc(c.mass ?? "")}"></td>
     <td><input data-cp="price" type="number" step="any" min="0" value="${esc(c.price ?? "")}"></td>
     <td><input data-cp="energy" type="number" step="any" min="0" value="${esc(c.energy ?? "")}"></td>
+    <td><input data-cp="physical" type="number" step="any" min="0" value="${esc(c.physical ?? "")}"></td>
     <td><button type="button" class="ghost danger" data-cprm>Remove</button></td></tr>`).join("");
   updateAllocShare();
 }
@@ -475,12 +476,13 @@ function readCoproducts() {
     const o = {};
     $$("[data-cp]", tr).forEach((i) => (o[i.dataset.cp] = i.type === "number" ? (i.value === "" ? "" : Number(i.value)) : i.value.trim()));
     return o;
-  }).filter((c) => c.name || c.mass !== "" || c.price !== "" || c.energy !== "");
+  }).filter((c) => c.name || c.mass !== "" || c.price !== "" || c.energy !== "" || c.physical !== "");
 }
 function toggleAlloc() {
   const basis = $("#scopeForm").alloc_basis.value;
   $$(".alloc-manual").forEach((el) => (el.hidden = !!basis));
   $$(".alloc-cp").forEach((el) => (el.hidden = !basis));
+  $$(".alloc-phys").forEach((el) => (el.hidden = basis !== "physical"));
   updateAllocShare();
 }
 function updateAllocShare() {
@@ -503,7 +505,7 @@ async function saveModelScope(extra = {}) {
   SCOPE_FIELDS.forEach((k) => (scope[k] = f[k].value.trim()));
   scope.dynamic = f.dynamic.checked;
   scope.coproducts = readCoproducts();
-  ["main_mass", "main_price", "main_energy"].forEach((k) => { if (k !== "main_mass") delete scope[k]; });
+  ["main_mass", "main_price", "main_energy", "main_physical"].forEach((k) => { if (k !== "main_mass") delete scope[k]; });
   if (scope.alloc_basis) scope["main_" + scope.alloc_basis] = f.main_value.value;
   if (scope.alloc_basis === "mass" && !f.main_value.value) scope.main_mass = f.main_mass.value;
   Object.assign(scope, extra);
@@ -1182,8 +1184,16 @@ function renderChecks() {
     : '<li><span class="lvl info">ok</span><span>No issues found.</span><span></span></li>';
 }
 $("#checksList").addEventListener("click", (e) => { const b = e.target.closest("[data-go]"); if (b) go(b.dataset.go); });
+function renderForeground() {
+  const r = S.result, all = ($("input[name=fgScope]:checked") || {}).value === "all";
+  const rows = (r.foreground || []).filter((x) => all || x.depth === 0);
+  $("#fgTable").innerHTML = `<thead><tr>${all ? "<th>Model</th>" : ""}<th>Line</th><th class="num">Per unit</th><th class="num">Per FU</th><th>Data type</th><th class="num">Year</th><th>Supplier / site</th><th>Reference</th><th>Verified</th><th>Pedigree</th></tr></thead><tbody>` +
+    rows.map((x) => `<tr>${all ? `<td>${esc(x.model)}</td>` : ""}<td>${"&nbsp;&nbsp;".repeat(all ? x.depth : 0)}${esc(x.name)}${x.avoided ? ' <span class="hint">(credit)</span>' : ""}</td><td class="num">${fmt(x.amount)} ${esc(x.unit || "")}</td><td class="num">${fmt(x.per_fu)} ${esc(x.per_fu_unit || "")}</td><td>${esc(x.data_type || "-")}</td><td class="num">${x.data_year ? Math.round(x.data_year) : "-"}</td><td>${esc(x.supplier || "-")}</td><td>${esc((x.reference || "-").slice(0, 60))}</td><td>${x.verified ? "yes" : "-"}</td><td>${x.pedigree.join(",")}</td></tr>`).join("") + "</tbody>";
+}
+$$("input[name=fgScope]").forEach((i) => i.addEventListener("change", () => S.result && renderForeground()));
 function renderLci() {
   const r = S.result;
+  renderForeground();
   $("#uncharOut").innerHTML = r.uncharacterised.length ? `<table><thead><tr><th>Flow</th><th>Compartment</th><th class="num">Amount</th><th>Note</th></tr></thead><tbody>
     ${r.uncharacterised.slice(0, 25).map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.context)}</td><td class="num">${fmt(u.amount)} ${esc(u.unit)}</td><td>${u.mapping_issue ? '<span class="warn">The method has this flow under another name or compartment: import a flow mapping.</span>' : ""}</td></tr>`).join("")}</tbody></table>`
     : '<p class="hint">Every inventory flow has a factor in at least one selected category.</p>';

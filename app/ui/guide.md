@@ -280,8 +280,8 @@ comparison requires a critical review panel (ISO 14044 6.3).
 
 ### Allocation
 
-If your process makes more than one product, say how burdens are shared. Choose **mass**, **economic** or
-**energy** and enter the value for your product and for each co-product; Cyclia computes the share. Or enter
+If your process makes more than one product, say how burdens are shared. Choose **mass**, **economic**,
+**energy** or **another physical relationship** (name the property, for example nitrogen content) and enter the value for your product and for each co-product; Cyclia computes the share. Or enter
 a share in % yourself. The text field "Allocation procedure" goes into the report. The alternative, system
 expansion, is done in step 3 with an avoided product.
 
@@ -492,7 +492,9 @@ can be concluded.
 - **Explore parameters**: sweeps (result as a parameter changes), optimisation (best parameter values under
   constraints) and Pareto fronts between two categories.
 - **PEF**: most relevant categories, stages, processes and flows by the PEF 80 % rule.
-- **Inventory results**: all elementary flows, flows without a factor, toxicity coverage.
+- **Inventory results**: the foreground inventory with its provenance, for this model or for the complete supply
+  chain of nested models (amount per unit and per functional unit), all elementary flows, flows without a
+  factor, toxicity coverage.
 - **Checks**: completeness, consistency and sensitivity checks (ISO 14044 4.5.3). Each check links to the
   step where you fix it. Errors must be fixed; warnings and notes should be explained in the report.
 - **Compare**: before comparing, write the **functional equivalence**: why the alternatives give the same
@@ -535,7 +537,10 @@ Compare before you claim that one product is better.
   check, the intended audience, the share of the GWP result from supply-chain-specific data, months of
   specific data, and prospective EPDs with their uncertainty). Every line must be in an EN 15804 module (A1-A3,
   A4, A5, B1 to B7, C1 to C4, D); Cyclia does not write the EPD while a stage has another name, and checks that
-  the module table adds up to the LCA result. Then an ISO
+  the module table adds up to the LCA result. It also checks the resource use, waste and output indicators of EN
+  15804+A2 (PERE to EET) and the units. You can always create a draft; it says "not ready for submission" while
+  anything is open. Enter the PCR version and your programme operator's mandatory statements in the EPD form.
+  Then an ISO
   14067 carbon footprint report and a GHG Protocol workbook.
 - **Critical review checklist**: the ISO 14044 items a reviewer checks, with your notes, exported to Excel.
 - **Share, reproduce, exchange**: a reproducibility bundle (models, settings and fingerprints of the
@@ -546,7 +551,9 @@ Compare before you claim that one product is better.
 ## Toolbox
 
 - **Validation**: the validation suite runs 35 small product systems with exact known answers and saves a
-  Word report to attach to a thesis or paper. **Verify a reproducibility bundle** recalculates someone
+  Word report to attach to a thesis or paper. The **independent cross-check** recalculates datasets of your
+  library and the models of your project with a second implementation (other solver, matrices rebuilt from the
+  tables) and shows the largest difference; save its Excel report for a reviewer. **Verify a reproducibility bundle** recalculates someone
   else's bundle and checks that data, methods and results are identical.
 - **Background scenarios**: edit prospective or consequential versions of the database (scale emissions or
   inputs over years, swap suppliers), import premise or Activity Browser scenario files, find marginal
@@ -560,6 +567,8 @@ Compare before you claim that one product is better.
   project uses or on a sample, with the median change per category and the largest changes, and move the open
   model and every model nested in it to the new version in one step, with results before and after and one
   button to undo the whole migration.
+- **Allocation**: every model of the project with its allocation rule and share, co-products, avoided products,
+  module D, where it is used, and what to check (for example allocation together with system expansion).
 - **Project overview**: all models of the project with their inventory size, data quality and review status;
   **Calculate all models** adds their results.
 

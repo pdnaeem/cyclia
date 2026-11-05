@@ -209,7 +209,8 @@ def word_report(path, model, result, databases, version=""):
         ["Technological coverage", s.get("technology") or "-"],
         ["Allocation", (s.get("allocation") or "-") + (f"; {result['allocation_share'] * 100:.4g} % of burdens allocated "
                                                        "to this product" + ({"mass": " by mass", "price": " by economic value",
-                                                       "energy": " by energy content"}.get(s.get("alloc_basis"), ""))
+                                                       "energy": " by energy content",
+                                                       "physical": f" by physical causality ({s.get('alloc_property') or 'property'})"}.get(s.get("alloc_basis"), ""))
                                                        if result.get("allocation_share", 1) < 1 else "")],
         ["Stage system", s.get("stage_system") or "-"],
         ["Cut-off criteria", s.get("cutoff") or "-"],
@@ -414,6 +415,19 @@ def word_report(path, model, result, databases, version=""):
 
     doc.add_heading("Annex A. Methods text for a manuscript", 1)
     doc.add_paragraph(methods_paragraph(model, result, databases, version))
+    fg = result.get("foreground") or []
+    if result.get("nested") and fg:
+        doc.add_heading("Annex B0. Complete foreground inventory and data provenance (all nested models)", 1)
+        _note(doc, "Every line of the model and of every model used inside it. 'Per unit' is the amount for the reference "
+                   "amount of the model the line belongs to; 'per FU' is the amount needed per functional unit, summed over "
+                   "every place the line occurs, after allocation.")
+        _table(doc, ["Model", "Line", "Per unit", "Per FU", "Data type", "Year", "Supplier / site", "Reference", "Verified",
+                     "Pedigree"],
+               [[x["model"][:28], x["name"][:48] + (" [avoided]" if x["avoided"] else ""), f"{fmt(x['amount'])} {x['unit'] or ''}",
+                 f"{fmt(x['per_fu'])} {x['per_fu_unit'] or ''}", x["data_type"] or "-",
+                 f"{x['data_year']:.0f}" if x.get("data_year") else "-", x["supplier"] or "-", (x["reference"] or "-")[:60],
+                 "yes" if x["verified"] else "-", ",".join(map(str, x["pedigree"]))] for x in fg],
+               widths=[2.4, 3.6, 1.9, 1.9, 1.5, 1.0, 1.9, 2.6, 1.1, 1.5], size=7)
     if result.get("lci"):
         doc.add_heading("Annex B. Life cycle inventory results (largest 60 flows)", 1)
         _table(doc, ["Elementary flow", "Compartment", "Amount", "Unit"],
@@ -550,6 +564,17 @@ def excel_results(path, model, result, version=""):
         for r in result["results"]:
             ws.append([r["category"], r["total"], r.get("module_d", 0), r["unit"]])
 
+    fg = result.get("foreground") or []
+    if fg:
+        ws = wb.create_sheet("Supply-chain inventory")
+        header(ws, ["Model", "Level", "Line", "Kind", "Stage", "Amount per unit of model", "Unit", "Amount per FU", "Unit",
+                    "Avoided", "Formula", "Data type", "Data year", "Supplier / site", "Reference", "Verified", "Pedigree",
+                    "PEF (TeR,GeR,TiR,P)", "Dataset database", "Location"])
+        for x in fg:
+            ws.append([x["model"], x["depth"], x["name"], x["kind"], x["stage"], x["amount"], x["unit"], x["per_fu"],
+                       x["per_fu_unit"], "yes" if x["avoided"] else "", x["formula"], x["data_type"], x["data_year"],
+                       x["supplier"], x["reference"], "yes" if x["verified"] else "", ",".join(map(str, x["pedigree"])),
+                       ",".join(map(str, x["pef"])) if x["pef"] else "", x["dataset_db"], x["location"]])
     dq = result.get("data_quality") or {}
     if dq.get("by_category"):
         ws = wb.create_sheet("Data quality")

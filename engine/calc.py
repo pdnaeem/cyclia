@@ -298,7 +298,7 @@ def allocation_share(scope):
     scope = scope or {}
     basis = scope.get("alloc_basis") or ""
     cps = scope.get("coproducts") or []
-    if basis in ("mass", "price", "energy") and cps:
+    if basis in ("mass", "price", "energy", "physical") and cps:
         main = _num(scope.get(f"main_{basis}"))
         others = sum(_num(c.get(basis)) for c in cps)
         if main > 0 and main + others > 0:
@@ -702,6 +702,8 @@ def run(store, model_id, method_ids, top=12, mc_iterations=0, sensitivity_pct=10
     import hier
     T = hier.build(ctx, model_id, keep=keep_ac)
     out["_tree"] = {"tree": T, "amounts": hier.path_amounts(ctx, T), "units": hier.leaf_units(ctx, mc, M, T)}
+    out["foreground"] = hier.foreground_inventory(ctx, T)
+    out["nested"] = len(T["models"]) > 1
     out["data_quality"] = data_quality(out)
     out["checks"] = checks(store, model_id, method_ids, out)
     out["findings"] = findings(out)
@@ -1381,11 +1383,12 @@ def compare(store, model_ids, method_ids, scenario=None, bg=None, equivalence=""
     runs = [run(store, mid, method_ids, top=5, scenario=scenario, bg=bg) for mid in model_ids]
     rows = []
     for r in runs:
-        dq = (r.get("data_quality") or {}).get("by_category") or []
+        dq = {(c["family"], c["category"], c["indicator"]): c["dqr"]
+              for c in (r.get("data_quality") or {}).get("by_category") or []}
         rows.append({"model": r["model"], "totals": [x["total"] for x in r["results"]],
                      "module_d": [x["module_d"] for x in r["results"]],
                      "errors": [c for c in r["checks"] if c["level"] == "error"],
-                     "dqr": dq[0]["dqr"] if dq else None})
+                     "dqr": [dq.get((x["family"], x["category"], x["indicator"])) for x in r["results"]]})
     methods = [store.one("SELECT id, family, category, indicator, unit FROM methods WHERE id=?", (m,)) for m in method_ids]
     blocking, issues = [], []
     m0 = rows[0]["model"]
@@ -1416,17 +1419,33 @@ def compare(store, model_ids, method_ids, scenario=None, bg=None, equivalence=""
     differs("alloc_basis", "allocation rules", lambda v: {"mass": "mass", "price": "economic", "energy": "energy"}.get(v, "none or manual"))
     differs("geography", "geographical scopes")
     differs("period", "time periods")
-    sms = []
+
+    dq_issues = []
+    for k, meth in enumerate(methods):
+        vals = [(r["model"]["name"], r["dqr"][k]) for r in rows if r["dqr"][k] is not None]
+        if len(vals) > 1 and max(v for _, v in vals) - min(v for _, v in vals) >= 1.0:
+            dq_issues.append(f"{meth['category']} (" + ", ".join(f"{n}: {v:.1f}" for n, v in vals) + ")")
+    if dq_issues:
+        issues.append("The data quality differs a lot between the alternatives in " + "; ".join(dq_issues) +
+                      " (pedigree indicator, 1 best to 5 worst). ISO 14044 4.2.3.6.3 asks for comparable data quality "
+                      "in a comparison; results in these categories are less comparable.")
+    sms_n = []
     for r, mid in zip(runs, model_ids):
-        sm = {(i["target"].get("system_model") or "") for i in store.model(mid)["inputs"] if i["kind"] == "activity"} - {""}
-        sms.append((r["model"]["name"], ", ".join(sorted(sm)) or "-"))
-    if len({v for _, v in sms}) > 1:
-        issues.append("Different background system models: " + "; ".join(f"{n}: {v}" for n, v in sms) + ".")
-    dqs = [r["dqr"] for r in rows if r["dqr"] is not None]
-    if len(dqs) > 1 and max(dqs) - min(dqs) >= 1.0:
-        issues.append("The data quality differs a lot between the alternatives (pedigree indicator " +
-                      ", ".join(f"{r['model']['name']}: {r['dqr']:.1f}" for r in rows if r["dqr"] is not None) +
-                      "). ISO 14044 4.2.3.6.3 asks for comparable data quality in a comparison.")
+        seen, todo, sm = set(), [mid], set()
+        while todo:
+            x = todo.pop()
+            if x in seen:
+                continue
+            seen.add(x)
+            for i in store.model(x)["inputs"]:
+                if i["kind"] == "activity" and not i["missing"] and i["target"].get("system_model"):
+                    sm.add(i["target"]["system_model"])
+                elif i["kind"] == "model" and i["ref_id"]:
+                    todo.append(i["ref_id"])
+        sms_n.append((r["model"]["name"], ", ".join(sorted(sm)) or "-"))
+    if len({v for _, v in sms_n}) > 1:
+        issues.append("Different background system models (including nested models): " +
+                      "; ".join(f"{n}: {v}" for n, v in sms_n) + ".")
     eq = (equivalence or "").strip()
     status = "blocked" if blocking else ("valid" if not issues and len(eq) >= 20 else "screening")
     if blocking:
@@ -1484,7 +1503,8 @@ def checks(store, model_id, method_ids, result=None):
     share = allocation_share(sc)
     if share < 1:
         basis = sc.get("alloc_basis") or ""
-        how = {"mass": "mass", "price": "economic value", "energy": "energy content"}.get(basis, "a manual share")
+        how = {"mass": "mass", "price": "economic value", "energy": "energy content",
+               "physical": f"physical causality ({sc.get('alloc_property') or 'a physical property'})"}.get(basis, "a manual share")
         add("info", "scope", f"Allocation: {share * 100:.4g} % of the burdens go to this product, by {how}. ISO 14044 4.3.4.2 "
                              "prefers avoiding allocation (subdivision or system expansion) where possible.")
     inputs = m["inputs"]
@@ -1525,11 +1545,36 @@ def checks(store, model_id, method_ids, result=None):
     if no_stage and len(no_stage) < len(inputs):
         add("info", "inventory", f"{len(no_stage)} line(s) have no life cycle stage.")
     act_inputs = [i for i in inputs if i["kind"] == "activity" and not i["missing"]]
-    sms = {i["target"].get("system_model") or "" for i in act_inputs} - {""}
-    if len(sms) > 1:
-        add("warning", "inventory", f"Inputs come from different system models ({', '.join(sorted(sms))}). Mixing system "
-                                    "models is inconsistent.")
-    dbs = {i["target"].get("db") for i in act_inputs}
+    # every line of every nested model, once, with the name of the model it belongs to
+    tree_inputs = []
+    seen_m, seen_i = set(), set()
+
+    def walk(mid, depth):
+        if mid in seen_m or depth > 25:
+            return
+        seen_m.add(mid)
+        mm = m if mid == model_id else store.model(mid)
+        if not mm:
+            return
+        for i in mm["inputs"]:
+            if i["id"] not in seen_i:
+                seen_i.add(i["id"])
+                tree_inputs.append((i, mm["name"], depth))
+            if i["kind"] == "model" and i["ref_id"]:
+                walk(i["ref_id"], depth + 1)
+    walk(model_id, 0)
+    nested = any(d for _, _, d in tree_inputs)
+    all_act = [(i, n) for i, n, _ in tree_inputs if i["kind"] == "activity" and not i["missing"]]
+    by_sm = {}
+    for i, n in all_act:
+        sm = i["target"].get("system_model") or ""
+        if sm:
+            by_sm.setdefault(sm, set()).add(n)
+    if len(by_sm) > 1:
+        add("warning", "inventory", "Inputs come from different system models" + (" across the nested models" if nested else "") +
+            ": " + "; ".join(f"{sm} (in {', '.join(sorted(ns))})" for sm, ns in sorted(by_sm.items())) +
+            ". Mixing system models is inconsistent (ISO 14044 4.2.3.6.2).")
+    dbs = {i["target"].get("db") for i, _ in all_act}
     if len(dbs) > 1:
         add("info", "inventory", f"Inputs come from {len(dbs)} databases: {', '.join(sorted(d for d in dbs if d))}. Check "
                                  "their methodological consistency.")
@@ -1614,12 +1659,14 @@ def checks(store, model_id, method_ids, result=None):
     if not (sc.get("approach") or ""):
         add("info", "scope", "Goal & scope: modelling approach (attributional or consequential) not stated (ISO 14044 "
                              "4.2.3.3; ISO/TS 14074 for interpretation).")
-    for level, msg in analysis.approach_issues(sc, [i["target"].get("system_model") for i in act_inputs]):
-        add(level, "scope", msg)
+    for level, msg in analysis.approach_issues(sc, [i["target"].get("system_model") for i, _ in all_act]):
+        add(level, "scope", msg + (" (checked in every nested model)" if nested else ""))
     yr = time.localtime().tm_year
-    nm = lambda i: (i["label"] or i["target"]["name"])[:50]
-    old_spec = [i for i in inputs if i.get("data_year") and i.get("data_type") == "primary" and yr - float(i["data_year"]) > 5]
-    old_gen = [i for i in inputs if i.get("data_year") and i.get("data_type") != "primary" and yr - float(i["data_year"]) > 10]
+    owner = {i["id"]: n for i, n, d in tree_inputs if d}
+    nm = lambda i: (i["label"] or i["target"]["name"])[:50] + (f" in {owner[i['id']]}" if i["id"] in owner else "")
+    tin = [i for i, _, _ in tree_inputs]
+    old_spec = [i for i in tin if i.get("data_year") and i.get("data_type") == "primary" and yr - float(i["data_year"]) > 5]
+    old_gen = [i for i in tin if i.get("data_year") and i.get("data_type") != "primary" and yr - float(i["data_year"]) > 10]
     if old_spec:
         add("warning", "inventory", f"{len(old_spec)} producer-specific (primary) line(s) use data older than 5 years (e.g. "
                                     f"{nm(old_spec[0])}, {int(old_spec[0]['data_year'])}). EN 15804+A2 6.3.8.2 allows at "
@@ -1631,15 +1678,21 @@ def checks(store, model_id, method_ids, result=None):
     per = [int(y) for y in re.findall(r"\b(19\d\d|20\d\d)\b", sc.get("period") or "")]
     if per:
         lo, hi = min(per), max(per)
-        out_p = [i for i in inputs if i.get("data_year") and i.get("data_type") == "primary" and
+        out_p = [i for i in tin if i.get("data_year") and i.get("data_type") == "primary" and
                  not lo - 1 <= float(i["data_year"]) <= hi]
         if out_p:
             add("info", "inventory", f"{len(out_p)} primary line(s) have a data year outside the time period of the study "
                                      f"({sc['period']}), e.g. {nm(out_p[0])} ({int(out_p[0]['data_year'])}).")
-    no_year = [i for i in inputs if not i.get("data_year") and i["kind"] != "model"]
-    if no_year and any(i.get("data_year") for i in inputs) or (no_year and (sc.get("epd") or sc.get("stage_system", "").startswith("EN 15804"))):
-        add("info", "inventory", f"{len(no_year)} line(s) have no data year (Details in step 3). The age of data must be "
-                                 "stated for EN 15804+A2 and is part of the temporal representativeness.")
+    no_year = [i for i in tin if not i.get("data_year") and i["kind"] != "model"]
+    if no_year and any(i.get("data_year") for i in tin) or (no_year and (sc.get("epd") or sc.get("stage_system", "").startswith("EN 15804"))):
+        add("info", "inventory", f"{len(no_year)} line(s)" + (" of this model and its nested models" if nested else "") +
+            f" have no data year (e.g. {nm(no_year[0])}; Details in step 3). The age of data must be stated for EN "
+            "15804+A2 and is part of the temporal representativeness.")
+    if nested:
+        n_unrated = sum(1 for i, _, d in tree_inputs if d and list(i["pedigree"]) == [3, 3, 3, 3, 3])
+        if n_unrated:
+            add("info", "inventory", f"{n_unrated} line(s) inside nested models still have the default data-quality score "
+                                     "(3,3,3,3,3); they count in the uncertainty and the data quality of this result.")
     if result:
         eb = analysis.energy_balance(m, result["lines"])
         if eb and eb["efficiency"] > 1.0 + 1e-6:
@@ -1649,7 +1702,7 @@ def checks(store, model_id, method_ids, result=None):
                                      "solar energy is used.")
         lu = [r["category"] for r in result["results"] if "land use" in f"{r['category']} {r['indicator']}".lower()
               or "land occupation" in r["category"].lower() or "land transformation" in r["category"].lower()]
-        if lu and any("ecoinvent" in (i["target"].get("db") or "").lower() for i in act_inputs):
+        if lu and any("ecoinvent" in (i["target"].get("db") or "").lower() for i, _ in all_act):
             add("info", "impact", f"Known limitation for {', '.join(sorted(set(lu)))}: in Cyclia's benchmark against "
                                   "ecoinvent's own LCIA results, land use results of some datasets were up to about 5 % "
                                   "lower (median 0.4 %), while other categories agreed. The cause is being traced (see the "

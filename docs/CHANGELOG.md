@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.3.4 (2026-11-05)
+
+Corrections and additions after a second external audit (of 1.3.3).
+
+Validation
+- **Independent cross-check** (Toolbox > Validation): datasets and models are recalculated along a second code path
+  (matrices rebuilt from the library tables, LAPACK dense LU or GMRES instead of the engine's SuperLU, separate
+  flattening of nested models) and compared; Excel report. Results on the shipped data: docs/CROSS_VALIDATION.md
+- **Land use reconciliation** in the ecoinvent benchmark: split into occupation and transformation, the factor
+  change per group that explains the gap, and land flows without a factor
+- **Conflicting factors**: the benchmark lists flows that have two different factors in the method file
+
+Nested models everywhere
+- Data age (5 and 10 years), missing data years, data outside the study period and default data quality are now
+  checked in every nested model, with the model named
+- System models and the attributional or consequential approach are checked across all nested models
+- **Complete foreground inventory**: every line of every nested model with its amount per unit and per
+  functional unit, data type, year, supplier, reference, verification and pedigree, in a Word annex, an Excel
+  sheet, the EPD Excel file and the Inventory results tab (toggle between this model and the complete supply chain)
+
+Comparisons
+- Data quality is compared per impact category, not only for the first category
+- Background system models are compared across nested models
+
+EPD
+- The resource use, waste and output flow indicators of EN 15804+A2 Tables 4 to 6 (PERE to EET) are recognised
+  and checked; units of core and inventory indicators are checked; indicators without factors are listed
+- Drafts can always be created, but the EPD shows "not ready for submission" while requirements are open
+- PCR version and the mandatory statements of your programme operator can be entered
+
+Allocation
+- **Physical causality** as an allocation basis, with the property named
+- **Allocation overview** (Toolbox): every model with its rule, share, co-products, avoided products, module D,
+  where it is used and what to check
+
+- 113 automated tests
+
 ## 1.3.3 (2026-11-05)
 
 Scientific corrections after an external expert audit of 1.3.2. Please recalculate studies that use nested

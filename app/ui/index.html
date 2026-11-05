@@ -260,13 +260,14 @@
           <label class="wide">Allocation procedure (text for the report)<input name="allocation" placeholder="Economic allocation between cotton fibre and cottonseed"></label>
           <label>How the share is set<select name="alloc_basis">
             <option value="">No allocation or manual %</option><option value="mass">By mass of co-products</option>
-            <option value="price">By economic value of co-products</option><option value="energy">By energy content</option></select></label>
+            <option value="price">By economic value of co-products</option><option value="energy">By energy content</option><option value="physical">By another physical relationship (physical causality)</option></select></label>
+          <label class="alloc-phys" hidden>Physical property used<input name="alloc_property" placeholder="Nitrogen content (kg N)"></label>
           <label class="alloc-manual">Share for this product (%)<input name="alloc_share" type="number" min="0" max="100" step="any" placeholder="100"></label>
           <label class="alloc-cp">This product: value per functional unit<input name="main_value" type="number" min="0" step="any"></label>
           <label>Mass of this product per functional unit (kg, for the mass-balance check)<input name="main_mass" type="number" min="0" step="any"></label>
         </div>
         <div class="alloc-cp">
-          <table class="cp-table"><thead><tr><th>Co-product</th><th>Mass (kg)</th><th>Economic value</th><th>Energy (MJ)</th><th></th></tr></thead><tbody id="cpRows"></tbody></table>
+          <table class="cp-table"><thead><tr><th>Co-product</th><th>Mass (kg)</th><th>Economic value</th><th>Energy (MJ)</th><th>Physical property</th><th></th></tr></thead><tbody id="cpRows"></tbody></table>
           <button type="button" class="ghost" id="btnAddCp">Add co-product</button>
           <p class="hint" id="allocShare"></p>
         </div>
@@ -564,6 +565,11 @@
         </div></div>
         <div class="rt" id="rt-pef" hidden><div class="block" id="pefOut"></div></div>
         <div class="rt" id="rt-lci" hidden><div class="block">
+          <div class="row head-row"><h3 class="grow">Foreground inventory and provenance</h3>
+            <label class="inline"><input type="radio" name="fgScope" value="top" checked> This model</label>
+            <label class="inline"><input type="radio" name="fgScope" value="all"> Complete supply chain (all nested models)</label></div>
+          <p class="hint">Per unit: amount for the reference amount of the model the line belongs to. Per FU: amount per functional unit, after allocation, summed over every place the line occurs.</p>
+          <div class="table-wrap"><table id="fgTable"></table></div>
           <h3>Toxicity coverage</h3><div id="toxCov"></div>
           <h3>Flows without a factor in the selected categories</h3><div id="uncharOut"></div>
           <h3>Life cycle inventory (largest flows)</h3><p class="hint" id="lciNote"></p><div class="table-wrap"><table id="lciTable"></table></div>
@@ -626,13 +632,14 @@
           <form id="epdInfo" class="form-grid" novalidate>
             <label>Manufacturer<input name="manufacturer"></label><label>Production site<input name="site"></label>
             <label>Programme operator<input name="programme"></label><label>Declaration number<input name="number"></label>
-            <label>Product category rules (PCR)<input name="pcr"></label><label>Reference service life<input name="rsl" placeholder="50 years"></label>
+            <label>Product category rules (PCR)<input name="pcr"></label><label>PCR version<input name="pcr_version" placeholder="1.3.4"></label><label>Reference service life<input name="rsl" placeholder="50 years"></label>
             <label>Date of issue<input name="issued" type="date"></label><label>Valid until<input name="valid_until" type="date"></label>
             <label>Verification<input name="verification" placeholder="Independent external verification"></label><label>Verifier<input name="verifier"></label>
             <label>Intended audience<select name="audience"><option value="B2B">Business to business (B2B)</option><option value="B2C">Business to consumer (B2C): third-party verification required</option></select></label><label>Months of specific data behind the LCA<input name="specific_months" type="number" min="0" step="1" placeholder="12"></label>
             <label class="inline wide"><input type="checkbox" name="prospective"> Prospective EPD (product not yet on the market; ISO 14025:2026 asks for quantified uncertainty and limited validity)</label>
             <label>Biogenic carbon in product (kg C)<input name="biogenic_product" type="number" step="any"></label><label>Biogenic carbon in packaging (kg C)<input name="biogenic_packaging" type="number" step="any"></label>
             <label class="wide">Product description<textarea name="description" rows="2"></textarea></label>
+            <label class="wide">Programme operator statements (the mandatory text of your programme, e.g. on comparability and verification)<textarea name="programme_statements" rows="3"></textarea></label>
             <div class="wide"><span class="hint">Modules declared in addition to those with inventory lines:</span><div class="modchecks" id="epdModules"></div></div>
           </form>
           <div class="row"><button id="btnEpdSave">Save EPD details</button><button id="btnEpdCheck">Check requirements</button><button class="primary" id="btnEpdWord">Create EPD (Word)</button><button id="btnEpdExcel">EPD data for the verifier (Excel)</button></div>
@@ -671,7 +678,7 @@
         <button class="on" data-tt="valid">Validation</button><button data-tt="bg">Background scenarios</button>
         <button data-tt="chem">Chemicals and site factors</button><button data-tt="tpl">Templates</button>
         <button data-tt="code">Python, R and other software</button><button data-tt="teach">Teaching</button>
-        <button data-tt="dbs">Database versions</button><button data-tt="dash">Project overview</button>
+        <button data-tt="dbs">Database versions</button><button data-tt="dash">Project overview</button><button data-tt="alloc">Allocation</button>
       </div>
       <div class="tt" id="tt-valid">
         <div class="block">
@@ -679,6 +686,12 @@
           <p class="hint">Runs 35 small product systems with known exact answers (chains, loops, waste treatment, allocation, system expansion, nesting, units, regional and site factors, background scenarios, scenario files, module D, dynamic GWP, Monte Carlo, Sobol, fate model) in a temporary library and compares Cyclia with them. Attach the report to a paper or a thesis.</p>
           <div class="row"><button class="primary" id="btnValidate">Run validation suite</button><button id="btnValidReport" disabled>Save report (Word)</button></div>
           <div id="validOut"></div>
+        </div>
+        <div class="block">
+          <h2>Independent cross-check</h2>
+          <p class="hint">Recalculates datasets of your library and every model of the open project along a second code path: the matrices are assembled again from the library tables and solved with a different algorithm (iterative GMRES, or a dense solve for small libraries), and nested models are flattened by a separate routine. It checks matrix assembly, signs, the solver and nesting; the matching of characterisation factors is checked by the ecoinvent benchmark.</p>
+          <div class="row"><label class="inline">Datasets <input id="xcN" type="number" min="5" max="5000" value="200"></label><button class="primary" id="btnXc">Run cross-check</button><button id="btnXcExport" disabled>Save report (Excel)</button></div>
+          <div id="xcOut"></div>
         </div>
         <div class="block">
           <h2>Verify a reproducibility bundle</h2>
@@ -708,6 +721,13 @@
           <div class="row head-row"><h2 class="grow">Project overview</h2><button id="btnDash">Refresh</button><button class="primary" id="btnDashCalc">Calculate all models</button></div>
           <p class="hint">All models of the open project: inventory size, data quality, review status and, after "Calculate all models", their results with the categories chosen in step 4.</p>
           <div id="dashOut"></div>
+        </div>
+      </div>
+      <div class="tt" id="tt-alloc" hidden>
+        <div class="block">
+          <div class="row head-row"><h2 class="grow">Allocation and system expansion in this project</h2><button id="btnAllocLoad">Refresh</button></div>
+          <p class="hint" id="allocNote"></p>
+          <div id="allocOut"></div>
         </div>
       </div>
       <div class="tt" id="tt-bg" hidden>
