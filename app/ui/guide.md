@@ -270,7 +270,10 @@ comparison requires a critical review panel (ISO 14044 6.3).
 - **System boundary**: cradle-to-gate, cradle-to-grave, cradle-to-cradle or gate-to-gate.
 - **Life cycle stages**: a stage system for the stage names you will use in step 3 (EN 15804 modules A1 to
   D for construction products, general stages, agriculture).
-- **Geography** and **time period** the study represents.
+- **Geography**, **time period** and **technological coverage** the study represents.
+- **Modelling approach**: attributional (the share of today's burdens that belongs to your product, with
+  average data) or consequential (what changes because of a decision, with marginal suppliers and system
+  expansion). Cyclia warns when the database system model or the allocation does not fit the approach.
 - **Cut-off criteria**: what you leave out, for example flows below 1 % of mass and energy.
 - **Data quality requirements**: what data you need (primary or secondary, region, year, technology).
 - **Key assumptions**.
@@ -291,13 +294,21 @@ allocation, and use it as a line in the main model (tab "My models and processes
 Tick **dynamic GWP** to give each inventory line a year of emission. Step 5 then shows climate impact over
 time (Levasseur et al., 2010), useful for long-lived products and biogenic carbon.
 
+### Costs
+
+To add life cycle costing, give a **currency** and, if you want future costs discounted, a **discount rate**.
+Then enter a price on the lines in step 3 (**Details**). The Year column of each line is used for
+discounting. Results show the life cycle cost per functional unit by line and stage, and whether the cost
+hotspot is the same as the environmental one.
+
 ### Parameters and scenarios
 
 A **parameter** is a named number you can use in amounts, for example `distance_km = 300`. Formulas use
 `+ - * / **`, parentheses and `min`, `max`, `abs`, `round`, `sqrt`, `exp`, `log`, `log10`, `if_(condition,
 a, b)`. Parameter names use letters, digits and `_`, start with a letter, and cannot be a reserved word.
 Give a parameter a distribution (lognormal, normal, triangular, uniform) to include it in uncertainty and
-Sobol analysis. A **scenario** is a named set of parameter values (for example "long distance", "recycled").
+Sobol analysis. When two uncertain parameters move together (fuel use and distance, for example), add a
+**correlation** between them under the parameter table; Monte Carlo then samples them together. A **scenario** is a named set of parameter values (for example "long distance", "recycled").
 
 ### Templates
 
@@ -377,9 +388,22 @@ and of waste.
 - **Data quality** (five scores, 1 best, 5 worst): reliability, completeness, temporal, geographical and
   technological representativeness (pedigree matrix, Weidema et al. 2013). Hover a box to see the meaning.
   Rate at least the lines that matter most; the scores widen the uncertainty in Monte Carlo.
+- **Data type** (above the source box): **primary** (measured at the site or given by the supplier),
+  **secondary** (database or literature) or **estimate** (your own assumption). Cyclia reports how much of
+  each result rests on primary data. Reviewers look at this first for the main contributors.
 - **Data source** and **note**: where the number comes from, and comments for co-authors.
+- **Details**: the reference or document, the year of the data, the supplier or site, whether it was checked
+  by a third party, and a price for life cycle costing. These go into the report's data provenance table.
+  Data older than 10 years raise a warning (EN 15804+A2 allows 10 years for generic data and 5 years for
+  producer-specific data).
 - **Replace**: swap the dataset, keep the amount.
 - **Remove** and **Undo** (top).
+
+**Recycling (CFF)** in the toolbar of the table applies the Circular Footprint Formula of the EU PEF method
+to one material: give its mass, the A, B, R1, R2, R3 and quality values of your PEFCR (or Annex C of the PEF
+method) and, for energy recovery, the heating value and efficiencies. Cyclia shows the coefficient of every
+term, asks for a dataset for each term that is not zero (virgin material, recycled material, recycling,
+energy recovery, avoided heat and electricity, disposal) and adds the lines, with the credits ticked.
 
 **Copy as editable process** (in the dataset panel) makes a copy of a dataset as your own model, so you can
 change, for example, the electricity mix of a supplier.
@@ -438,6 +462,17 @@ Press **Calculate**.
 Interpretation (ISO 14044 4.5) answers three questions: what drives the result, how reliable is it, and what
 can be concluded.
 
+- **Summary** (opens first): key findings computed from your result. For each category it names the largest
+  contributors and stage, credits and module D, and the Monte Carlo interval if you ran one. It also says when
+  different categories have different hotspots (a risk of burden shifting), which change would lower the
+  result most, which important lines still have weak or default data, and what must be fixed first. Below
+  the findings, **Data quality of the results** gives a data quality rating (DQR) per category: the pedigree
+  scores weighted by each line's share of the impact, in the PEF form (TeR + GeR + TiR + P) / 4, from 1
+  (excellent) to 5 (poor), with the shares of primary, secondary, estimated and unstated data. The DQR is
+  indicative unless you gave the pedigree scores with the PEF criteria. Treat the findings as a draft for
+  your interpretation: check each one against the other tabs and add what you know about the system.
+  When you entered prices, the Summary also shows the **life cycle cost**; when the inventory has water flows,
+  a **water inventory** (withdrawal, release, consumption).
 - **Results per functional unit**: the total per category, with module D separate, 95 % intervals after
   Monte Carlo, and normalised and weighted values when chosen. Click a row to choose the category for the
   tabs below.
@@ -447,7 +482,8 @@ can be concluded.
 - **Stages**: impact per life cycle stage.
 - **Sensitivity**: the effect of changing each input by the chosen %, parameter sensitivity, and Sobol
   indices (which uncertain inputs explain the spread).
-- **Uncertainty**: histogram and intervals from Monte Carlo.
+- **Uncertainty**: histogram and intervals from Monte Carlo, and whether the run has **converged** (standard
+  error of the mean below 1 % and a stable 95 % interval). If not, run more iterations.
 - **Dynamic climate**: climate impact over time, when dynamic GWP is on.
 - **Map**: where impacts occur, by country of the processes.
 - **Explore parameters**: sweeps (result as a parameter changes), optimisation (best parameter values under
@@ -457,7 +493,9 @@ can be concluded.
 - **Checks**: completeness, consistency and sensitivity checks (ISO 14044 4.5.3). Each check links to the
   step where you fix it. Errors must be fixed; warnings and notes should be explained in the report.
 - **Compare**: models side by side (with paired Monte Carlo: the probability that A is lower than B) and
-  scenarios of one model.
+  scenarios of one model. Above the chart Cyclia states which alternative is lowest in each category. When
+  no alternative is lowest everywhere, choosing one shifts burdens to other categories, and the report must
+  show all categories. Differences below 10 % are flagged as likely within data uncertainty.
 
 **A difference is only meaningful when it is larger than the uncertainty.** Use the paired Monte Carlo in
 Compare before you claim that one product is better.
@@ -466,14 +504,26 @@ Compare before you claim that one product is better.
 
 ## Step 6: Report
 
+- **Report centre**: press **Check what each report needs** to see, for every report Cyclia can write, what is
+  still missing from your model, and create it from there.
+
 - **Conclusions, limitations, recommendations** and **critical review**: write them and press **Save
   text**.
+- **Review and verification status**: draft, internal review, external expert review, review panel (ISO
+  14044 6.4) or independently verified (for example by an EPD programme operator). It is printed at the top of
+  the report. A comparative assertion disclosed to the public needs a panel review; Cyclia warns until the
+  status says so.
 - **Create Word report**: a report structured as ISO 14044: goal and scope, inventory with parameters and
-  data quality, impact assessment, interpretation with checks and sensitivity, a methods paragraph you can
+  data quality, impact assessment, interpretation with key findings, data quality, checks and sensitivity, a methods paragraph you can
   paste into a thesis or article, the inventory results and references (including Cyclia).
-- **Export results to Excel**: every table.
+- **Export results to Excel**: every table, including data quality, key findings, costs and water.
+- **Executive summary**: two pages for managers: what was assessed, the main results with their largest
+  contributor and data quality, key findings, conclusions and review status.
+- **Figures for a journal**: the contribution charts as 300 dpi PNG and as SVG in a zip file.
 - **Write methods paragraph**: the methods text alone, to copy.
-- **Standards and declarations**: EPD per EN 15804+A2 (modules A1 to D, with a requirements check), an ISO
+- **Standards and declarations**: EPD per ISO 14025:2026 and EN 15804+A2 (modules A1 to D, with a requirements
+  check, the intended audience, the share of the GWP result from supply-chain-specific data, months of
+  specific data, and prospective EPDs with their uncertainty), an ISO
   14067 carbon footprint report and a GHG Protocol workbook.
 - **Critical review checklist**: the ISO 14044 items a reviewer checks, with your notes, exported to Excel.
 - **Share, reproduce, exchange**: a reproducibility bundle (models, settings and fingerprints of the
@@ -494,6 +544,11 @@ Compare before you claim that one product is better.
 - **Templates**: your saved templates.
 - **Python, R and other software**: clients to run Cyclia from scripts, and Brightway import.
 - **Teaching**: exercises with automatic checking and an answer key for teachers.
+- **Database versions**: compare two databases (for example two ecoinvent versions) on the datasets your
+  project uses or on a sample, with the median change per category and the largest changes, and move the open
+  model to the new version in one step (with undo).
+- **Project overview**: all models of the project with their inventory size, data quality and review status;
+  **Calculate all models** adds their results.
 
 ---
 
@@ -531,7 +586,7 @@ energy and steam, process waste.
 4. Run uncertainty and sensitivity, and use paired Monte Carlo for comparisons.
 5. Use the methods paragraph of the Word report, and state the software version.
 6. Cite Cyclia (Help > About copies the citation and BibTeX): Rehman, N. U. (2026). *Cyclia: open-source
-   life cycle assessment software for researchers* [Computer software]. https://doi.org/10.5281/zenodo.23862359
+   life cycle assessment software for researchers* [Computer software]. https://doi.org/10.5281/zenodo.23853747
 7. For a public comparison, organise a critical review panel (ISO 14044 6.3).
 
 ---
@@ -556,7 +611,9 @@ energy and steam, process waste.
 
 Cyclia is honest about what it does not do (yet):
 
-- No social LCA and no life cycle costing.
+- No social LCA (ISO 14075:2024) and no material flow analysis yet; they are on the roadmap
+  (docs/ROADMAP.md). Life cycle costing covers the costs you enter; it is not a full ISO 15686-5 study.
+- One user per project file at a time; there is no shared server for teams.
 - Field emission models (fertiliser N2O, pesticide fate) are not built in beyond IPCC Tier 1 in the crop
   template; use "External model emissions" for other models.
 - Regionalised impact assessment uses the country of each process; factors per sub-national region are not

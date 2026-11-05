@@ -14,6 +14,7 @@ Foreground (Cyclia models)
 """
 import math
 import threading
+import time
 
 import numpy as np
 import scipy.sparse as sp
@@ -423,9 +424,19 @@ def _stats(col):
         col = np.full_like(col, float(np.median(col)))
     hist, bins = np.histogram(col, bins=30)
     sd = float(col.std(ddof=1)) if col.size > 1 else 0.0
-    return {"mean": mean, "median": float(np.median(col)), "sd": sd,
-            "p2_5": float(np.percentile(col, 2.5)), "p97_5": float(np.percentile(col, 97.5)),
+    n = int(col.size)
+    p_lo, p_hi = float(np.percentile(col, 2.5)), float(np.percentile(col, 97.5))
+    se = float(100 * sd / math.sqrt(n) / abs(mean)) if (mean and n > 1) else None
+    # convergence: standard error of the mean, and stability of the 95 % interval between the first half and all runs
+    half = col[: n // 2]
+    width = (p_hi - p_lo) or abs(mean) or 1.0
+    drift = (max(abs(float(np.percentile(half, 2.5)) - p_lo), abs(float(np.percentile(half, 97.5)) - p_hi)) / width * 100
+             if n >= 40 else None)
+    converged = None if se is None or drift is None else bool(se < 1.0 and drift < 10.0)
+    return {"mean": mean, "median": float(np.median(col)), "sd": sd, "n": n,
+            "p2_5": p_lo, "p97_5": p_hi,
             "cv_percent": float(100 * sd / abs(mean)) if mean else None,
+            "se_mean_percent": se, "interval_drift_percent": drift, "converged": converged,
             "histogram": hist.tolist(), "bins": bins.tolist()}
 
 
@@ -549,6 +560,9 @@ def run(store, model_id, method_ids, top=12, mc_iterations=0, sensitivity_pct=10
             "location": inp["target"].get("location", ""), "db": inp["target"].get("db", ""),
             "stage": inp["stage"] or UNASSIGNED, "module_d": is_module_d(sc, inp["stage"]), "avoided": inp["avoided"],
             "comment": inp["comment"], "pedigree": inp["pedigree"], "year": float(inp.get("year") or 0),
+            "data_type": inp.get("data_type") or "", "source_ref": inp.get("source_ref") or "",
+            "data_year": inp.get("data_year"), "supplier": inp.get("supplier") or "", "verified": bool(inp.get("verified")),
+            "unit_cost": inp.get("unit_cost"),
             "unit_impact": unit.tolist(), "impact": (unit * eff).tolist(), "_gas": g_unit,
             "sigma": pedigree_sigma(inp["pedigree"], inp["kind"], inp["target"]["name"]),
         })
@@ -672,11 +686,183 @@ def run(store, model_id, method_ids, top=12, mc_iterations=0, sensitivity_pct=10
     if mc_iterations:
         out["uncertainty"] = foreground_mc(store, model_id, lines, method_ids, overrides, mc_iterations, seed)
     out["_bg"] = bg
+    import analysis
+    out["lcc"] = analysis.lcc(ctx, model_id)
+    out["water"] = analysis.water_inventory(lci)
+    out["data_quality"] = data_quality(out)
     out["checks"] = checks(store, model_id, method_ids, out)
+    out["findings"] = findings(out)
     out.pop("_bg", None)
     for l in lines:
         l.pop("_gas", None)
     return out
+
+
+# ============================================================================ data quality and key findings
+PED_NAMES = ["reliability", "completeness", "temporal", "geographical", "technological"]
+DATA_TYPE_LABEL = {"primary": "primary (measured or supplier-specific)", "secondary": "secondary (database or literature)",
+                   "estimate": "estimate", "": "not stated"}
+
+
+def dqr_rating(v):
+    """Verbal class for a data quality rating on the 1 (best) to 5 scale, using the PEF class limits."""
+    if v is None:
+        return ""
+    return "excellent" if v <= 1.5 else "very good" if v <= 2.0 else "good" if v <= 3.0 else "fair" if v <= 4.0 else "poor"
+
+
+def data_quality(out):
+    """Contribution-weighted data quality per impact category.
+    Each line is weighted by its share of the absolute impact (credits and module D excluded). The DQR follows the
+    PEF form (TeR + GeR + TiR + P) / 4, here approximated from the pedigree scores: P = reliability, TiR = temporal,
+    GeR = geographical, TeR = technological correlation. It is indicative, not a PEF-compliant DQR, unless the
+    pedigree scores were assigned with the PEF criteria."""
+    lines = [l for l in out["lines"] if not l["module_d"]]
+    cats, worst = [], {}
+    for k, r in enumerate(out["results"]):
+        w = np.array([abs(l["impact"][k]) for l in lines], dtype=float)
+        tot = float(w.sum())
+        if tot <= 0:
+            continue
+        sh = w / tot
+        ped = np.array([l["pedigree"] for l in lines], dtype=float)
+        wped = (sh[:, None] * ped).sum(axis=0)
+        dqr = float((wped[0] + wped[2] + wped[3] + wped[4]) / 4)
+        types = {t: float(sum(sh[i] for i, l in enumerate(lines) if (l.get("data_type") or "") == t))
+                 for t in ("primary", "secondary", "estimate", "")}
+        cats.append({"category": r["category"], "indicator": r["indicator"], "family": r["family"], "dqr": dqr,
+                     "rating": dqr_rating(dqr), "pedigree": [float(x) for x in wped],
+                     "primary_share": types["primary"], "secondary_share": types["secondary"],
+                     "estimate_share": types["estimate"], "unstated_share": types[""]})
+        for i, l in enumerate(lines):
+            worst[l["input_id"]] = max(worst.get(l["input_id"], 0.0), float(sh[i]))
+    rows = []
+    for l in lines:
+        m = float(np.mean(l["pedigree"]))
+        rows.append({"input_id": l["input_id"], "name": l["name"], "stage": l["stage"], "data_type": l.get("data_type") or "",
+                     "pedigree": l["pedigree"], "mean_pedigree": m, "default": list(l["pedigree"]) == [3, 3, 3, 3, 3],
+                     "max_share": worst.get(l["input_id"], 0.0)})
+    rows.sort(key=lambda x: -x["max_share"])
+    priority = [x for x in rows if x["max_share"] >= 0.05 and
+                (x["default"] or x["mean_pedigree"] >= 3 or x["data_type"] in ("", "estimate"))][:6]
+    return {"by_category": cats, "lines": rows, "priority": priority,
+            "default_lines": sum(1 for x in rows if x["default"]),
+            "note": "Weighted by each line's share of the impact. DQR = (TeR + GeR + TiR + P) / 4 from the pedigree "
+                    "scores; 1 is best. Indicative unless the scores were given with the PEF criteria."}
+
+
+def _pct(x):
+    return f"{100 * x:.0f} %" if abs(x) >= 0.01 else f"{100 * x:.1f} %"
+
+
+def findings(out, max_categories=8):
+    """Plain-language key findings for interpretation (ISO 14044 4.5): what drives each result, which hotspots
+    differ between categories (risk of burden shifting), how robust the result is, where better data or a design
+    change pays off most, and what still has to be fixed. Every number comes from the calculation."""
+    res = out["results"]
+    fu = f"{out['model']['amount']:g} {out['model']['unit']} of {out['model']['product']}"
+    lines = [l for l in out["lines"] if not l["module_d"]]
+    found, tops = [], []
+    order = list(range(len(res)))
+    if out.get("single_score"):
+        order.sort(key=lambda k: -abs(res[k].get("weighted") or 0))
+        ws = [(res[k]["category"], (res[k].get("weighted") or 0) / out["single_score"]) for k in order[:3]
+              if out["single_score"]]
+        found.append({"kind": "priority", "title": "Categories that matter most",
+                      "text": f"After normalisation and weighting ({out.get('nw_set')}), the largest shares of the single "
+                              f"score come from " + ", ".join(f"{c} ({_pct(v)})" for c, v in ws) + "."})
+    for k in order[:max_categories]:
+        r = res[k]
+        pos = sum(abs(l["impact"][k]) for l in lines) or 0.0
+        if not pos:
+            continue
+        ranked = sorted(lines, key=lambda l: -abs(l["impact"][k]))
+        top = ranked[0]
+        tops.append((r["category"], top["name"]))
+        parts = [f"{ranked[i]['name']} ({_pct(abs(ranked[i]['impact'][k]) / pos)})" for i in range(min(3, len(ranked)))
+                 if abs(ranked[i]["impact"][k]) / pos >= 0.01]
+        st = sorted(r["by_stage"], key=lambda b: -abs(b["impact"]))
+        stage = (f" Largest stage: {st[0]['name']} ({_pct(abs(st[0]['impact']) / pos)})."
+                 if len(st) > 1 and st[0]["name"] != UNASSIGNED else "")
+        txt = (f"{r['total']:.4g} {r['unit']} per {fu}. Largest contributors: " + ", ".join(parts) + "." + stage)
+        credit = sum(l["impact"][k] for l in lines if l["avoided"])
+        if credit < 0 and abs(r["total"]) > 0:
+            txt += f" Credits from avoided products lower the result by {_pct(abs(credit) / (abs(r['total']) + abs(credit)))}."
+        if r.get("module_d"):
+            txt += f" Module D, reported separately: {r['module_d']:.4g} {r['unit']}."
+        unc = (out.get("uncertainty") or {}).get("methods")
+        if unc and k < len(unc) and unc[k].get("cv_percent") is not None:
+            u = unc[k]
+            txt += (f" With uncertainty, 95 % of results lie between {u['p2_5']:.4g} and {u['p97_5']:.4g} "
+                    f"(coefficient of variation {u['cv_percent']:.0f} %).")
+        found.append({"kind": "result", "title": f"{r['category']} ({r['family']})", "text": txt})
+    if len({t for _, t in tops}) > 1:
+        groups = {}
+        for c, t in tops:
+            groups.setdefault(t, []).append(c)
+        found.append({"kind": "tradeoff", "title": "Different hotspots in different categories",
+                      "text": "The main contributor is not the same everywhere: " +
+                              "; ".join(f"{t} in {', '.join(cs)}" for t, cs in groups.items()) +
+                              ". An improvement aimed at one hotspot may not help, or may harm, the other categories "
+                              "(burden shifting). Check every category when you change the design."})
+    if res and lines:
+        k = order[0]
+        pos = sum(abs(l["impact"][k]) for l in lines) or 1.0
+        top = max(lines, key=lambda l: abs(l["impact"][k]))
+        pct = out.get("sensitivity_pct", 10)
+        found.append({"kind": "improve", "title": "Where a change pays off most",
+                      "text": f"In {res[k]['category']}, {top['name']} gives {_pct(abs(top['impact'][k]) / pos)} of the "
+                              f"impact: reducing it by {pct:g} % lowers the result by about "
+                              f"{_pct(abs(top['impact'][k]) / pos * pct / 100)}. Look for less of it, a lower-impact "
+                              "alternative, or a cleaner supplier."})
+    dq = out.get("data_quality") or {}
+    if dq.get("priority"):
+        found.append({"kind": "data", "title": "Data to improve first",
+                      "text": "These lines matter most and have estimated, default or weak data quality: " +
+                              ", ".join(f"{x['name']} (up to {_pct(x['max_share'])} of a category)" for x in dq["priority"][:4]) +
+                              ". Better data for them strengthen the study more than anything else."})
+    cats = dq.get("by_category") or []
+    if cats:
+        main = res[order[0]] if res else None
+        c0 = next((c for c in cats if main and c["category"] == main["category"] and c["family"] == main["family"]), cats[0])
+        prim = max(c["primary_share"] for c in cats)
+        txt = f"Contribution-weighted data quality rating for {c0['category']}: {c0['dqr']:.1f} on a 1 (best) to 5 scale ({c0['rating']})."
+        if prim == 0:
+            txt += " No line is marked as primary data; mark measured or supplier-specific lines in step 3."
+        else:
+            txt += f" Primary data cover {_pct(c0['primary_share'])} of that impact."
+        u = out.get("uncertainty")
+        if u:
+            nc = [res[k]["category"] for k, m in enumerate(u["methods"]) if m.get("converged") is False]
+            if nc:
+                txt += (f" The Monte Carlo run ({u['iterations']} iterations) has not converged for {', '.join(nc[:3])}: "
+                        "run more iterations before reporting the intervals.")
+            elif all(m.get("converged") for m in u["methods"]):
+                txt += f" The Monte Carlo run ({u['iterations']} iterations) has converged (standard error of the mean below 1 %)."
+        found.append({"kind": "quality", "title": "Data quality", "text": txt})
+    lc = out.get("lcc")
+    if lc and lc["lines"]:
+        top_c = next((l for l in lc["lines"] if not l["module_d"]), None)
+        if top_c:
+            txt = (f"Life cycle cost: {lc['total']:,.2f} {lc['currency']} per functional unit"
+                   + (f" ({lc['total_discounted']:,.2f} discounted at {lc['rate_percent']:g} %)" if lc["rate_percent"] else "")
+                   + f". Largest cost: {top_c['name']} ({top_c['cost']:,.2f} {lc['currency']}).")
+            if res:
+                env_top = max((l for l in out["lines"] if not l["module_d"]), key=lambda l: abs(l["impact"][order[0]]),
+                              default=None)
+                if env_top and env_top["input_id"] != top_c["input_id"]:
+                    txt += (f" The largest environmental contributor in {res[order[0]]['category']} is a different line "
+                            f"({env_top['name']}): cost and impact hotspots differ.")
+                elif env_top:
+                    txt += " It is also the largest environmental contributor, so reducing it helps on both."
+            if lc["n_uncosted"]:
+                txt += f" {lc['n_uncosted']} line(s) have no price yet."
+            found.append({"kind": "cost", "title": "Costs", "text": txt})
+    errors = [c for c in out.get("checks", []) if c.get("level") == "error"]
+    if errors:
+        found.append({"kind": "error", "title": "Fix before concluding",
+                      "text": f"{len(errors)} check(s) report errors. Results should not be used until they are solved."})
+    return found
 
 
 TOX_WORDS = ("tox",)
@@ -779,7 +965,12 @@ def foreground_mc(store, model_id, lines, method_ids, overrides, iterations=1000
     model = ctx0.model(model_id)
     dist = [p for p in ctx0.project_params + model["parameters"] if (p["utype"] or 0) > 0 and not p.get("formula")]
     if dist and any(l["formula"] for l in ac):
-        draws = {p["name"]: sample_param(rng, p, iterations) for p in dist}
+        corr = model["scope"].get("correlations") or []
+        if corr:
+            import analysis
+            draws = analysis.correlated_draws(rng, dist, iterations, corr)
+        else:
+            draws = {p["name"]: sample_param(rng, p, iterations) for p in dist}
         share = allocation_share(model["scope"])
         by_id = {i["id"]: i for i in model["inputs"]}
         amt = np.zeros((iterations, len(ac)))
@@ -825,7 +1016,13 @@ def full_mc(store, model_ids, method_ids, iterations=200, seed=42, progress=lamb
             a, fl, fx = line_unit_demand(ctx, inp)
             lines.append((inp, demand_vector(mc, a), flow_vector(mc, fl), fx,
                           pedigree_sigma(inp["pedigree"], inp["kind"], inp["target"]["name"])))
-        prepared.append((model, lines, dist))
+        corr = model["scope"].get("correlations") or []
+        if corr and dist:
+            import analysis
+            pre = analysis.correlated_draws(np.random.default_rng(seed + 7 + len(prepared)), dist, iterations, corr)
+        else:
+            pre = None
+        prepared.append((model, lines, dist, pre))
     has_bg = bool((mc.t_unc["type"] > 0).any() or (mc.b_unc["type"] > 0).any())
     res = np.zeros((len(prepared), iterations, len(method_ids)))
     for it in range(iterations):
@@ -841,8 +1038,9 @@ def full_mc(store, model_ids, method_ids, iterations=200, seed=42, progress=lamb
             Q = (sp.csr_matrix(M.C) @ B).toarray() + (M.Q - (sp.csr_matrix(M.C) @ mc.B).toarray() if M.regional else 0)
         else:
             lu, B, Q = mc.lu, mc.B, M.Q
-        for p, (model, lines, dist) in enumerate(prepared):
-            sample = {d["name"]: float(sample_param(rng, d)) for d in dist}
+        for p, (model, lines, dist, pre) in enumerate(prepared):
+            sample = ({k: float(v[it]) for k, v in pre.items()} if pre is not None else
+                      {d["name"]: float(sample_param(rng, d)) for d in dist})
             ctx = Context(store, overrides, sample, base=base_ctx[p])
             share = allocation_share(model["scope"])
             f = np.zeros(mc.n)
@@ -863,7 +1061,7 @@ def full_mc(store, model_ids, method_ids, iterations=200, seed=42, progress=lamb
             progress(int(100 * it / iterations), f"Iteration {it + 1:,} of {iterations:,}")
     out = {"mode": "full" if has_bg else "foreground", "iterations": iterations, "background_uncertainty": has_bg,
            "models": [{"id": m["id"], "name": m["name"], "methods": [_stats(res[p, :, k]) for k in range(len(method_ids))]}
-                      for p, (m, _, _) in enumerate(prepared)],
+                      for p, (m, _, _, _) in enumerate(prepared)],
            "methods": [{k: r[k] for k in ("id", "family", "category", "indicator", "unit")} for r in M.rows]}
     if len(prepared) > 1:
         def p_lower(a, b):
@@ -1122,9 +1320,13 @@ def checks(store, model_id, method_ids, result=None):
                        ("dq_requirements", "data quality requirements")):
         if not (sc.get(key) or "").strip():
             add("info", "scope", f"Goal & scope: {label} not described.")
-    if (sc.get("comparative") or "").startswith("Yes") and not (sc.get("review") or "").strip():
-        add("warning", "report", "A comparative assertion disclosed to the public needs a critical review panel (ISO 14044 "
-                                 "6.3). Describe the review in step 6.")
+    if (sc.get("comparative") or "").startswith("Yes"):
+        if not (sc.get("review") or "").strip():
+            add("warning", "report", "A comparative assertion disclosed to the public needs a critical review panel (ISO 14044 "
+                                     "6.3). Describe the review in step 6.")
+        elif (sc.get("review_status") or "") not in ("panel", "verified"):
+            add("warning", "report", "A comparative assertion disclosed to the public needs a review by a panel of interested "
+                                     "parties (ISO 14044 6.4). Set the review status in step 6 when the panel review is done.")
     share = allocation_share(sc)
     if share < 1:
         basis = sc.get("alloc_basis") or ""
@@ -1251,6 +1453,34 @@ def checks(store, model_id, method_ids, result=None):
                     add("info", "interpretation", f"{r['category']}: '{top['name'][:50]}' gives "
                                                   f"{abs(top['impact']) / denom * 100:.0f} % of the impact; its data quality "
                                                   "matters most (sensitivity check).")
+    import analysis
+    for grp in analysis.method_versions(fams):
+        add("warning", "impact", f"Different versions of the same method are mixed ({', '.join(grp)}). Use one version for "
+                                 "all categories so that results are consistent.")
+    if not (sc.get("approach") or ""):
+        add("info", "scope", "Goal & scope: modelling approach (attributional or consequential) not stated (ISO 14044 "
+                             "4.2.3.3; ISO/TS 14074 for interpretation).")
+    for level, msg in analysis.approach_issues(sc, [i["target"].get("system_model") for i in act_inputs]):
+        add(level, "scope", msg)
+    yr = time.localtime().tm_year
+    old = [i for i in inputs if i.get("data_year") and yr - float(i["data_year"]) > 10]
+    if old:
+        add("warning", "inventory", f"{len(old)} line(s) use data older than 10 years (e.g. {(old[0]['label'] or old[0]['target']['name'])[:50]}, "
+                                    f"{int(old[0]['data_year'])}). EN 15804+A2 6.3.8.2 allows at most 10 years for generic "
+                                    "and 5 years for producer-specific data; justify or update them.")
+    if result:
+        eb = analysis.energy_balance(m, result["lines"])
+        if eb and eb["efficiency"] > 1.0 + 1e-6:
+            add("info", "inventory", f"Energy balance: the model delivers {eb['output_mj']:.4g} MJ per functional unit but its "
+                                     f"energy inputs sum to {eb['input_mj']:.4g} MJ ({eb['efficiency'] * 100:.0f} % "
+                                     "efficiency). Above 100 % usually means a missing energy input, unless ambient or "
+                                     "solar energy is used.")
+        if result.get("lcc") and result["lcc"]["n_uncosted"] and result["lcc"]["n_costed"]:
+            add("info", "inventory", f"Life cycle costing: {result['lcc']['n_uncosted']} line(s) have no price and count as "
+                                     "zero cost.")
+        if (sc.get("epd") or {}).get("prospective") and not result.get("uncertainty"):
+            add("warning", "report", "A prospective EPD must state the quantified uncertainty of its results (ISO 14025:2026). "
+                                     "Run the Monte Carlo analysis in step 4.")
     order = {"error": 0, "warning": 1, "info": 2}
     out.sort(key=lambda c: order[c["level"]])
     return out

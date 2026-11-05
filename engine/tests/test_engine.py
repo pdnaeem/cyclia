@@ -383,6 +383,16 @@ class TestTutorialCalc(Base):
         self.assertEqual((res["added"], len(res["problems"])), (0, 2))
         self.assertEqual(len(self.st.model(m)["inputs"]), n)
 
+    def test_comparative_needs_panel_review(self):
+        """ISO 14044 6.4: a public comparative assertion needs a panel review, not only a written review text."""
+        def msgs(**sc):
+            m = self.model(name="Cmp" + str(len(sc)), comparative="Yes (critical review required, ISO 14044 6.3)", **sc)
+            self.st.add_input(m, "activity", self.find("concrete"), 1)
+            return " ".join(c["message"] for c in calc.run(self.st, m, gwp(self.st))["checks"])
+        self.assertIn("critical review panel", msgs())
+        self.assertIn("panel of interested parties", msgs(review="Reviewed by A. Expert"))
+        self.assertNotIn("panel of interested parties", msgs(review="Panel of three", review_status="panel", x="1"))
+
     def test_reports(self):
         m = self.model(stage_system="EN 15804 (construction products)")
         self.st.save_parameter({"model_id": m, "name": "d", "value": 5})
@@ -397,8 +407,10 @@ class TestTutorialCalc(Base):
         from docx import Document
         d = Document(doc)
         text = "\n".join(p.text for p in d.paragraphs)
-        for needle in ("1. Goal and scope", "3. Life cycle impact assessment", "4.2 Evaluation", "Annex B"):
+        for needle in ("1. Goal and scope", "3. Life cycle impact assessment", "4.2 Evaluation", "Annex B",
+                       "Key findings", "Data quality of the results", "Review status: not reviewed (draft)"):
             self.assertIn(needle, text)
+        self.assertTrue(any(t.rows[0].cells[1].text == "DQR" for t in d.tables if len(t.columns) > 1))
         self.assertTrue(any("Module D" in c.text for t in d.tables for c in t.rows[0].cells))
         from openpyxl import load_workbook
         self.assertTrue({"LCI", "Module D", "By stage"} <= set(load_workbook(xl).sheetnames))

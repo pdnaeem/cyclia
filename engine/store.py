@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS model_inputs (
     id INTEGER PRIMARY KEY, model_id INTEGER, kind TEXT, ref_id INTEGER, amount REAL,
     label TEXT, comment TEXT, pedigree TEXT DEFAULT '[3,3,3,3,3]', position INTEGER DEFAULT 0,
     stage TEXT DEFAULT '', input_amount REAL, input_unit TEXT, avoided INTEGER DEFAULT 0,
-    ref_db TEXT, ref_key TEXT, formula TEXT, year REAL DEFAULT 0, fixed TEXT);
+    ref_db TEXT, ref_key TEXT, formula TEXT, year REAL DEFAULT 0, fixed TEXT, data_type TEXT DEFAULT '',
+    source_ref TEXT DEFAULT '', data_year REAL, supplier TEXT DEFAULT '', verified INTEGER DEFAULT 0, unit_cost REAL);
 CREATE INDEX IF NOT EXISTS idx_inputs_model ON model_inputs(model_id);
 CREATE TABLE IF NOT EXISTS parameters (
     id INTEGER PRIMARY KEY, model_id INTEGER, name TEXT, value REAL, formula TEXT, unit TEXT, comment TEXT,
@@ -95,13 +96,16 @@ CREATE TABLE IF NOT EXISTS versions (id INTEGER PRIMARY KEY, model_id INTEGER, n
 PROJECT_MIGRATIONS = {
     "model_inputs": [("stage", "TEXT DEFAULT ''"), ("input_amount", "REAL"), ("input_unit", "TEXT"),
                      ("avoided", "INTEGER DEFAULT 0"), ("ref_db", "TEXT"), ("ref_key", "TEXT"),
-                     ("formula", "TEXT"), ("year", "REAL DEFAULT 0"), ("fixed", "TEXT")],
+                     ("formula", "TEXT"), ("year", "REAL DEFAULT 0"), ("fixed", "TEXT"),
+                     ("data_type", "TEXT DEFAULT ''"), ("source_ref", "TEXT DEFAULT ''"), ("data_year", "REAL"),
+                     ("supplier", "TEXT DEFAULT ''"), ("verified", "INTEGER DEFAULT 0"), ("unit_cost", "REAL")],
 }
 LIB_MIGRATIONS = {"tech": [("src_unlinked", "INTEGER")], "flow_mapping": [("s_uuid", "TEXT")],
                   "activities": [("product_uuid", "TEXT")]}
 LEGACY_DATA_TABLES = ["databases", "activities", "activities_fts", "tech", "flows", "bio", "methods", "cfs", "nw"]
 INPUT_COLUMNS = ["id", "model_id", "kind", "ref_id", "amount", "label", "comment", "pedigree", "position", "stage",
-                 "input_amount", "input_unit", "avoided", "ref_db", "ref_key", "formula", "year", "fixed"]
+                 "input_amount", "input_unit", "avoided", "ref_db", "ref_key", "formula", "year", "fixed", "data_type",
+                 "source_ref", "data_year", "supplier", "verified", "unit_cost"]
 UNCERTAINTY_TYPES = {0: "none", 1: "lognormal", 2: "normal", 3: "triangular", 4: "uniform"}
 
 
@@ -662,15 +666,18 @@ class ProjectStore:
 
     def update_input(self, input_id, fields):
         allowed = {"amount", "label", "comment", "stage", "input_amount", "input_unit", "avoided", "pedigree",
-                   "formula", "year", "fixed", "ref_id", "ref_db", "ref_key"}
+                   "formula", "year", "fixed", "ref_id", "ref_db", "ref_key", "data_type", "source_ref", "data_year",
+                   "supplier", "verified", "unit_cost"}
         with self.lock:
             for k, v in fields.items():
                 if k not in allowed:
                     continue
                 if k == "pedigree":
                     v = json.dumps([min(5, max(1, int(x))) for x in v][:5])
-                elif k == "avoided":
+                elif k in ("avoided", "verified"):
                     v = 1 if v else 0
+                elif k in ("data_year", "unit_cost"):
+                    v = None if v in (None, "") else float(v)
                 elif k == "fixed":
                     v = json.dumps(v) if v else None
                 elif k == "formula":

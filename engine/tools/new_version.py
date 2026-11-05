@@ -70,7 +70,7 @@ Installed copies of Cyclia update themselves.
 ## Cite
 
 Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version {v})
-[Computer software]. https://github.com/pdnaeem/cyclia
+[Computer software]. https://doi.org/{json.load(open(os.path.join(ROOT, 'credits.json'), encoding='utf-8'))['doi']}
 """)
 
     subprocess.run([sys.executable, os.path.join(ROOT, "engine", "tools", "apply_credits.py")], check=False)

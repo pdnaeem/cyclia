@@ -248,6 +248,48 @@ class TestFeatures(unittest.TestCase):
                                             "params": [{"name": "thickness", "lo": 0.18, "hi": 0.25}]})
         self.assertFalse(o3["optimum"]["feasible"])
 
+    def test_data_quality_and_findings(self):
+        """Every calculation reports contribution-weighted data quality and plain-language findings; marking a line
+        as primary data shows up in the primary-data share."""
+        r = self.api("POST", "/api/calculate", {"model_id": self.wall, "method_ids": [self.gwp]})
+        r = r.get("result", r)
+        dq = r["data_quality"]["by_category"][0]
+        self.assertTrue(1.0 <= dq["dqr"] <= 5.0)
+        self.assertIn(dq["rating"], ("excellent", "very good", "good", "fair", "poor"))
+        kinds = {f["kind"] for f in r["findings"]}
+        self.assertIn("result", kinds)
+        self.assertIn("improve", kinds)
+        top = max((l for l in r["lines"] if not l["module_d"]), key=lambda l: abs(l["impact"][0]))
+        self.api("PATCH", f"/api/inputs/{top['input_id']}", {"data_type": "primary"})
+        with self.assertRaises(AssertionError):
+            self.api("PATCH", f"/api/inputs/{top['input_id']}", {"data_type": "guess"})
+        r2 = self.api("POST", "/api/calculate", {"model_id": self.wall, "method_ids": [self.gwp]})
+        r2 = r2.get("result", r2)
+        self.assertGreater(r2["data_quality"]["by_category"][0]["primary_share"], 0.2)
+        self.api("PATCH", f"/api/inputs/{top['input_id']}", {"data_type": ""})
+
+    def test_report_centre_dashboard_and_provenance(self):
+        rc = self.api("POST", "/api/report-centre", self.calc_body())
+        ids = {r["id"] for r in rc["reports"]}
+        self.assertTrue({"word", "executive", "epd", "iso14067", "figures"} <= ids)
+        self.assertTrue(all(0 <= r["met"] <= r["total"] for r in rc["reports"]))
+        d = self.api("POST", "/api/dashboard", {"method_ids": [self.gwp]})
+        row = next(m for m in d["models"] if m["id"] == self.wall)
+        self.assertTrue(row["results"] and row["dqr"])
+        line = self.api("GET", f"/api/models/{self.hemp}")["model"]["inputs"][0]
+        self.api("PATCH", f"/api/inputs/{line['id']}", {"source_ref": "EPD 123", "data_year": 2023, "supplier": "X",
+                                                       "verified": True, "unit_cost": 12.5})
+        got = next(i for i in self.api("GET", f"/api/models/{self.hemp}")["model"]["inputs"] if i["id"] == line["id"])
+        self.assertEqual((got["source_ref"], got["data_year"], got["verified"], got["unit_cost"]), ("EPD 123", 2023, 1, 12.5))
+        with self.assertRaises(AssertionError):
+            self.api("PATCH", f"/api/inputs/{line['id']}", {"data_year": 23})
+        r = self.api("POST", "/api/calculate", self.calc_body(self.hemp))
+        self.assertTrue(r["lcc"]["total"] > 0)
+        self.api("PATCH", f"/api/inputs/{line['id']}", {"unit_cost": "", "data_year": "", "source_ref": "", "supplier": "",
+                                                       "verified": False})
+        prev = self.api("POST", "/api/cff/preview", {"params": {"R1": 0.5, "A": 0.5}})
+        self.assertAlmostEqual(next(x["coefficient"] for x in prev["lines"] if x["role"] == "recycled"), 0.25)
+
     def test_templates(self):
         t = self.api("GET", "/api/model-templates")["templates"]
         self.assertGreaterEqual(len(t), 4)

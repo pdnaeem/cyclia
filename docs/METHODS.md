@@ -79,7 +79,24 @@ is the sum. Other halocarbons are not characterised; use EF 3.1 for formal EPD w
   zero lines, missing sources, unrated data quality, mixed system models and databases, unlinked
   suppliers, regional mismatch, mass balance (when the product mass is given), categories with no
   matching factors, flows characterised under another name, contributors below 1 % (cut-off candidates),
-  dominant contributors.
+  dominant contributors, different versions of one method, modelling approach against allocation and the
+  database system model (attributional with cut-off or APOS data; consequential without allocation),
+  data older than 10 years (EN 15804+A2 6.3.8.2), and an energy balance when the functional unit is an
+  amount of energy (delivered energy above the energy inputs).
+- **Data quality of results**: for each category k the pedigree scores are weighted by each line's share of
+  the absolute impact, w_j = |h_jk| / sum |h_k| (module D excluded). The data quality rating follows the PEF
+  form DQR = (TeR + GeR + TiR + P) / 4 with P = reliability, TiR = temporal, GeR = geographical and TeR =
+  technological correlation, and the PEF classes (excellent up to 1.5, very good up to 2, good up to 3, fair
+  up to 4, poor above). It is indicative unless the scores were given with the PEF criteria. The shares of
+  primary, secondary, estimated and unstated data use the same weights.
+- **Key findings**: generated from the numbers above: largest contributors and stage per category, credits and
+  module D, Monte Carlo interval, different hotspots in different categories (burden shifting), the line whose
+  change lowers the result most (contribution times the sensitivity range), important lines with weak data,
+  costs, and check errors. Model comparison names the lowest alternative per category and flags differences
+  below 10 %.
+- **Water inventory**: elementary water flows in m3 (kg and litres divided by 1000). Withdrawal = resource
+  flows; release = water emitted to water, air and soil; consumption = withdrawal minus release. Turbine water
+  of hydropower is reported apart.
 
 ## 5. Uncertainty
 
@@ -98,9 +115,40 @@ background, so differences are paired. Reported: mean, median, SD, 2.5 and 97.5 
 comparisons the probability that one option is lower than the other. A singular random draw falls back
 to the static matrix for that iteration.
 
+**Correlated parameters**: pairs of parameters with a rank correlation r are sampled with a Gaussian copula:
+correlated standard normals Z = L u (L the Cholesky factor of the correlation matrix) are turned into
+uniforms U = Φ(Z) and then into each parameter's own distribution by its inverse CDF. Inconsistent sets of
+correlations (a matrix that is not positive definite) are rejected.
+
+**Convergence**: each Monte Carlo result reports the standard error of the mean relative to the mean
+(sd / √n / |mean|) and how far the 2.5 and 97.5 percentiles of the first half of the runs lie from those of
+all runs, relative to the interval width. The run counts as converged when the first is below 1 % and the
+second below 10 %.
+
 **Global sensitivity**: first-order (Saltelli et al. 2010) and total (Jansen 1999) Sobol indices for the
 foreground uncertainty (line amounts and parameter distributions), N (d + 2) evaluations, with outputs
 centred before estimation.
+
+## 5a. Life cycle costing and circular footprint
+
+**Life cycle costing**: each line may have a price per unit of the amount typed. The cost of a line is amount
+x price x allocation share, negative for a credit (revenue). A line that is another model adds that model's
+cost per unit times the amount. With a discount rate r and the line's year t the discounted cost is
+c / (1 + r)^t (net present cost, ISO 15686-5). Module D lines are reported apart. Lines without a price count
+as zero and are listed.
+
+**Circular Footprint Formula** (Commission Recommendation (EU) 2021/2279, Annex C), per unit of material:
+
+(1 - R1) Ev + R1 (A Erecycled + (1 - A) Ev Qsin/Qp) + (1 - A) R2 (ErecyclingEoL - E*v Qsout/Qp)
++ (1 - B) R3 (EER - LHV X_ER,heat ESE,heat - LHV X_ER,elec ESE,elec) + (1 - R2 - R3) ED
+
+Cyclia writes each term as an inventory line with its coefficient times the material mass; the E*v,
+ESE,heat and ESE,elec terms are credits. Energy terms are in MJ and converted to the unit of the chosen
+dataset. The validation test recomputes the formula by hand and compares with the model result.
+
+**Database comparison**: datasets of two databases are paired by key (stable between ecoinvent versions), else
+by name, product, location and unit, and each is calculated per unit of its reference product with the same
+methods. The change is (B - A) / |A|.
 
 ## 6. Dynamic climate impact
 
@@ -185,6 +233,11 @@ its non-dominated points form the Pareto front.
 
 ## 10. Standards outputs
 
+* **EPD (ISO 14025:2026)**: the declaration states the intended audience (B2B or B2C), the share of the
+  GWP-total result from supply-chain-specific (primary) data, the number of months of specific data and
+  whether it is a prospective EPD, which ISO 14025:2026 uses to define EPD types; a B2C EPD needs a named
+  independent verifier and a prospective EPD a quantified uncertainty. Cyclia is not a verified EPD tool, so
+  every EPD needs its own verification.
 * **EN 15804+A2 EPD**: results per module from the life cycle stages (A1-A3 aggregated, A4 to D), "ND"
   for modules not declared, and a checklist of the main requirements (mandatory modules, EF reference
   package, core indicators, cut-off, allocation, data age, biogenic carbon content, PCR, verification).
@@ -199,6 +252,8 @@ its non-dominated points form the Pareto front.
 * **ISO 14067**: CFP with fossil, biogenic and land use change contributions reported separately (built-in
   IPCC AR6 method), per stage, with sensitivity and uncertainty; offsetting is excluded.
 * **GHG Protocol Product Standard**: results per life cycle stage of the standard and per gas.
+* **Executive summary**: two pages from the results, data quality and key findings, with conclusions and the
+  review status.
 * **Critical review**: the ISO 14044 requirements (4.2 to 6.3) with automatic evidence and fields for the
   reviewer's status and comment.
 
@@ -240,7 +295,7 @@ file holds for that flow name.
 Andreasi Bassi S., Biganzoli F., Ferrara N., Amadei A., Valente A., Sala S., Ardente F. (2023) Updated characterisation and normalisation factors for the Environmental Footprint 3.1 method. JRC130796, Publications Office of the European Union.
 Sala S., Cerutti A.K., Pant R. (2018) Development of a weighting approach for the Environmental Footprint. JRC106545, Publications Office of the European Union.
 European Commission (2021) Recommendation (EU) 2021/2279 on the use of the Environmental Footprint methods.
-EN 15804:2012+A2:2019. ISO 14025:2006. ISO 14067:2018. WRI/WBCSD (2011) GHG Protocol Product Life Cycle Accounting and Reporting Standard.
+EN 15804:2012+A2:2019. ISO 14025:2026. ISO 14020:2022. ISO 14067:2018 (under revision, ISO/WD 14067 in 2026). ISO 14071:2024. ISO/TS 14074:2022. ISO 15686-5:2017 (life cycle costing). WRI/WBCSD (2011) GHG Protocol Product Life Cycle Accounting and Reporting Standard.
 Heijungs R., Suh S. (2002) The Computational Structure of Life Cycle Assessment. Kluwer.
 Karickhoff S.W. (1981) Semi-empirical estimation of sorption of hydrophobic pollutants on natural sediments and soils. Chemosphere 10, 833-846.
 Mackay D., Di Guardo A., Paterson S., Cowan C.E. (1996) Evaluating the environmental fate of a variety of types of chemicals using the EQC model. Environ. Toxicol. Chem. 15, 1627-1637.
@@ -250,7 +305,7 @@ Sacchi R. et al. (2022) PRospective EnvironMental Impact asSEment (premise). Ren
 Storn R., Price K. (1997) Differential evolution. J. Global Optim. 11, 341-359.
 Veith G.D., DeFoe D.L., Bergstedt B.V. (1979) Measuring and estimating the bioconcentration factor of chemicals in fish. J. Fish. Res. Board Can. 36, 1040-1048.
 Weidema B.P., Ekvall T., Heijungs R. (2009) Guidelines for application of deepened and broadened LCA. CALCAS D18.
-ISO 14040:2006 and ISO 14044:2006.
+ISO 14040:2006/Amd 1:2020 and ISO 14044:2006/Amd 1:2017, Amd 2:2020.
 Jansen M.J.W. (1999) Analysis of variance designs for model output. Comput. Phys. Commun. 117, 35-43.
 Joos F. et al. (2013) Carbon dioxide and climate impulse response functions. Atmos. Chem. Phys. 13, 2793-2825.
 Levasseur A. et al. (2010) Considering time in LCA: dynamic LCA and its application to global warming impact assessments. Environ. Sci. Technol. 44, 3169-3174.

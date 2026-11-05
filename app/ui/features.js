@@ -432,16 +432,18 @@ async function renderPef() {
 const EPD_COLUMNS = ["A1-A3", "A4", "A5", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "C1", "C2", "C3", "C4", "D"];
 function fillEpdForm() {
   const f = $("#epdInfo"), e = (S.model && S.model.scope && S.model.scope.epd) || {};
-  ["manufacturer", "site", "programme", "number", "pcr", "rsl", "issued", "valid_until", "verification", "verifier", "biogenic_product", "biogenic_packaging", "description"]
+  ["manufacturer", "site", "programme", "number", "pcr", "rsl", "issued", "valid_until", "verification", "verifier", "biogenic_product", "biogenic_packaging", "description", "specific_months"]
     .forEach((k) => (f[k].value = e[k] ?? ""));
+  f.audience.value = e.audience || "B2B"; f.prospective.checked = !!e.prospective;
   const dec = new Set(e.declared || []);
   $("#epdModules").innerHTML = EPD_COLUMNS.map((c) => `<label class="inline"><input type="checkbox" value="${c}" ${dec.has(c) ? "checked" : ""}> ${c}</label>`).join("");
 }
 async function saveEpd() {
   needModel();
   const f = $("#epdInfo"), body = {};
-  ["manufacturer", "site", "programme", "number", "pcr", "rsl", "issued", "valid_until", "verification", "verifier", "biogenic_product", "biogenic_packaging", "description"]
+  ["manufacturer", "site", "programme", "number", "pcr", "rsl", "issued", "valid_until", "verification", "verifier", "biogenic_product", "biogenic_packaging", "description", "specific_months"]
     .forEach((k) => (body[k] = f[k].value.trim()));
+  body.audience = f.audience.value; body.prospective = f.prospective.checked ? "yes" : "";
   body.declared = $$("#epdModules input:checked").map((i) => i.value);
   const { model } = await api("POST", `/api/models/${S.model.id}/epd-info`, body);
   S.model = model;

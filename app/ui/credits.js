@@ -18,7 +18,7 @@ window.CREDITS = {
   "linkedin": "https://www.linkedin.com/in/pdnaeem/",
   "researchgate": "",
   "repository": "https://github.com/pdnaeem/cyclia",
-  "doi": "10.5281/zenodo.23862359",
+  "doi": "10.5281/zenodo.23853747",
   "support_email": "support@niellosoft.com",
   "funding": "",
   "acknowledgements": "",
@@ -29,7 +29,7 @@ window.CREDITS = {
   "paypal": "https://paypal.me/pdnaeem",
   "revolut": "https://revolut.me/pdnaeem",
   "support_note": "Cyclia is free and has no funding behind it. If it saves you time in your thesis or research, a small contribution helps keep it maintained and validated.",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "initials": "NR",
   "cite_name": "Rehman, N. U."
 };

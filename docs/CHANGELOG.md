@@ -1,5 +1,46 @@
 # Changelog
 
+## 1.3.2 (2026-11-05)
+
+Interpretation and data quality
+- **Key findings** after every calculation: largest contributors and stage, credits and module D, Monte Carlo
+  interval, burden shifting between categories, the change that lowers the result most, data to improve
+  first, costs, and errors to fix. New Summary tab (opens first) and report section 4.1
+- **Data quality of the results**: contribution-weighted pedigree with a data quality rating per category in
+  the PEF form, and the share of primary, secondary and estimated data
+- Inventory lines can be marked **primary, secondary or estimate**, and have **details**: reference, data year,
+  supplier or site, third-party checked, price. Data older than 10 years raise a warning
+- **Compare** names the lowest alternative per category and flags burden shifting and small differences
+
+New analyses
+- **Life cycle costing**: prices per line, costs of sub-models, revenue from credits, discount rate and net
+  present cost; cost hotspot compared with the environmental hotspot
+- **Circular Footprint Formula** (PEF): enter A, B, R1, R2, R3, Q and energy recovery values; Cyclia writes the
+  virgin, recycled, recycling, energy recovery, credit and disposal lines
+- **Water inventory**: withdrawal, release and consumption, with hydropower turbine water apart
+- **Correlated parameters** in Monte Carlo, and a **convergence** check of every run
+- **Database versions** (Toolbox): compare two databases on the datasets of your project or a sample, and move
+  a model to the new version with preview and undo
+- **Project overview** (Toolbox): all models with data quality, review status and results
+
+Goal, scope and checks
+- Modelling approach (attributional or consequential) with checks against allocation and the database system
+  model; technological coverage
+- Warning when different versions of the same impact method are mixed; energy balance check
+
+Reports and standards
+- **Report centre** in step 6: every report with what it still needs
+- **Executive summary** (Word, two pages) and **figures for journals** (300 dpi PNG and SVG)
+- **Review and verification status** in the report; public comparative assertions need a panel review
+  (ISO 14044 6.4, ISO 14071:2024)
+- **EPD updated to ISO 14025:2026**: intended audience, share of the GWP result from supply-chain-specific
+  data, months of specific data, prospective EPDs with quantified uncertainty, named verifier for B2C EPDs
+- Excel export: data quality, key findings, costs and water sheets
+- References updated (ISO 14025:2026, ISO 14020:2022, ISO 14071:2024, ISO/TS 14074:2022)
+- DOI for all versions: 10.5281/zenodo.23853747
+- docs/ROADMAP.md: standards, feature status, competitor comparison and plan
+- 85 automated tests
+
 ## 1.3.1 (2026-11-01)
 
 - Step 1 redesigned: an "open project" card at the top, then tabs for projects, databases, impact methods and
@@ -7,7 +48,7 @@
   the list of sources appears only after "Add a database" / "Add methods"
 - A finished step folds its guidance card away, so the work area comes first
 - The project list shows the number of models and when each project was last saved
-- Citation and DOI updated to 10.5281/zenodo.23862359 in the app and the reports
+- Citation and DOI updated to 10.5281/zenodo.23853747 in the app and the reports
 
 ## 1.3.0 (2026-11-01)
 

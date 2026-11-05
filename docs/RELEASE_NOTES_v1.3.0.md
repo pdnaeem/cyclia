@@ -38,6 +38,6 @@ Installed copies on Windows and Linux (AppImage) update themselves.
 
 ## Cite
 
-Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.3.0) [Computer software]. https://doi.org/10.5281/zenodo.23862359
+Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.3.0) [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 Created by Naeem Ur Rehman. If Cyclia helps your work, you can support it via [PayPal](https://paypal.me/pdnaeem) or [Revolut](https://revolut.me/pdnaeem).

@@ -11,7 +11,7 @@ CREDITS = {
     ],
     "website": "https://niellosoft.com",
     "repository": "https://github.com/pdnaeem/cyclia",
-    "doi": "10.5281/zenodo.23862359",
+    "doi": "10.5281/zenodo.23853747",
     "year": 2026,
     "software_title": "Cyclia: open-source life cycle assessment software for researchers",
     "support_email": "support@niellosoft.com",

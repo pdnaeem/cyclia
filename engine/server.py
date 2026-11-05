@@ -24,6 +24,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import analysis  # noqa: E402
 import calc  # noqa: E402
 import formula as fm  # noqa: E402
 import interop  # noqa: E402
@@ -40,7 +41,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -771,6 +772,9 @@ def input_add(st, body, q, mid):
     return {"model": store.model(mid)}
 
 
+DATA_TYPES = ("", "primary", "secondary", "estimate")
+
+
 @route("PATCH", r"/api/inputs/(\d+)")
 def input_update(st, body, q, iid):
     store = st.store
@@ -779,6 +783,28 @@ def input_update(st, body, q, iid):
         raise ApiError("That line no longer exists.", 404)
     _unlocked(store, row["model_id"])
     fields = {k: body[k] for k in ("label", "comment", "stage", "avoided", "pedigree") if k in body}
+    if "data_type" in body:
+        if body["data_type"] not in DATA_TYPES:
+            raise ApiError("Data type must be primary, secondary or estimate.")
+        fields["data_type"] = body["data_type"]
+    for k in ("source_ref", "supplier"):
+        if k in body:
+            fields[k] = str(body[k] or "").strip()[:500]
+    if "verified" in body:
+        fields["verified"] = bool(body["verified"])
+    if "data_year" in body:
+        if body["data_year"] in (None, ""):
+            fields["data_year"] = None
+        else:
+            y = _num(body["data_year"], "Data year")
+            if not 1900 <= y <= 2100:
+                raise ApiError("Give the data year as a four-digit year, e.g. 2024.")
+            fields["data_year"] = y
+    if "unit_cost" in body:
+        if body["unit_cost"] in (None, ""):
+            fields["unit_cost"] = None
+        else:
+            fields["unit_cost"] = _num(body["unit_cost"], "Cost per unit")
     if "pedigree" in fields:
         try:
             ped = [int(x) for x in fields["pedigree"]]
@@ -1567,7 +1593,8 @@ def epd_info(st, body, q, mid):
         raise ApiError("Model not found.", 404)
     sc = m["scope"]
     keep = ("manufacturer", "site", "programme", "number", "pcr", "issued", "valid_until", "rsl", "type", "verification",
-            "verifier", "biogenic_product", "biogenic_packaging", "description", "declared")
+            "verifier", "biogenic_product", "biogenic_packaging", "description", "declared", "specific_months",
+            "prospective", "audience")
     sc["epd"] = {k: body.get(k) for k in keep if body.get(k) not in (None, "")}
     store.save_model({"id": m["id"], "name": m["name"], "product": m["product"], "unit": m["unit"], "amount": m["amount"],
                       "scope": sc})
@@ -1767,6 +1794,163 @@ def scenario_file(st, body, q):
         finally:
             calc.invalidate()
     return {"job": st.start_job("Import scenario file", job, exclusive=False)}
+
+
+# ------------------------------------------------------------------ professional analyses (1.3.2)
+@route("POST", "/api/cff/preview")
+def cff_preview(st, body, q):
+    try:
+        lines, v = analysis.cff_lines(body.get("params") or {})
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"lines": [{"role": r, "label": analysis.CFF_LABEL[r], "coefficient": c, "credit": cr,
+                       "unit": "MJ per kg" if r in analysis.CFF_ENERGY else "per unit of material"} for r, c, cr in lines],
+            "parameters": v}
+
+
+@route("POST", r"/api/models/(\d+)/cff")
+def cff_apply(st, body, q, mid):
+    store = st.store
+    _unlocked(store, mid)
+    mass = _num(_need(body, "mass")[0], "Mass")
+    try:
+        res = analysis.apply_cff(store, int(mid), mass, body.get("unit") or "kg", body.get("params") or {},
+                                 {k: int(v) for k, v in (body.get("datasets") or {}).items() if v},
+                                 body.get("stage_production") or "", body.get("stage_eol") or "")
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {**res, "model": store.model(int(mid))}
+
+
+@route("POST", "/api/db-compare")
+def db_compare(st, body, q):
+    a, b, mids = _need(body, "db_a", "db_b", "method_ids")
+    store = st.store
+    act_ids = None
+    if body.get("only_project"):
+        act_ids = sorted({i["ref_id"] for m in store.models() for i in store.model(m["id"])["inputs"]
+                          if i["kind"] == "activity" and i["ref_id"] and not i["missing"]})
+        if not act_ids:
+            raise ApiError("No model of this project uses a dataset yet. Compare a sample instead.")
+    sample = int(_num(body.get("sample") or 100, "Sample size"))
+    if not 5 <= sample <= 2000:
+        raise ApiError("Sample size must be between 5 and 2000.")
+
+    def job(progress, cancelled):
+        return analysis.compare_databases(store, int(a), int(b), [int(x) for x in mids], act_ids, sample, progress=progress)
+    return {"job": st.start_job("Compare databases", job, exclusive=False)}
+
+
+@route("POST", r"/api/models/(\d+)/relink")
+def relink(st, body, q, mid):
+    store = st.store
+    a, b = _need(body, "db_from", "db_to")
+    if body.get("apply"):
+        _unlocked(store, mid)
+    try:
+        res = analysis.relink_plan(store, int(mid), int(a), int(b), bool(body.get("apply")))
+    except ValueError as e:
+        raise ApiError(str(e))
+    if res["applied"]:
+        res["model"] = store.model(int(mid))
+    return res
+
+
+@route("POST", "/api/export/executive")
+def export_executive(st, body, q):
+    res = _calc(st, body)
+    model = st.store.model(int(body["model_id"]))
+    path = _export_path(st, body, dict(model, name=f"{model['name']} summary"), "docx")
+    _writable(path)
+    report.executive_summary(path, model, res, VERSION)
+    return {"path": path, "file": os.path.basename(path)}
+
+
+@route("POST", "/api/export/figures")
+def export_figures(st, body, q):
+    import tempfile
+    res = _calc(st, body)
+    model = st.store.model(int(body["model_id"]))
+    path = _export_path(st, body, dict(model, name=f"{model['name']} figures"), "zip")
+    _writable(path)
+    with tempfile.TemporaryDirectory() as tmp:
+        files = report.figures(tmp, res)
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in files:
+                z.write(f, os.path.basename(f))
+    return {"path": path, "file": os.path.basename(path)}
+
+
+@route("POST", "/api/report-centre")
+def report_centre(st, body, q):
+    """What each report needs, and whether this model has it."""
+    res = _calc(st, body)
+    model = st.store.model(int(body["model_id"]))
+    sc = model["scope"] or {}
+    errors = [c for c in res["checks"] if c["level"] == "error"]
+    cats = " ".join(r["category"].lower() for r in res["results"])
+    fams = " ".join(r["family"] for r in res["results"])
+    chk = standards.epd_checklist(model, res)
+
+    def item(ok, text):
+        return {"ok": bool(ok), "text": text}
+    base = [item(not errors, "No errors in the checks"), item(sc.get("goal"), "Goal stated"),
+            item(sc.get("boundary"), "System boundary stated")]
+    reports = [
+        {"id": "word", "title": "ISO 14044 LCA report", "for": "Theses, papers, consultancy reports",
+         "needs": base + [item(sc.get("conclusions"), "Conclusions written (step 6)"),
+                          item(sc.get("dq_requirements"), "Data quality requirements stated"),
+                          item(sc.get("approach"), "Modelling approach stated")]},
+        {"id": "executive", "title": "Executive summary", "for": "Managers and decision makers (2 pages)",
+         "needs": base + [item(sc.get("conclusions"), "Conclusions written (step 6)")]},
+        {"id": "excel", "title": "Results workbook", "for": "Your own charts and further analysis", "needs": [item(True, "Always available")]},
+        {"id": "figures", "title": "Figures for a journal", "for": "Contribution charts as 300 dpi PNG and SVG",
+         "needs": [item(len(res["results"]) >= 1, "At least one impact category")]},
+        {"id": "epd", "title": "EPD (ISO 14025:2026, EN 15804+A2)", "for": "Construction products",
+         "needs": [item(i["ok"], i["text"]) for i in chk["items"]]},
+        {"id": "iso14067", "title": "Carbon footprint (ISO 14067)", "for": "Product carbon footprint",
+         "needs": [item("climate" in cats, "A climate change category selected"),
+                   item("IPCC" in fams or "GWP" in fams or "climate" in cats, "IPCC GWP100 method")] + base[:1]},
+        {"id": "ghg", "title": "GHG Protocol workbook", "for": "Corporate and product GHG reporting",
+         "needs": [item("climate" in cats, "A climate change category selected")]},
+        {"id": "review", "title": "Critical review checklist", "for": "The reviewer (ISO 14044 6, ISO 14071)",
+         "needs": [item(True, "Always available")]},
+    ]
+    for r in reports:
+        r["met"] = sum(n["ok"] for n in r["needs"])
+        r["total"] = len(r["needs"])
+    return {"reports": reports, "review_status": sc.get("review_status") or ""}
+
+
+@route("POST", "/api/dashboard")
+def dashboard(st, body, q):
+    """Overview of all models of the project; with method_ids, also their results and data quality."""
+    store = st.store
+    mids = [int(x) for x in body.get("method_ids") or []]
+    out = []
+    for m in store.models():
+        full = store.model(m["id"])
+        ins = full["inputs"]
+        sc = full["scope"] or {}
+        row = {"id": m["id"], "name": m["name"], "fu": report.fu_text(full), "n_inputs": len(ins),
+               "default_pedigree": sum(1 for i in ins if list(i["pedigree"]) == [3, 3, 3, 3, 3]),
+               "typed": sum(1 for i in ins if i.get("data_type")), "primary": sum(1 for i in ins if i.get("data_type") == "primary"),
+               "missing": sum(1 for i in ins if i["missing"]), "conclusions": bool(sc.get("conclusions")),
+               "review_status": sc.get("review_status") or "", "locked": bool(sc.get("locked")),
+               "approach": sc.get("approach") or ""}
+        if mids and ins:
+            try:
+                r = calc.run(store, m["id"], mids, top=3)
+                row["results"] = [{"category": x["category"], "unit": x["unit"], "total": x["total"]} for x in r["results"]]
+                row["dqr"] = [c["dqr"] for c in r["data_quality"]["by_category"]]
+                row["errors"] = sum(1 for c in r["checks"] if c["level"] == "error")
+                row["warnings"] = sum(1 for c in r["checks"] if c["level"] == "warning")
+                if r.get("lcc"):
+                    row["lcc"] = {"total": r["lcc"]["total"], "currency": r["lcc"]["currency"]}
+            except calc.LCAError as e:
+                row["error"] = str(e)
+        out.append(row)
+    return {"models": out}
 
 
 # ------------------------------------------------------------------ HTTP plumbing

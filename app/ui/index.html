@@ -248,6 +248,8 @@
           <label>Life cycle stages<select name="stage_system"></select></label>
           <label>Geography<input name="geography" placeholder="France"></label>
           <label>Time period<input name="period" placeholder="2024 to 2026"></label>
+          <label>Modelling approach <button type="button" class="q" data-help="attributional and consequential" aria-label="Help">?</button><select name="approach"><option value="">Choose</option><option value="attributional">Attributional (share of today's burdens)</option><option value="consequential">Consequential (effect of a decision)</option></select></label>
+          <label>Technological coverage<input name="technology" placeholder="Average technology of French plants, 2024"></label>
           <label class="wide">Cut-off criteria<input name="cutoff" placeholder="Flows below 1 % of mass and energy excluded, total exclusions below 5 %"></label>
         </div>
         <label>Data quality requirements (ISO 14044 4.2.3.6)<textarea name="dq_requirements" rows="2" placeholder="Primary data for the foreground (2024, own plant); background from ecoinvent 3.11 for the same region; pedigree scores of 3 or better for lines above 5 %"></textarea></label>
@@ -274,6 +276,13 @@
           <label class="inline"><input type="checkbox" name="dynamic"> Report time-dependent climate impact (dynamic GWP)</label>
           <label>Time horizon (years)<input name="horizon" type="number" min="1" max="500" value="100"></label>
         </div>
+
+        <h2>Costs (life cycle costing) <button type="button" class="q" data-help="life cycle costing" aria-label="Help">?</button></h2>
+        <p class="hint">Optional. Enter a price per unit on inventory lines (step 3, Details) and Cyclia adds the life cycle cost per functional unit to the results. The year column of each line is used for discounting.</p>
+        <div class="form-grid">
+          <label>Currency<input name="lcc_currency" placeholder="EUR" maxlength="8"></label>
+          <label>Discount rate (% per year)<input name="lcc_rate" type="number" step="any" min="0" max="50" placeholder="0"></label>
+        </div>
         <div class="row"><button class="primary" type="submit">Save goal &amp; scope</button><span class="hint" id="scopeSaved" role="status"></span></div>
       </form>
 
@@ -289,6 +298,14 @@
           <select name="utype" aria-label="Distribution"><option value="0">no distribution</option><option value="1">lognormal (GSD)</option><option value="2">normal (SD)</option><option value="3">triangular (min, mode, max)</option><option value="4">uniform (min, max)</option></select>
           <input name="p1" size="6" placeholder="p1" aria-label="p1"><input name="p2" size="6" placeholder="p2" aria-label="p2"><input name="p3" size="6" placeholder="p3" aria-label="p3">
           <button class="primary" type="submit">Add parameter</button>
+        </form>
+        <h3>Correlated parameters <button type="button" class="q" data-help="correlated parameters" aria-label="Help">?</button></h3>
+        <p class="hint">When two uncertain parameters move together (e.g. fuel use and distance), give their rank correlation from -1 to 1. Monte Carlo then samples them together.</p>
+        <ul class="list" id="corrList"></ul>
+        <form class="row" id="corrForm" novalidate>
+          <select name="a" aria-label="First parameter"></select><select name="b" aria-label="Second parameter"></select>
+          <input name="r" type="number" step="0.05" min="-0.99" max="0.99" placeholder="0.8" size="6" aria-label="Correlation">
+          <button type="submit">Add correlation</button>
         </form>
       </div>
 
@@ -352,6 +369,7 @@
           <h2 class="grow">Model inventory <span class="count" id="invCount"></span></h2>
           <button class="ghost" id="btnLit" title="Turn a table from a paper, report or spreadsheet into lines">From a paper or table</button>
           <button class="ghost" id="btnExt" title="Add emissions computed by another model, e.g. leaching or field emissions">External model emissions</button>
+          <button class="ghost" id="btnCff" title="Recycled content, recycling and energy recovery with the PEF Circular Footprint Formula">Recycling (CFF)</button>
           <button class="ghost" id="btnUndo" title="Undo the last change">Undo</button>
           <button class="ghost" id="btnDiagram">Flow diagram</button>
           <button class="ghost" id="btnInvTemplate">Excel template</button>
@@ -363,6 +381,40 @@
           <button id="btnInvImportGo">Import rows</button>
         </div>
         <div class="banner lock-banner" data-lockbanner hidden></div>
+        <div id="provPanel" class="subpanel" hidden>
+          <div class="row"><h3 class="grow">Line details: <span id="provName"></span></h3><button class="ghost" data-close>Close</button></div>
+          <p class="hint">Where the number comes from (ISO 14044 4.2.3.6.3) and, for life cycle costing, its price. Shown in the report's data provenance table.</p>
+          <form id="provForm" class="form-grid" novalidate>
+            <label class="wide">Reference or document<input name="source_ref" placeholder="Supplier EPD S-P-01234, or Smith et al. 2023, Table 2"></label>
+            <label>Year of the data<input name="data_year" type="number" min="1900" max="2100" step="1" placeholder="2024"></label>
+            <label>Supplier or site<input name="supplier" placeholder="Plant in Lyon"></label>
+            <label>Price per <span id="provUnit">unit</span><input name="unit_cost" type="number" step="any" placeholder="0.00"></label>
+            <label class="inline"><input type="checkbox" name="verified"> Checked or verified by a third party</label>
+            <div class="row wide"><button class="primary" type="submit">Save details</button><span class="hint" id="provSaved" role="status"></span></div>
+          </form>
+        </div>
+        <div id="cffPanel" class="subpanel" hidden>
+          <div class="row"><h3 class="grow">Recycling with the Circular Footprint Formula</h3><button class="ghost" data-close>Close</button></div>
+          <p class="hint">PEF method (Commission Recommendation (EU) 2021/2279, Annex C). Cyclia turns one material into inventory lines: virgin and recycled input, recycling and energy recovery at end of life with their credits, and disposal. Use the A, B and Q values of your PEFCR or of Annex C of the PEF method.</p>
+          <div class="form-grid">
+            <label>Material mass per functional unit<input id="cffMass" type="number" step="any" min="0" placeholder="0.5"></label><label>Unit<select id="cffUnit"><option>kg</option><option>g</option><option>t</option></select></label>
+            <label>A (allocation of recycling burdens and credits)<input data-cff="A" type="number" step="0.05" min="0" max="1" value="0.5"></label>
+            <label>B (allocation of energy recovery)<input data-cff="B" type="number" step="0.05" min="0" max="1" value="0"></label>
+            <label>R1 recycled content of the input<input data-cff="R1" type="number" step="0.05" min="0" max="1" value="0"></label>
+            <label>R2 share recycled at end of life<input data-cff="R2" type="number" step="0.05" min="0" max="1" value="0"></label>
+            <label>R3 share sent to energy recovery<input data-cff="R3" type="number" step="0.05" min="0" max="1" value="0"></label>
+            <label>Qsin/Qp quality of recycled input<input data-cff="Qsin" type="number" step="0.05" min="0" max="1" value="1"></label>
+            <label>Qsout/Qp quality of recycled output<input data-cff="Qsout" type="number" step="0.05" min="0" max="1" value="1"></label>
+            <label>LHV of the material (MJ/kg)<input data-cff="LHV" type="number" step="any" min="0" value="0"></label>
+            <label>X heat (efficiency of heat recovery)<input data-cff="X_heat" type="number" step="0.05" min="0" max="1" value="0"></label>
+            <label>X electricity (efficiency of electricity recovery)<input data-cff="X_elec" type="number" step="0.05" min="0" max="1" value="0"></label>
+            <label>Stage for material input<input id="cffStageP" list="stageList" placeholder="A1-A3"></label><label>Stage for end of life<input id="cffStageE" list="stageList" placeholder="End of life"></label>
+          </div>
+          <div id="cffCoef" class="hint"></div>
+          <h4>Datasets</h4>
+          <div id="cffDatasets" class="cff-ds"></div>
+          <div class="row"><button class="primary" id="btnCffApply">Add lines to the model</button></div>
+        </div>
         <div id="litPanel" class="subpanel" hidden>
           <div class="row"><h3 class="grow">Inventory from a paper or table</h3><button class="ghost" data-close>Close</button></div>
           <p class="hint">Paste a table copied from a PDF, Word or Excel (one row per line: name, amount, unit, optional stage), or choose a file (PDF, Word, Excel, CSV). Cyclia proposes a dataset or elementary flow for each row with a matching unit; you confirm every row before anything is added.</p>
@@ -440,7 +492,8 @@
       <div id="resultsBody" hidden>
         <div class="block"><h2>Results per functional unit</h2><p class="hint" id="resultMeta"></p><div class="table-wrap"><table id="totals"></table></div><p class="hint" id="singleScore"></p></div>
         <div class="tabs" role="tablist" id="resTabs">
-          <button class="on" data-rt="contrib">Contributions</button>
+          <button class="on" data-rt="summary">Summary</button>
+          <button data-rt="contrib">Contributions</button>
           <button data-rt="tree">Supply chain</button>
           <button data-rt="stages">Stages</button>
           <button data-rt="sens">Sensitivity</button>
@@ -455,7 +508,15 @@
         </div>
         <div class="row cat-row" id="catRow"><label for="catSelect" class="inline">Impact category</label><select id="catSelect"></select></div>
 
-        <div class="rt" id="rt-contrib"><div class="block charts">
+        <div class="rt" id="rt-summary"><div class="block">
+          <h2>Key findings</h2>
+          <p class="hint">Computed from your results. Use them as a starting point for the interpretation, then check each one against the tabs to the right.</p>
+          <div id="summaryFindings" class="findings"></div>
+        </div><div class="block">
+          <h2>Data quality of the results <button type="button" class="q" data-help="data quality" aria-label="Help">?</button></h2>
+          <div id="summaryDq"></div>
+        </div><div class="block" id="summaryExtraBox" hidden><div id="summaryExtra"></div></div></div>
+        <div class="rt" id="rt-contrib" hidden><div class="block charts">
           <figure><figcaption>By model input</figcaption><div id="chartInputs"></div></figure>
           <figure><figcaption>Supply-chain hotspots (processes)</figcaption><div id="chartProcs"></div></figure>
           <figure><figcaption>Elementary flows</figcaption><div id="chartFlows"></div></figure>
@@ -530,13 +591,21 @@
         <label>Limitations<textarea name="limitations" rows="2"></textarea></label>
         <label>Recommendations<textarea name="recommendations" rows="2"></textarea></label>
         <label>Critical review (who reviewed, how, statement) <button type="button" class="q" data-help="critical review" aria-label="Help">?</button><textarea name="review" rows="2"></textarea></label>
+        <label>Review and verification status<select name="review_status"><option value="">Not reviewed (draft)</option><option value="internal">Internal review</option><option value="external">External critical review by an expert</option><option value="panel">Review panel of interested parties (ISO 14044 6.4)</option><option value="verified">Independently verified (e.g. EPD programme)</option></select></label>
         <div class="row"><button class="primary" type="submit">Save text</button><span class="hint" id="concSaved" role="status"></span></div>
       </form>
+      <div class="block">
+        <div class="row head-row"><h2 class="grow">Report centre</h2><button id="btnRcCheck">Check what each report needs</button></div>
+        <p class="hint">Every report Cyclia can write, with the information it still needs from this model.</p>
+        <div id="rcOut" class="rc-grid"></div>
+      </div>
       <div class="block">
         <h2>Exports</h2>
         <div class="row">
           <button class="primary" id="btnWord">Create Word report</button>
           <button id="btnExcel">Export results to Excel</button>
+          <button id="btnExec">Executive summary (Word)</button>
+          <button id="btnFigures">Figures for a journal (PNG and SVG)</button>
           <button id="btnMethodsText">Write methods paragraph</button>
           <button id="btnBackup">Back up project file</button>
         </div>
@@ -545,13 +614,15 @@
       <div class="block">
         <h2>Standards and declarations</h2>
         <details class="connector">
-          <summary><b>EPD according to EN 15804+A2</b><span>Declaration draft with modules A1 to D, ND for modules not declared, and a verification checklist.</span></summary>
+          <summary><b>EPD according to ISO 14025:2026 and EN 15804+A2</b><span>Declaration draft with modules A1 to D, ND for modules not declared, the share of supply-chain-specific data, and a verification checklist.</span></summary>
           <form id="epdInfo" class="form-grid" novalidate>
             <label>Manufacturer<input name="manufacturer"></label><label>Production site<input name="site"></label>
             <label>Programme operator<input name="programme"></label><label>Declaration number<input name="number"></label>
             <label>Product category rules (PCR)<input name="pcr"></label><label>Reference service life<input name="rsl" placeholder="50 years"></label>
             <label>Date of issue<input name="issued" type="date"></label><label>Valid until<input name="valid_until" type="date"></label>
             <label>Verification<input name="verification" placeholder="Independent external verification"></label><label>Verifier<input name="verifier"></label>
+            <label>Intended audience<select name="audience"><option value="B2B">Business to business (B2B)</option><option value="B2C">Business to consumer (B2C): third-party verification required</option></select></label><label>Months of specific data behind the LCA<input name="specific_months" type="number" min="0" step="1" placeholder="12"></label>
+            <label class="inline wide"><input type="checkbox" name="prospective"> Prospective EPD (product not yet on the market; ISO 14025:2026 asks for quantified uncertainty and limited validity)</label>
             <label>Biogenic carbon in product (kg C)<input name="biogenic_product" type="number" step="any"></label><label>Biogenic carbon in packaging (kg C)<input name="biogenic_packaging" type="number" step="any"></label>
             <label class="wide">Product description<textarea name="description" rows="2"></textarea></label>
             <div class="wide"><span class="hint">Modules declared in addition to those with inventory lines:</span><div class="modchecks" id="epdModules"></div></div>
@@ -592,6 +663,7 @@
         <button class="on" data-tt="valid">Validation</button><button data-tt="bg">Background scenarios</button>
         <button data-tt="chem">Chemicals and site factors</button><button data-tt="tpl">Templates</button>
         <button data-tt="code">Python, R and other software</button><button data-tt="teach">Teaching</button>
+        <button data-tt="dbs">Database versions</button><button data-tt="dash">Project overview</button>
       </div>
       <div class="tt" id="tt-valid">
         <div class="block">
@@ -605,6 +677,29 @@
           <p class="hint">Recalculates every model in a bundle with its stored settings and compares results, database fingerprints and method fingerprints with this computer's library.</p>
           <div class="row"><input id="bundlePath" class="grow" placeholder="Full path of the bundle (.zip)"><button data-pick="file" data-target="bundlePath" data-ext="zip">Browse</button><button class="primary" id="btnVerify">Verify</button></div>
           <div id="verifyOut"></div>
+        </div>
+      </div>
+      <div class="tt" id="tt-dbs" hidden>
+        <div class="block">
+          <h2>Compare two databases</h2>
+          <p class="hint">For example ecoinvent 3.10 and 3.11: Cyclia calculates the same datasets in both with the impact categories of step 4 and lists the largest changes. Datasets are matched by their key, else by name, product, location and unit.</p>
+          <div class="form-grid"><label>From<select id="dbcA"></select></label><label>To<select id="dbcB"></select></label>
+            <label class="inline"><input type="checkbox" id="dbcProject" checked> Only datasets used in this project</label><label>Otherwise a sample of<input id="dbcN" type="number" min="5" max="2000" value="100"></label></div>
+          <div class="row"><button class="primary" id="btnDbc">Compare</button></div>
+          <div id="dbcOut"></div>
+        </div>
+        <div class="block">
+          <h2>Move a model to another database version</h2>
+          <p class="hint">Switches every line of the model that uses the first database to the same dataset in the second. Preview first; the switch can be undone in step 3.</p>
+          <div class="row"><button id="btnRelinkPreview">Preview for the open model</button><button class="primary" id="btnRelinkApply" disabled>Switch the lines</button></div>
+          <div id="relinkOut"></div>
+        </div>
+      </div>
+      <div class="tt" id="tt-dash" hidden>
+        <div class="block">
+          <div class="row head-row"><h2 class="grow">Project overview</h2><button id="btnDash">Refresh</button><button class="primary" id="btnDashCalc">Calculate all models</button></div>
+          <p class="hint">All models of the open project: inventory size, data quality, review status and, after "Calculate all models", their results with the categories chosen in step 4.</p>
+          <div id="dashOut"></div>
         </div>
       </div>
       <div class="tt" id="tt-bg" hidden>
@@ -756,5 +851,6 @@
 <script src="coach.js"></script>
 <script src="guide.js"></script>
 <script src="setup.js"></script>
+<script src="pro.js"></script>
 </body>
 </html>

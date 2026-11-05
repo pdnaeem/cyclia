@@ -254,8 +254,11 @@ def write_citation(c):
         "abstract: >-",
         "  Desktop software for life cycle assessment following ISO 14040/44, without programming. It reads the",
         "  user's own databases (ecoinvent, openLCA JSON-LD, SimaPro CSV, ILCD, ecoSpold1), solves the matrix model,",
-        "  and provides uncertainty and sensitivity analysis, background scenarios, standards outputs (EN 15804+A2,",
-        "  PEF, ISO 14067) and an automatic validation against ecoinvent's own results.",
+        "  explains results with automatic key findings and a contribution-weighted data quality rating, and",
+        "  provides uncertainty and sensitivity analysis (Monte Carlo with correlated parameters, Sobol indices),",
+        "  life cycle costing, the PEF Circular Footprint Formula, background scenarios, database version",
+        "  comparison, standards outputs (ISO 14025:2026 and EN 15804+A2 EPD, PEF, ISO 14067, GHG Protocol) and an",
+        "  automatic validation against ecoinvent's own results.",
         "type: software",
         "authors:",
         f"  - family-names: {y(c['family_name'])}",
@@ -279,7 +282,8 @@ def write_citation(c):
     if c.get("doi"):
         lines.append(f"doi: {y(c['doi'])}")
     lines += ["license: MIT", f'version: "{c["version"]}"', "keywords:", "  - life cycle assessment", "  - LCA",
-              "  - ISO 14044", "  - ecoinvent", "  - environmental footprint", ""]
+              "  - ISO 14044", "  - ecoinvent", "  - environmental footprint", "  - EPD", "  - carbon footprint",
+              "  - life cycle costing", "  - uncertainty analysis", ""]
     with open(os.path.join(ROOT, "CITATION.cff"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 

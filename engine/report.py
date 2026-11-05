@@ -1,6 +1,7 @@
 """Report generation: ISO 14044-structured Word report and Excel results workbook."""
 import datetime
 import io
+import os
 
 import matplotlib
 matplotlib.use("Agg")
@@ -15,6 +16,10 @@ from calc import PEDIGREE_LABELS  # noqa: E402
 import credits as authors  # noqa: E402
 
 APP = "Cyclia"
+APPROACH_TEXT = {"": "-", "attributional": "attributional", "consequential": "consequential"}
+REVIEW_TEXT = {"": "not reviewed (draft)", "internal": "internal review", "external": "external critical review by an expert",
+               "panel": "critical review by a panel of interested parties (ISO 14044 6.4, ISO 14071)",
+               "verified": "independently verified (e.g. EPD programme operator)"}
 BOUNDARY_TEXT = {
     "cradle-to-gate": "cradle-to-gate (raw material extraction up to the factory gate)",
     "cradle-to-grave": "cradle-to-grave (raw material extraction, production, use and end of life)",
@@ -90,7 +95,7 @@ def methods_paragraph(model, result, databases, version=""):
     return txt
 
 
-def _chart(result, by="input"):
+def _chart(result, by="input", fmt_="png", dpi=None):
     res = result["results"]
     if by == "stage":
         names = result["stages"]
@@ -124,7 +129,7 @@ def _chart(result, by="input"):
     ax.legend(fontsize=6.5, loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=2, frameon=False)
     fig.tight_layout()
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight")
+    fig.savefig(buf, format=fmt_, bbox_inches="tight", **({"dpi": dpi} if dpi else {}))
     plt.close(fig)
     buf.seek(0)
     return buf
@@ -185,7 +190,8 @@ def word_report(path, model, result, databases, version=""):
     h = doc.add_heading(f"Life Cycle Assessment: {model['name']}", 0)
     h.alignment = WD_ALIGN_PARAGRAPH.LEFT
     meta = doc.add_paragraph()
-    meta.add_run(f"Prepared by: {s.get('author') or '-'}    Date: {datetime.date.today().isoformat()}").italic = True
+    meta.add_run(f"Prepared by: {s.get('author') or '-'}    Date: {datetime.date.today().isoformat()}    "
+                 f"Review status: {REVIEW_TEXT.get(s.get('review_status') or '', s.get('review_status'))}").italic = True
     meta.add_run(f"\nStructured according to ISO 14040/14044. Calculated with {authors.short(version)}.").font.color.rgb = RGBColor(0x66, 0x66, 0x66)
     _footer(doc, version)
 
@@ -198,7 +204,9 @@ def word_report(path, model, result, databases, version=""):
         ["Comparative assertion disclosed to the public", s.get("comparative") or "No"],
         ["Functional unit", fu_text(model) + (f" ({s['fu_description']})" if s.get("fu_description") else "")],
         ["System boundary", BOUNDARY_TEXT.get(s.get("boundary", ""), s.get("boundary") or "-")],
+        ["Modelling approach", APPROACH_TEXT.get(s.get("approach") or "", s.get("approach") or "-")],
         ["Geography / time period", f"{s.get('geography') or '-'} / {s.get('period') or '-'}"],
+        ["Technological coverage", s.get("technology") or "-"],
         ["Allocation", (s.get("allocation") or "-") + (f"; {result['allocation_share'] * 100:.4g} % of burdens allocated "
                                                        "to this product" + ({"mass": " by mass", "price": " by economic value",
                                                        "energy": " by energy content"}.get(s.get("alloc_basis"), ""))
@@ -206,6 +214,7 @@ def word_report(path, model, result, databases, version=""):
         ["Stage system", s.get("stage_system") or "-"],
         ["Cut-off criteria", s.get("cutoff") or "-"],
         ["Data quality requirements", s.get("dq_requirements") or "-"],
+        ["Review and verification status", REVIEW_TEXT.get(s.get("review_status") or "", s.get("review_status"))],
         ["Key assumptions", s.get("assumptions") or "-"],
     ], widths=[5, 11.5])
 
@@ -239,6 +248,19 @@ def word_report(path, model, result, databases, version=""):
     if result["lines"]:
         means = [sum(l["pedigree"][i] for l in result["lines"]) / len(result["lines"]) for i in range(5)]
         _note(doc, "Average data quality: " + "; ".join(f"{lab} {m:.1f}" for lab, m in zip(PEDIGREE_LABELS, means)) + ".")
+    prov = [l for l in result["lines"] if l.get("source_ref") or l.get("data_year") or l.get("supplier") or l.get("verified")
+            or l.get("data_type")]
+    if prov:
+        doc.add_paragraph("Data provenance (ISO 14044 4.2.3.6.3):")
+        _table(doc, ["Input / output", "Data type", "Reference", "Year", "Supplier / site", "Verified"],
+               [[l["name"][:60], l.get("data_type") or "-", l.get("source_ref") or l.get("comment") or "-",
+                 f"{l['data_year']:.0f}" if l.get("data_year") else "-", l.get("supplier") or "-",
+                 "yes" if l.get("verified") else "-"] for l in prov], widths=[4.5, 2, 4, 1.3, 3, 1.5], size=8)
+    w = result.get("water")
+    if w:
+        doc.add_paragraph(f"Water inventory per functional unit: withdrawal {fmt(w['withdrawal'])} m3 (of which "
+                          f"{fmt(w['withdrawal_turbine'])} m3 turbine water), release {fmt(w['release'])} m3, consumption "
+                          f"{fmt(w['consumption'])} m3. {w['note']}")
 
     doc.add_heading("3. Life cycle impact assessment", 1)
     fams = sorted({r["family"] for r in result["results"]})
@@ -303,7 +325,30 @@ def word_report(path, model, result, databases, version=""):
             p.add_run(" Supply-chain hotspots: " + "; ".join(
                 f"{x['name']} ({_share(x['impact'], r['total']):.0f} %)" for x in procs) + ".")
 
+    fnd = [f for f in (result.get("findings") or []) if f.get("kind") != "error"]
+    if fnd:
+        doc.add_paragraph("Key findings (computed from the results above):")
+        for f in fnd:
+            p = doc.add_paragraph(style="List Bullet")
+            p.add_run(f"{f['title']}: ").bold = True
+            p.add_run(f["text"])
+
     doc.add_heading("4.2 Evaluation", 2)
+    dq = result.get("data_quality") or {}
+    if dq.get("by_category"):
+        doc.add_paragraph("Data quality of the results (contribution-weighted):")
+        _table(doc, ["Category", "DQR", "Rating", "Primary", "Secondary", "Estimate", "Not stated"],
+               [[c["category"], f"{c['dqr']:.2f}", c["rating"]] +
+                [f"{100 * c[k]:.0f} %" for k in ("primary_share", "secondary_share", "estimate_share", "unstated_share")]
+                for c in dq["by_category"]], widths=[5, 1.5, 2, 2, 2, 2, 2], size=8)
+        _note(doc, dq.get("note", ""))
+        if dq.get("priority"):
+            doc.add_paragraph("Inputs where better data would improve the study most:")
+            for x in dq["priority"]:
+                doc.add_paragraph(f"{x['name']} ({x['stage']}): up to {100 * x['max_share']:.0f} % of a category, pedigree "
+                                  f"({','.join(map(str, x['pedigree']))}), data type "
+                                  f"{x['data_type'] or 'not stated'}{', default scores' if x['default'] else ''}.",
+                                  style="List Bullet")
     doc.add_paragraph("Completeness and consistency checks:")
     chk = result.get("checks") or []
     if chk:
@@ -343,6 +388,15 @@ def word_report(path, model, result, databases, version=""):
                              f"{_share(p['high'][k], r['total']):+.2f} %"])
         if rows:
             _table(doc, ["Parameter", "Category", f"-{pct:g} %", f"+{pct:g} %"], rows, size=8)
+    lc = result.get("lcc")
+    if lc:
+        doc.add_heading("Life cycle costing", 3)
+        doc.add_paragraph(f"Life cycle cost per functional unit: {lc['total']:,.2f} {lc['currency']}"
+                          + (f"; net present cost {lc['total_discounted']:,.2f} {lc['currency']} at a discount rate of "
+                             f"{lc['rate_percent']:g} %" if lc["rate_percent"] else "") + ".")
+        _table(doc, ["Stage", f"Cost [{lc['currency']}]", f"Discounted [{lc['currency']}]"],
+               [[b["stage"], f"{b['cost']:,.2f}", f"{b['discounted']:,.2f}"] for b in lc["by_stage"]], widths=[6, 4, 4])
+        _note(doc, lc["note"])
     dyn = result.get("dynamic_gwp")
     if dyn:
         doc.add_heading("Time-dependent climate impact", 3)
@@ -366,7 +420,12 @@ def word_report(path, model, result, databases, version=""):
         _note(doc, "The complete inventory is in the Excel export.")
     doc.add_heading("Annex C. References", 1)
     for ref in (authors.reference(version),"ISO 14040:2006 Environmental management. Life cycle assessment. Principles and framework.",
-                "ISO 14044:2006 Environmental management. Life cycle assessment. Requirements and guidelines.",
+                "ISO 14044:2006 Environmental management. Life cycle assessment. Requirements and guidelines. Amd 1:2017, "
+                "Amd 2:2020.",
+                "ISO 14071:2024 Environmental management. Life cycle assessment. Critical review processes and reviewer "
+                "competencies.",
+                "ISO/TS 14074:2022 Environmental management. Life cycle assessment. Principles, requirements and guidelines "
+                "for normalization, weighting and interpretation.",
                 "Heijungs R., Suh S. (2002). The Computational Structure of Life Cycle Assessment. Kluwer.",
                 "Weidema B.P., Bauer C., Hischier R., et al. (2013). Overview and methodology. Data quality guideline "
                 "for the ecoinvent database version 3. ecoinvent Report 1(v3). St. Gallen: ecoinvent Centre.",
@@ -377,6 +436,72 @@ def word_report(path, model, result, databases, version=""):
         _note(doc, ref, 9)
     doc.save(path)
     return path
+
+
+def executive_summary(path, model, result, version=""):
+    """Two-page summary for decision makers, built from the key findings and data quality."""
+    from docx import Document
+    from docx.shared import Pt, Cm
+    s = model["scope"] or {}
+    doc = Document()
+    doc.styles["Normal"].font.size = Pt(10)
+    for sec in doc.sections:
+        sec.left_margin = sec.right_margin = Cm(2.2)
+    doc.add_heading(f"Executive summary: {model['name']}", 0)
+    meta = doc.add_paragraph()
+    meta.add_run(f"{datetime.date.today().isoformat()}  ·  Review status: "
+                 f"{REVIEW_TEXT.get(s.get('review_status') or '', s.get('review_status'))}  ·  {authors.short(version)}").italic = True
+    doc.add_heading("What was assessed", 1)
+    doc.add_paragraph(f"{s.get('goal') or 'Life cycle assessment'}. Functional unit: {fu_text(model)}. System boundary: "
+                      f"{BOUNDARY_TEXT.get(s.get('boundary', ''), s.get('boundary') or '-')}. Geography: "
+                      f"{s.get('geography') or '-'}; period: {s.get('period') or '-'}.")
+    doc.add_heading("Main results", 1)
+    dq = {(c["family"], c["category"]): c for c in (result.get("data_quality") or {}).get("by_category", [])}
+    rows = []
+    for r in result["results"][:12]:
+        top = max((b for b in r["by_input"] if not b["module_d"]), key=lambda b: abs(b["impact"]), default=None)
+        c = dq.get((r["family"], r["category"]))
+        rows.append([r["category"], f"{fmt(r['total'])} {r['unit']}",
+                     f"{top['name'][:40]} ({_share(top['impact'], r['total']):.0f} %)" if top and r["total"] else "-",
+                     f"{c['dqr']:.1f} ({c['rating']})" if c else "-"])
+    _table(doc, ["Impact category", "Result", "Largest contributor", "Data quality"], rows, widths=[4.5, 3.4, 5.5, 3], size=9)
+    lc = result.get("lcc")
+    if lc:
+        doc.add_paragraph(f"Life cycle cost: {lc['total']:,.2f} {lc['currency']} per functional unit.")
+    doc.add_heading("Key findings", 1)
+    for f in (result.get("findings") or []):
+        if f["kind"] in ("result",):
+            continue
+        p = doc.add_paragraph(style="List Bullet")
+        p.add_run(f"{f['title']}: ").bold = True
+        p.add_run(f["text"])
+    doc.add_heading("Conclusions and limitations", 1)
+    doc.add_paragraph(s.get("conclusions") or "Conclusions not yet written (step 6).")
+    if s.get("limitations"):
+        doc.add_paragraph("Limitations: " + s["limitations"])
+    if s.get("recommendations"):
+        doc.add_paragraph("Recommendations: " + s["recommendations"])
+    errs = [c for c in result.get("checks") or [] if c["level"] == "error"]
+    _note(doc, ("This summary is based on an LCA that still has open errors in its checks; do not use it for decisions. "
+                if errs else "") + "The full ISO 14044 report gives the inventory, methods and all checks. Comparative "
+          "claims disclosed to the public need a critical review panel (ISO 14044 6.4).", italic=True)
+    _footer(doc, version)
+    doc.save(path)
+    return path
+
+
+def figures(folder, result):
+    """Contribution and stage charts as 300 dpi PNG and as SVG (for journals)."""
+    os.makedirs(folder, exist_ok=True)
+    out = []
+    kinds = ["input"] + (["stage"] if len([x for x in result.get("stages", []) if x != "Unassigned stage"]) > 1 else [])
+    for by in kinds:
+        for fmt_ in ("png", "svg"):
+            name = os.path.join(folder, f"contribution_by_{by}.{fmt_}")
+            with open(name, "wb") as fh:
+                fh.write(_chart(result, by, fmt_, 300 if fmt_ == "png" else None).read())
+            out.append(name)
+    return out
 
 
 def excel_results(path, model, result, version=""):
@@ -423,6 +548,44 @@ def excel_results(path, model, result, version=""):
         header(ws, ["Category", "Total A-C", "Module D", "Unit"])
         for r in result["results"]:
             ws.append([r["category"], r["total"], r.get("module_d", 0), r["unit"]])
+
+    dq = result.get("data_quality") or {}
+    if dq.get("by_category"):
+        ws = wb.create_sheet("Data quality")
+        header(ws, ["Category", "DQR", "Rating", "Primary share", "Secondary share", "Estimate share", "Not stated",
+                    "Reliability", "Completeness", "Temporal", "Geographical", "Technological"])
+        for c in dq["by_category"]:
+            ws.append([c["category"], c["dqr"], c["rating"], c["primary_share"], c["secondary_share"], c["estimate_share"],
+                       c["unstated_share"]] + c["pedigree"])
+        ws.append([])
+        header(ws, ["Input", "Stage", "Data type", "Reference", "Data year", "Supplier / site", "Verified", "Pedigree",
+                    "Largest share of a category"])
+        for x in dq["lines"]:
+            l = next((y for y in result["lines"] if y["input_id"] == x["input_id"]), {})
+            ws.append([x["name"], x["stage"], x["data_type"], l.get("source_ref") or l.get("comment") or "",
+                       l.get("data_year"), l.get("supplier") or "", "yes" if l.get("verified") else "",
+                       ",".join(map(str, x["pedigree"])), x["max_share"]])
+    if result.get("findings"):
+        ws = wb.create_sheet("Key findings")
+        header(ws, ["Kind", "Finding", "Text"])
+        for f in result["findings"]:
+            ws.append([f["kind"], f["title"], f["text"]])
+    lc = result.get("lcc")
+    if lc:
+        ws = wb.create_sheet("LCC")
+        ws.append([f"Life cycle cost per functional unit [{lc['currency']}]", lc["total"], "Discounted", lc["total_discounted"],
+                   "Rate %", lc["rate_percent"]])
+        header(ws, ["Line", "Stage", "Year", f"Cost [{lc['currency']}]", f"Discounted [{lc['currency']}]", "Module D"])
+        for l in lc["lines"]:
+            ws.append([l["name"], l["stage"], l["year"], l["cost"], l["discounted"], "yes" if l["module_d"] else ""])
+    w = result.get("water")
+    if w:
+        ws = wb.create_sheet("Water")
+        header(ws, ["Item", "m3 per functional unit"])
+        for k, lab in (("withdrawal", "Withdrawal"), ("withdrawal_turbine", "of which turbine water"),
+                       ("release", "Release"), ("consumption", "Consumption")):
+            ws.append([lab, w[k]])
+        ws.append([w["note"]])
 
     ws = wb.create_sheet("Hotspots")
     header(ws, ["Category", "Process", "Impact", "Share %"])
