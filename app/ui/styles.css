@@ -913,7 +913,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .finding p { margin: 0; color: var(--ink-soft); line-height: 1.5; }
 .finding .ftag { font-size: 11px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; padding: 3px 8px;
   border-radius: 999px; background: var(--spruce-weak); color: var(--spruce); text-align: center; }
-.finding.k-tradeoff .ftag, .finding.k-data .ftag { background: var(--ochre-weak); color: var(--ochre); }
+.finding.k-hotspots .ftag, .finding.k-credit .ftag, .finding.k-data .ftag { background: var(--ochre-weak); color: var(--ochre); }
 .finding.k-error { border-color: var(--danger); }
 .finding.k-error .ftag { background: var(--danger-weak); color: var(--danger); }
 .dq-pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; background: var(--rule); }
@@ -942,3 +942,15 @@ select.dtype { display: block; margin-bottom: 4px; font-size: 12px; padding: 2px
 #cffCoef { margin: 8px 0; }
 button.has-prov { color: var(--spruce); font-weight: 600; }
 @media (max-width: 760px) { .cff-row { grid-template-columns: 1fr; } }
+
+/* ---- 1.3.3 comparison gate, PEF scores ---- */
+.cmp-gate { border: 1px solid var(--rule); border-left: 4px solid var(--ochre); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; background: var(--panel); }
+.cmp-gate.g-valid { border-left-color: var(--spruce); }
+.cmp-gate.g-blocked { border-left-color: var(--danger); }
+.cmp-gate h3 { margin: 0 0 4px; font-size: 15px; }
+.cmp-gate ul { margin: 4px 0; padding-left: 18px; }
+.pef-set { display: grid; grid-template-columns: repeat(4, minmax(110px, 1fr)); gap: 8px; border: 1px solid var(--rule); border-radius: var(--radius); padding: 8px 10px; }
+.pef-set legend { font-size: 13px; padding: 0 4px; }
+.rc-sub { margin: 0; font-size: 12px; color: var(--ink-soft); }
+.rc-card details summary { cursor: pointer; }
+@media (max-width: 640px) { .pef-set { grid-template-columns: repeat(2, 1fr); } }

@@ -336,11 +336,12 @@ def word_report(path, model, result, databases, version=""):
     doc.add_heading("4.2 Evaluation", 2)
     dq = result.get("data_quality") or {}
     if dq.get("by_category"):
-        doc.add_paragraph("Data quality of the results (contribution-weighted):")
-        _table(doc, ["Category", "DQR", "Rating", "Primary", "Secondary", "Estimate", "Not stated"],
-               [[c["category"], f"{c['dqr']:.2f}", c["rating"]] +
+        doc.add_paragraph("Data quality of the results (contribution-weighted, all levels of nested models, credits excluded):")
+        _table(doc, ["Category", "Pedigree indicator", "PEF DQR (coverage)", "Primary", "Secondary", "Estimate", "Not stated"],
+               [[c["category"], f"{c['dqr']:.2f} ({c['rating']})",
+                 f"{c['pef_dqr']:.2f} ({c['pef_rating']}, {100 * c['pef_coverage']:.0f} %)" if c.get("pef_dqr") is not None else "-"] +
                 [f"{100 * c[k]:.0f} %" for k in ("primary_share", "secondary_share", "estimate_share", "unstated_share")]
-                for c in dq["by_category"]], widths=[5, 1.5, 2, 2, 2, 2, 2], size=8)
+                for c in dq["by_category"]], widths=[4.2, 2.4, 2.8, 1.6, 1.8, 1.6, 1.8], size=8)
         _note(doc, dq.get("note", ""))
         if dq.get("priority"):
             doc.add_paragraph("Inputs where better data would improve the study most:")
@@ -552,11 +553,12 @@ def excel_results(path, model, result, version=""):
     dq = result.get("data_quality") or {}
     if dq.get("by_category"):
         ws = wb.create_sheet("Data quality")
-        header(ws, ["Category", "DQR", "Rating", "Primary share", "Secondary share", "Estimate share", "Not stated",
-                    "Reliability", "Completeness", "Temporal", "Geographical", "Technological"])
+        header(ws, ["Category", "Pedigree indicator", "Rating", "PEF DQR", "PEF rating", "PEF coverage", "Primary share",
+                    "Secondary share", "Estimate share", "Not stated", "Reliability", "Completeness", "Temporal",
+                    "Geographical", "Technological"])
         for c in dq["by_category"]:
-            ws.append([c["category"], c["dqr"], c["rating"], c["primary_share"], c["secondary_share"], c["estimate_share"],
-                       c["unstated_share"]] + c["pedigree"])
+            ws.append([c["category"], c["dqr"], c["rating"], c.get("pef_dqr"), c.get("pef_rating"), c.get("pef_coverage"),
+                       c["primary_share"], c["secondary_share"], c["estimate_share"], c["unstated_share"]] + c["pedigree"])
         ws.append([])
         header(ws, ["Input", "Stage", "Data type", "Reference", "Data year", "Supplier / site", "Verified", "Pedigree",
                     "Largest share of a category"])

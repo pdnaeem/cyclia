@@ -273,6 +273,13 @@ class TestFeatures(unittest.TestCase):
         ids = {r["id"] for r in rc["reports"]}
         self.assertTrue({"word", "executive", "epd", "iso14067", "figures"} <= ids)
         self.assertTrue(all(0 <= r["met"] <= r["total"] for r in rc["reports"]))
+        word = next(r for r in rc["reports"] if r["id"] == "word")
+        self.assertGreaterEqual(len(word["needs"]), 18)
+        self.assertTrue({"required", "recommended"} <= {n["level"] for n in word["needs"]})
+        self.assertTrue(any("Intended audience" in n["text"] for n in word["needs"]))
+        cmp_ = self.api("POST", "/api/compare", {"model_ids": [self.wall, self.hemp], "method_ids": [self.gwp]})
+        self.assertIn(cmp_["status"], ("screening", "valid", "blocked"))
+        self.assertIn("note", cmp_)
         d = self.api("POST", "/api/dashboard", {"method_ids": [self.gwp]})
         row = next(m for m in d["models"] if m["id"] == self.wall)
         self.assertTrue(row["results"] and row["dqr"])

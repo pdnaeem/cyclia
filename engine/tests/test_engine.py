@@ -410,7 +410,7 @@ class TestTutorialCalc(Base):
         for needle in ("1. Goal and scope", "3. Life cycle impact assessment", "4.2 Evaluation", "Annex B",
                        "Key findings", "Data quality of the results", "Review status: not reviewed (draft)"):
             self.assertIn(needle, text)
-        self.assertTrue(any(t.rows[0].cells[1].text == "DQR" for t in d.tables if len(t.columns) > 1))
+        self.assertTrue(any(t.rows[0].cells[1].text == "Pedigree indicator" for t in d.tables if len(t.columns) > 1))
         self.assertTrue(any("Module D" in c.text for t in d.tables for c in t.rows[0].cells))
         from openpyxl import load_workbook
         self.assertTrue({"LCI", "Module D", "By stage"} <= set(load_workbook(xl).sheetnames))

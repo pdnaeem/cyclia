@@ -41,7 +41,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.3.2"
+VERSION = "1.3.3"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -792,6 +792,18 @@ def input_update(st, body, q, iid):
             fields[k] = str(body[k] or "").strip()[:500]
     if "verified" in body:
         fields["verified"] = bool(body["verified"])
+    if "pef" in body:
+        v = body["pef"]
+        if v in (None, "", []):
+            fields["pef"] = None
+        else:
+            try:
+                v = [int(x) for x in v]
+            except (TypeError, ValueError):
+                raise ApiError("PEF scores must be whole numbers 1 to 5.")
+            if len(v) != 4 or not all(1 <= x <= 5 for x in v):
+                raise ApiError("Give all four PEF scores (TeR, GeR, TiR, P), each 1 to 5.")
+            fields["pef"] = v
     if "data_year" in body:
         if body["data_year"] in (None, ""):
             fields["data_year"] = None
@@ -1058,7 +1070,8 @@ def supply_tree(st, body, q):
 def compare(st, body, q):
     ids, mids = _need(body, "model_ids", "method_ids")
     return _calc_error(calc.compare, st.store, [int(x) for x in ids], [int(x) for x in mids],
-                       int(body["scenario"]) if body.get("scenario") else None, bg=_bg(body))
+                       int(body["scenario"]) if body.get("scenario") else None, bg=_bg(body),
+                       equivalence=str(body.get("equivalence") or "")[:2000])
 
 
 def _export_path(st, body, model, ext):
@@ -1845,14 +1858,23 @@ def db_compare(st, body, q):
 def relink(st, body, q, mid):
     store = st.store
     a, b = _need(body, "db_from", "db_to")
-    if body.get("apply"):
-        _unlocked(store, mid)
     try:
-        res = analysis.relink_plan(store, int(mid), int(a), int(b), bool(body.get("apply")))
+        if body.get("apply"):
+            for m_ in analysis.relink_plan(store, int(mid), int(a), int(b))["models"]:
+                _unlocked(store, m_["id"])
+        res = analysis.relink_plan(store, int(mid), int(a), int(b), bool(body.get("apply")),
+                                   [int(x) for x in body.get("method_ids") or []])
     except ValueError as e:
         raise ApiError(str(e))
     if res["applied"]:
         res["model"] = store.model(int(mid))
+    return res
+
+
+@route("POST", "/api/relink/undo")
+def relink_undo(st, body, q):
+    ids = _need(body, "model_ids")[0]
+    res = analysis.undo_migration(st.store, [int(x) for x in ids])
     return res
 
 
@@ -1892,17 +1914,52 @@ def report_centre(st, body, q):
     fams = " ".join(r["family"] for r in res["results"])
     chk = standards.epd_checklist(model, res)
 
-    def item(ok, text):
-        return {"ok": bool(ok), "text": text}
-    base = [item(not errors, "No errors in the checks"), item(sc.get("goal"), "Goal stated"),
-            item(sc.get("boundary"), "System boundary stated")]
+    def item(ok, text, level="required"):
+        return {"ok": bool(ok), "text": text, "level": level}
+    has = lambda k: bool(str(sc.get(k) or "").strip())
+    lines = res["lines"]
+    missing_cf = [r["category"] for r in res["results"] if r["cfs_matched"] == 0]
+    alloc_needed = res.get("allocation_share", 1) < 1 or bool(sc.get("coproducts"))
+    comparative = (sc.get("comparative") or "").startswith("Yes")
+    u = res.get("uncertainty")
+    base = [item(not errors, "No errors in the checks"), item(has("goal"), "Goal stated (ISO 14044 4.2.2)"),
+            item(has("boundary"), "System boundary stated (4.2.3.3)")]
+    iso = [
+        item(has("goal"), "Goal of the study (4.2.2)"),
+        item(has("reasons"), "Reasons for carrying out the study (4.2.2)"),
+        item(has("application"), "Intended application (4.2.2)"),
+        item(has("audience"), "Intended audience (4.2.2)"),
+        item(model.get("unit") and model.get("product") and model.get("amount"), "Functional unit and reference flow (4.2.3.2)"),
+        item(has("boundary"), "System boundary (4.2.3.3)"),
+        item(has("cutoff"), "Cut-off criteria (4.2.3.3.3)"),
+        item(has("allocation") or not alloc_needed, "Allocation procedure (4.2.3.3, 4.3.4)"),
+        item(has("approach"), "Modelling approach, attributional or consequential (4.2.3.3)"),
+        item(has("dq_requirements"), "Data quality requirements (4.2.3.6)"),
+        item(has("assumptions"), "Assumptions (4.2.3.1)"),
+        item(lines and not any(l.get("missing") for l in lines), "Inventory complete: every line linked to data (4.3)"),
+        item(not missing_cf, "Impact method covers every selected category (4.4)" +
+             (f": no factor in {', '.join(missing_cf)}" if missing_cf else "")),
+        item(not errors, "No errors in the completeness and consistency checks (4.5.3)"),
+        item(True, "Contribution and sensitivity analysis (4.5.3.3, calculated by Cyclia)"),
+        item(has("conclusions"), "Conclusions (4.5.4)"),
+        item(has("limitations"), "Limitations (4.5.4)"),
+        item(has("recommendations"), "Recommendations (4.5.4)", "recommended"),
+        item(not comparative or (sc.get("review_status") in ("panel", "verified")),
+             "Critical review by a panel for a public comparative assertion (6.4)" if comparative else
+             "Critical review where required (6.1)"),
+        item(has("geography") and has("period"), "Geographical and time coverage (4.2.3.6.2)", "recommended"),
+        item(has("technology"), "Technological coverage (4.2.3.6.2)", "recommended"),
+        item(bool(u), "Uncertainty analysis (4.5.3.3)", "recommended"),
+        item(bool(u) and all(m.get("converged") for m in u["methods"]), "Monte Carlo converged", "recommended") if u else None,
+        item(any(l.get("data_type") for l in lines), "Data type (primary or secondary) stated for the lines", "recommended"),
+        item(any(l.get("source_ref") or l.get("comment") for l in lines), "Data sources documented (4.2.3.6.3)", "recommended"),
+    ]
+    iso = [x for x in iso if x]
     reports = [
-        {"id": "word", "title": "ISO 14044 LCA report", "for": "Theses, papers, consultancy reports",
-         "needs": base + [item(sc.get("conclusions"), "Conclusions written (step 6)"),
-                          item(sc.get("dq_requirements"), "Data quality requirements stated"),
-                          item(sc.get("approach"), "Modelling approach stated")]},
+        {"id": "word", "title": "ISO 14044 LCA report", "for": "Theses, papers, consultancy reports", "needs": iso},
         {"id": "executive", "title": "Executive summary", "for": "Managers and decision makers (2 pages)",
-         "needs": base + [item(sc.get("conclusions"), "Conclusions written (step 6)")]},
+         "needs": base + [item(has("conclusions"), "Conclusions written (step 6)"),
+                          item(has("limitations"), "Limitations written (step 6)", "recommended")]},
         {"id": "excel", "title": "Results workbook", "for": "Your own charts and further analysis", "needs": [item(True, "Always available")]},
         {"id": "figures", "title": "Figures for a journal", "for": "Contribution charts as 300 dpi PNG and SVG",
          "needs": [item(len(res["results"]) >= 1, "At least one impact category")]},
@@ -1917,8 +1974,10 @@ def report_centre(st, body, q):
          "needs": [item(True, "Always available")]},
     ]
     for r in reports:
-        r["met"] = sum(n["ok"] for n in r["needs"])
-        r["total"] = len(r["needs"])
+        req = [n for n in r["needs"] if n["level"] == "required"]
+        r["met"] = sum(n["ok"] for n in req)
+        r["total"] = len(req)
+        r["recommended_open"] = sum(1 for n in r["needs"] if n["level"] == "recommended" and not n["ok"])
     return {"reports": reports, "review_status": sc.get("review_status") or ""}
 
 

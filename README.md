@@ -78,7 +78,9 @@ USLCI, Agribalyse or ELCD. Your data stays on your computer.
 - Automatic ISO 14044 completeness, consistency and sensitivity checks
 - Key findings in plain language, burden-shifting alerts, and a data quality rating per result (PEF form)
   with the share of primary data
-- Correlated parameters and a convergence check for Monte Carlo; water withdrawal and consumption
+- Hierarchical Monte Carlo and Sobol analysis through every nested model, Spearman-correlated parameters and a
+  convergence check; water withdrawal and consumption
+- A comparison gate that checks functional equivalence before alternatives are compared
 - Database version comparison (e.g. ecoinvent 3.10 vs 3.11) and one-click move of a model to a new version
 
 **Reports and standards**
@@ -101,7 +103,7 @@ USLCI, Agribalyse or ELCD. Your data stays on your computer.
 
 LCA results only matter if they are right. Cyclia checks itself in three independent ways:
 
-1. **85 automated tests** of the calculation engine (`engine/tests`)
+1. **100 automated tests** of the calculation engine (`engine/tests`)
 2. **A validation suite of 35 product systems with exact known answers**: supply chains, loops,
    allocation, system expansion, units, regional and site factors, background scenarios, module D,
    dynamic GWP, Monte Carlo, Sobol and the fate model. Run it in the app (Toolbox > Validation) and
@@ -161,7 +163,7 @@ login or to check for updates.
 
 If Cyclia helps your research, please cite it. Citing is how free scientific software gets credit.
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.3.2)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.3.3)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [`CITATION.cff`](CITATION.cff). Inside
@@ -193,7 +195,7 @@ python -m unittest discover -s engine/tests -v
 ```
 
 On Windows, `build-windows.bat` runs the tests, builds the engine and produces the installer in
-`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.3.2` makes GitHub
+`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.3.3` makes GitHub
 Actions build Windows, macOS and Linux installers and publish them as a release.
 
 ```

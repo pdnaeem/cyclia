@@ -300,7 +300,7 @@
           <button class="primary" type="submit">Add parameter</button>
         </form>
         <h3>Correlated parameters <button type="button" class="q" data-help="correlated parameters" aria-label="Help">?</button></h3>
-        <p class="hint">When two uncertain parameters move together (e.g. fuel use and distance), give their rank correlation from -1 to 1. Monte Carlo then samples them together.</p>
+        <p class="hint">When two uncertain parameters move together (e.g. fuel use and distance), give their Spearman rank correlation from -0.99 to 0.99. Monte Carlo then samples them together and keeps each parameter's own distribution. Correlations apply to the parameters of this model and the project.</p>
         <ul class="list" id="corrList"></ul>
         <form class="row" id="corrForm" novalidate>
           <select name="a" aria-label="First parameter"></select><select name="b" aria-label="Second parameter"></select>
@@ -390,6 +390,12 @@
             <label>Supplier or site<input name="supplier" placeholder="Plant in Lyon"></label>
             <label>Price per <span id="provUnit">unit</span><input name="unit_cost" type="number" step="any" placeholder="0.00"></label>
             <label class="inline"><input type="checkbox" name="verified"> Checked or verified by a third party</label>
+            <fieldset class="wide pef-set"><legend>PEF data quality scores (optional, 1 best to 5 worst) <button type="button" class="q" data-help="PEF data quality rating" aria-label="Help">?</button></legend>
+              <label>TeR technological<select name="pef0"><option value="">-</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+              <label>GeR geographical<select name="pef1"><option value="">-</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+              <label>TiR time<select name="pef2"><option value="">-</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+              <label>P precision<select name="pef3"><option value="">-</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+            </fieldset>
             <div class="row wide"><button class="primary" type="submit">Save details</button><span class="hint" id="provSaved" role="status"></span></div>
           </form>
         </div>
@@ -567,6 +573,8 @@
           <div class="block">
             <h2>Models</h2>
             <div id="compareModels" class="checks"></div>
+            <label>Functional equivalence <button type="button" class="q" data-help="functional equivalence" aria-label="Help">?</button><textarea id="compareEquiv" rows="2" placeholder="Both walls give 1 m2 with U = 0.25 W/m2K and a service life of 60 years, with the same fire class and the same maintenance."></textarea></label>
+            <p class="hint">Cyclia checks functional units, boundaries, stages, allocation, approach, geography, period, background data and data quality. Without an equivalence statement, or when the checks find differences, the result is a screening comparison, not a comparative assertion.</p>
             <div class="row"><button class="primary" id="btnCompare">Compare</button><button id="btnCompareMc">Comparative Monte Carlo</button><span class="hint">Uses the categories and scenario chosen in step 4.</span></div>
           </div>
           <div class="block" id="compareOut" hidden></div>
@@ -690,8 +698,8 @@
         </div>
         <div class="block">
           <h2>Move a model to another database version</h2>
-          <p class="hint">Switches every line of the model that uses the first database to the same dataset in the second. Preview first; the switch can be undone in step 3.</p>
-          <div class="row"><button id="btnRelinkPreview">Preview for the open model</button><button class="primary" id="btnRelinkApply" disabled>Switch the lines</button></div>
+          <p class="hint">Switches every line that uses the first database to the same dataset in the second, in the open model and in every model nested in it. Preview first; with impact categories chosen in step 4, Cyclia shows the results before and after. The whole migration can be undone.</p>
+          <div class="row"><button id="btnRelinkPreview">Preview for the open model</button><button class="primary" id="btnRelinkApply" disabled>Switch the lines</button><button class="ghost" id="btnRelinkUndo" hidden>Undo the migration</button></div>
           <div id="relinkOut"></div>
         </div>
       </div>

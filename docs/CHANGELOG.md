@@ -1,5 +1,56 @@
 # Changelog
 
+## 1.3.3 (2026-11-05)
+
+Scientific corrections after an external expert audit of 1.3.2. Please recalculate studies that use nested
+models, Monte Carlo, comparisons, data quality or EPDs.
+
+Uncertainty
+- **Nested models in Monte Carlo and Sobol**: every line of every nested model now has its own data-quality
+  uncertainty, and the parameter distributions and correlations of nested models are sampled. Before, only the
+  top-level lines and parameters were uncertain, so the spread of complex supply chains was too small
+- **Correlations are Spearman rank correlations as stated**: the value is converted for the Gaussian copula
+  (2 sin(πρ/6)); before, an entered 0.8 gave about 0.79
+- **Paired comparisons**: lines and parameters that compared models share (e.g. the same sub-model) use the same
+  random values; the note says exactly what is shared
+- Convergence judged against the width of the 95 % interval
+
+Comparisons
+- **Comparison gate**: different functional units block the comparison; differences in boundary, stages,
+  allocation, approach, geography, period, background data and data quality are listed; without a functional
+  equivalence statement the result is labelled a screening comparison, not a comparative assertion
+- The fixed 10 % rule is replaced by the comparative Monte Carlo (robust when one alternative is lower in at
+  least 95 % of the runs), with the 95 % interval of the difference
+- Scenario comparison lists the categories that go up and down (burden shifting)
+
+Data quality
+- Credits (avoided products) are no longer part of the data quality weights; their share is shown apart
+- Nested models: the data quality of their lines now counts, path by path (weakest link)
+- The pedigree-based rating is called a pedigree indicator and is no longer presented as a PEF DQR; a real PEF
+  DQR is computed from the four PEF scores (TeR, GeR, TiR, P) you can now enter per line
+- Producer-specific data: 5-year limit (other data: 10 years); primary data outside the study period and lines
+  without a data year are listed
+
+Interpretation
+- Improvement advice no longer proposes reducing a credit (it raised the result); credits get their own finding
+- Different hotspots in different categories are no longer called burden shifting; the improvement finding
+  shows whether the same change would raise another category
+
+EPD
+- Lines whose stage is not an EN 15804 module now block the EPD (their impacts were missing from the table)
+- A1-A3 is no longer declared without lines; the module table is reconciled with the LCA result
+- Reference service life check fixed (it was inverted); EF reference package checked by version (3.0 or later)
+- Prospective EPDs need a converged Monte Carlo run; the specific-data share includes nested models and leaves
+  credits out
+- EPD Excel shows impacts outside modules and the LCA totals for reconciliation
+
+Other
+- **Database migration** now includes all nested models, shows results before and after, and can be undone at
+  once
+- **Report centre**: the ISO 14044 report checks 18 required and several recommended items one by one
+- Land use results calculated with ecoinvent carry the known benchmark limitation in the checks and report
+- 100 automated tests
+
 ## 1.3.2 (2026-11-05)
 
 Interpretation and data quality

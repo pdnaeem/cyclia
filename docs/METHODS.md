@@ -83,17 +83,31 @@ is the sum. Other halocarbons are not characterised; use EF 3.1 for formal EPD w
   database system model (attributional with cut-off or APOS data; consequential without allocation),
   data older than 10 years (EN 15804+A2 6.3.8.2), and an energy balance when the functional unit is an
   amount of energy (delivered energy above the energy inputs).
-- **Data quality of results**: for each category k the pedigree scores are weighted by each line's share of
-  the absolute impact, w_j = |h_jk| / sum |h_k| (module D excluded). The data quality rating follows the PEF
-  form DQR = (TeR + GeR + TiR + P) / 4 with P = reliability, TiR = temporal, GeR = geographical and TeR =
-  technological correlation, and the PEF classes (excellent up to 1.5, very good up to 2, good up to 3, fair
-  up to 4, poor above). It is indicative unless the scores were given with the PEF criteria. The shares of
-  primary, secondary, estimated and unstated data use the same weights.
+- **Data quality of results**: the model is flattened into paths from the top-level model through every nested
+  model to a dataset, flow or EPD line. For each category k each path is weighted by its share of the absolute
+  impact, w_p = |h_pk| / sum |h_k|; credits (avoided products) and module D are left out of the weights and their
+  share is reported apart. A path takes, per indicator, the worst pedigree score along its chain. Two ratings are
+  reported: a **pedigree-based indicator** (TeR + GeR + TiR + P) / 4 with P = pedigree reliability, TiR =
+  temporal, GeR = geographical and TeR = technological correlation, which is *not* a PEF DQR because pedigree
+  reliability is not the PEF precision criterion; and the **PEF DQR**, computed only from lines for which the
+  four PEF scores were entered, with the share of the impact they cover. Both use the PEF classes (excellent
+  up to 1.5, very good up to 2, good up to 3, fair up to 4, poor above). The shares of primary, secondary,
+  estimated and unstated data use the same weights; a path takes the data type of its leaf line, or of the
+  nearest line above it that has one.
+- **Comparison gate** (ISO 14044 4.2.3.7): a comparison is blocked when functional units differ in unit
+  dimension or amount, or a model has errors in its checks. Differences in product description, boundary, stage
+  system, approach, allocation, geography, period, background system model, or a pedigree indicator that
+  differs by 1 or more, are listed as issues. The comparison is "valid" only without issues and with a written
+  functional equivalence statement; otherwise it is labelled a screening comparison.
 - **Key findings**: generated from the numbers above: largest contributors and stage per category, credits and
-  module D, Monte Carlo interval, different hotspots in different categories (burden shifting), the line whose
-  change lowers the result most (contribution times the sensitivity range), important lines with weak data,
-  costs, and check errors. Model comparison names the lowest alternative per category and flags differences
-  below 10 %.
+  module D, Monte Carlo interval, different hotspots in different categories (reported as hotspots, not as
+  burden shifting), the burden line whose reduction lowers the result most (a credit is never proposed for
+  reduction; its effect is reported separately), with the change in every other category for the same
+  reduction (an increase is reported as burden shifting), important lines with weak data, costs and check
+  errors. Improvement estimates are linear screening estimates for a smaller amount of the same input.
+  Model comparison names the alternative with the lowest result per category; whether a difference is larger
+  than the uncertainty is judged with the comparative Monte Carlo (one alternative lower in at least 95 % of the
+  runs). Scenario comparison lists, per scenario, the categories that go down and those that go up.
 - **Water inventory**: elementary water flows in m3 (kg and litres divided by 1000). Withdrawal = resource
   flows; release = water emitted to water, air and soil; consumption = withdrawal minus release. Turbine water
   of hydropower is reported apart.
@@ -105,27 +119,34 @@ technological). The variance of ln is the basic variance (0.0006; 0.12 for trans
 emissions other than CO2) plus the pedigree variances of the ecoinvent v3 guideline (Weidema et al.
 2013). The line amount is lognormal with this sigma and its median at the entered value.
 
-**Foreground Monte Carlo**: line amounts and parameter distributions (lognormal by GSD, normal,
-triangular, uniform) are sampled; results are recomputed from the unit results of each line.
+**Foreground Monte Carlo** (hierarchical): the model is flattened into paths through every nested model. Every
+line at every level gets its own lognormal factor from its own pedigree scores (a line that occurs in several
+places, such as a sub-model used twice, keeps one draw), and every parameter distribution of the project and of
+each model is sampled (a model parameter hides a project parameter of the same name inside that model). The
+amount of a path is the product of the line amounts, signs, allocation shares and 1 / reference amount of each
+sub-model on the chain; the result is the sum of path amounts times the unit result of each leaf.
 
 **Full Monte Carlo**: in each iteration every exchange of the database with uncertainty information
 (ecoSpold2 lognormal with pedigree-widened variance, normal, triangular, uniform; openLCA and SimaPro
 equivalents) is sampled, **A** is refactorised, and every compared model is solved on the same random
-background, so differences are paired. Reported: mean, median, SD, 2.5 and 97.5 percentiles, CV, and for
+background, so differences are paired. Foreground lines and parameters that compared models have in common
+(for example the same sub-model) use the same draws; the other foreground lines are sampled per model. Reported: mean, median, SD, 2.5 and 97.5 percentiles, CV, and for
 comparisons the probability that one option is lower than the other. A singular random draw falls back
 to the static matrix for that iteration.
 
-**Correlated parameters**: pairs of parameters with a rank correlation r are sampled with a Gaussian copula:
-correlated standard normals Z = L u (L the Cholesky factor of the correlation matrix) are turned into
-uniforms U = Φ(Z) and then into each parameter's own distribution by its inverse CDF. Inconsistent sets of
-correlations (a matrix that is not positive definite) are rejected.
+**Correlated parameters**: pairs of parameters with a Spearman rank correlation ρ are sampled with a Gaussian
+copula. The latent normal correlation is r = 2 sin(πρ/6) (Pearson 1907), so the sampled rank correlation equals
+ρ; correlated standard normals Z = L u (L the Cholesky factor) are turned into uniforms U = Φ(Z) and into each
+parameter's own distribution by its inverse CDF. Inconsistent sets of correlations (a matrix that is not
+positive definite) are rejected. Sobol indices assume independent factors and ignore correlations.
 
-**Convergence**: each Monte Carlo result reports the standard error of the mean relative to the mean
-(sd / √n / |mean|) and how far the 2.5 and 97.5 percentiles of the first half of the runs lie from those of
-all runs, relative to the interval width. The run counts as converged when the first is below 1 % and the
-second below 10 %.
+**Convergence**: each Monte Carlo result reports the standard error of the mean relative to the width of the 95 %
+interval (sd / √n / (p97.5 - p2.5)) and how far the 2.5 and 97.5 percentiles of the first half of the runs lie
+from those of all runs, relative to the interval width. The run counts as converged when the first is below
+1 % and the second below 10 %.
 
-**Global sensitivity**: first-order (Saltelli et al. 2010) and total (Jansen 1999) Sobol indices for the
+**Global sensitivity**: the factors are every line at every level of nesting and every parameter distribution.
+ first-order (Saltelli et al. 2010) and total (Jansen 1999) Sobol indices for the
 foreground uncertainty (line amounts and parameter distributions), N (d + 2) evaluations, with outputs
 centred before estimation.
 
@@ -145,6 +166,13 @@ as zero and are listed.
 Cyclia writes each term as an inventory line with its coefficient times the material mass; the E*v,
 ESE,heat and ESE,elec terms are credits. Energy terms are in MJ and converted to the unit of the chosen
 dataset. The validation test recomputes the formula by hand and compares with the model result.
+
+**Data age**: producer-specific (primary) data older than 5 years and other data older than 10 years raise a
+warning (EN 15804+A2 6.3.8.2); primary data outside the study period and lines without a data year are listed.
+
+**Database migration**: the open model and every model nested in it are switched to the new database (matching as
+below). Each changed model gets one undo step, and the whole migration can be undone at once; results before and
+after are shown.
 
 **Database comparison**: datasets of two databases are paired by key (stable between ecoinvent versions), else
 by name, product, location and unit, and each is calculated per unit of its reference product with the same
@@ -233,11 +261,16 @@ its non-dominated points form the Pareto front.
 
 ## 10. Standards outputs
 
+* **EPD module table**: every line must be in an EN 15804 module; stages with other names block the EPD. A1-A3 is
+  declared only when it has lines. The module table must add up to the LCA result (A-C) and module D, otherwise
+  the EPD is not written. The reference service life is required when B modules are declared. Every indicator
+  must use the EF reference package 3.0 or later (or Cyclia's EN 15804+A2 IPCC split).
 * **EPD (ISO 14025:2026)**: the declaration states the intended audience (B2B or B2C), the share of the
   GWP-total result from supply-chain-specific (primary) data, the number of months of specific data and
   whether it is a prospective EPD, which ISO 14025:2026 uses to define EPD types; a B2C EPD needs a named
   independent verifier and a prospective EPD a quantified uncertainty. Cyclia is not a verified EPD tool, so
-  every EPD needs its own verification.
+  every EPD needs its own verification. The share of supply-chain-specific data is taken from the data quality
+  weights (all levels of nesting, credits excluded). A prospective EPD needs a converged Monte Carlo run.
 * **EN 15804+A2 EPD**: results per module from the life cycle stages (A1-A3 aggregated, A4 to D), "ND"
   for modules not declared, and a checklist of the main requirements (mandatory modules, EF reference
   package, core indicators, cut-off, allocation, data age, biogenic carbon content, PCR, verification).

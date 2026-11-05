@@ -23,6 +23,7 @@
     f.supplier.value = r.supplier || "";
     f.unit_cost.value = r.unit_cost ?? "";
     f.verified.checked = !!r.verified;
+    [0, 1, 2, 3].forEach((i) => (f["pef" + i].value = r.pef ? String(r.pef[i]) : ""));
     $("#provSaved").textContent = "";
     $("#provPanel").hidden = false;
     $("#provPanel").scrollIntoView({ block: "nearest" });
@@ -35,8 +36,10 @@
       if (!provLine) throw new Error("Choose a line first.");
       const y = f.data_year.value.trim();
       if (y && !(Number(y) >= 1900 && Number(y) <= 2100)) throw new Error("Give the year as four digits, e.g. 2024.");
+      const pef = [0, 1, 2, 3].map((i) => f["pef" + i].value);
+      if (pef.some((v) => v) && !pef.every((v) => v)) throw new Error("Give all four PEF scores, or none.");
       await patchLine(provLine, { source_ref: f.source_ref.value.trim(), data_year: y, supplier: f.supplier.value.trim(),
-        unit_cost: f.unit_cost.value.trim(), verified: f.verified.checked }, true);
+        unit_cost: f.unit_cost.value.trim(), verified: f.verified.checked, pef: pef.every((v) => v) ? pef.map(Number) : null }, true);
       $("#provSaved").textContent = "Saved.";
     });
   });
@@ -168,9 +171,10 @@
   $("#btnRcCheck").addEventListener("click", (e) => guard(e.target, async () => {
     const r = await api("POST", "/api/report-centre", calcBody());
     $("#rcOut").innerHTML = r.reports.map((x) => {
-      const open = x.needs.filter((n) => !n.ok);
-      return `<article class="rc-card${open.length ? "" : " ready"}"><header><h3>${esc(x.title)}</h3><span class="rc-count">${x.met}/${x.total}</span></header>
-        <p class="hint">${esc(x.for)}</p>${open.length ? `<ul>${open.slice(0, 3).map((n) => `<li>${esc(n.text)}</li>`).join("")}${open.length > 3 ? `<li>and ${open.length - 3} more</li>` : ""}</ul>` : '<p class="ok">Ready.</p>'}
+      const open = x.needs.filter((n) => !n.ok && n.level === "required"), rec = x.needs.filter((n) => !n.ok && n.level === "recommended");
+      return `<article class="rc-card${open.length ? "" : " ready"}"><header><h3>${esc(x.title)}</h3><span class="rc-count" title="required items met">${x.met}/${x.total}</span></header>
+        <p class="hint">${esc(x.for)}</p>${open.length ? `<p class="rc-sub">Still required:</p><ul>${open.slice(0, 4).map((n) => `<li>${esc(n.text)}</li>`).join("")}${open.length > 4 ? `<li>and ${open.length - 4} more</li>` : ""}</ul>` : '<p class="ok">All required items present.</p>'}
+        ${rec.length ? `<details><summary class="hint">${rec.length} recommended item(s) open</summary><ul>${rec.map((n) => `<li>${esc(n.text)}</li>`).join("")}</ul></details>` : ""}
         <button data-rc="${x.id}"${open.length ? "" : ' class="primary"'}>Create</button></article>`;
     }).join("");
   }));
@@ -228,16 +232,26 @@
     needModel();
     const a = Number($("#dbcA").value), b = Number($("#dbcB").value);
     if (!a || !b || a === b) throw new Error("Choose two different databases above (From and To).");
-    const r = await api("POST", `/api/models/${S.model.id}/relink`, { db_from: a, db_to: b, apply });
-    $("#relinkOut").innerHTML = r.lines.length ? `<p>${r.applied ? "Switched" : "Can switch"} <b>${r.n_found}</b> of ${r.lines.length} line(s) of ${esc(S.model.name)}${r.n_missing ? `; ${r.n_missing} have no match and stay as they are` : ""}.</p>
-      <ul class="list">${r.lines.map((l) => `<li><span class="grow">${esc(l.name)}</span><span class="${l.found ? "ok" : "danger"}">${l.found ? "found" : "no match"}</span></li>`).join("")}</ul>`
-      : `<p class="hint">No line of ${esc(S.model.name)} uses the first database.</p>`;
+    const r = await api("POST", `/api/models/${S.model.id}/relink`, { db_from: a, db_to: b, apply, method_ids: [...S.selectedMethods] });
+    const pc = (v) => (v == null ? "-" : `${v > 0 ? "+" : ""}${v.toFixed(2)} %`);
+    $("#relinkOut").innerHTML = r.lines.length ? `<p>${r.applied ? "Switched" : "Can switch"} <b>${r.n_found}</b> of ${r.lines.length} line(s) in ${r.models.length} model(s)${r.n_missing ? `; ${r.n_missing} have no match and stay as they are` : ""}.</p>
+      <ul class="list">${r.lines.map((l) => `<li><span class="grow">${esc(l.name)} <span class="hint">in ${esc(l.model)}</span></span><span class="${l.found ? "ok" : "danger"}">${l.found ? "found" : "no match"}</span></li>`).join("")}</ul>` +
+      (r.results ? `<h3>Results of ${esc(S.model.name)}</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Before</th><th class="num">After</th><th class="num">Change</th></tr></thead><tbody>${r.results.map((x) => `<tr><td>${esc(x.category)} [${esc(x.unit)}]</td><td class="num">${x.before == null ? "-" : fmt(x.before)}</td><td class="num">${fmt(x.after)}</td><td class="num">${pc(x.change_percent)}</td></tr>`).join("")}</tbody></table></div>` : "")
+      : `<p class="hint">No line of ${esc(S.model.name)} or its nested models uses the first database.</p>`;
     relinkReady = !r.applied && r.n_found > 0;
     $("#btnRelinkApply").disabled = !relinkReady;
-    if (r.applied) { S.model = r.model; S.result = null; markSteps(); toast("Lines switched. Undo is available in step 3."); }
+    if (r.applied) { S.model = r.model; S.result = null; S.lastMigration = r.changed_models; $("#btnRelinkUndo").hidden = !r.changed_models.length; markSteps(); toast(`Lines switched in ${r.changed_models.length} model(s).`); }
   }
   $("#btnRelinkPreview").addEventListener("click", (e) => guard(e.target, () => relink(false)));
   $("#btnRelinkApply").addEventListener("click", (e) => guard(e.target, () => relink(true)));
+  $("#btnRelinkUndo").addEventListener("click", (e) => guard(e.target, async () => {
+    if (!S.lastMigration || !S.lastMigration.length) throw new Error("Nothing to undo.");
+    const r = await api("POST", "/api/relink/undo", { model_ids: S.lastMigration });
+    S.lastMigration = null; $("#btnRelinkUndo").hidden = true;
+    await loadModel(S.model.id); S.result = null; markSteps();
+    toast(r.skipped.length ? `Migration undone in ${r.undone.length} model(s); ${r.skipped.length} had later changes and were left as they are.` : `Migration undone in ${r.undone.length} model(s).`);
+    $("#relinkOut").innerHTML = "";
+  }));
   ["#dbcA", "#dbcB"].forEach((s) => $(s).addEventListener("change", () => { $("#btnRelinkApply").disabled = true; }));
 
   const REV = { "": "draft", internal: "internal", external: "expert", panel: "panel", verified: "verified" };
@@ -245,7 +259,7 @@
     if (withCalc && !S.selectedMethods.size) throw new Error("Pick impact categories in step 4 first.");
     const r = await api("POST", "/api/dashboard", { method_ids: withCalc ? [...S.selectedMethods] : [] });
     const cats = withCalc ? (r.models.find((m) => m.results) || {}).results || [] : [];
-    $("#dashOut").innerHTML = r.models.length ? `<div class="table-wrap"><table><thead><tr><th>Model</th><th>Functional unit</th><th class="num">Lines</th><th class="num">Default data quality</th><th class="num">Data type given</th><th>Review</th>${cats.map((c) => `<th class="num">${esc(c.category)} [${esc(c.unit)}]</th>`).join("")}${withCalc ? '<th class="num">DQR</th><th class="num">Checks</th>' : ""}</tr></thead><tbody>` +
+    $("#dashOut").innerHTML = r.models.length ? `<div class="table-wrap"><table><thead><tr><th>Model</th><th>Functional unit</th><th class="num">Lines</th><th class="num">Default data quality</th><th class="num">Data type given</th><th>Review</th>${cats.map((c) => `<th class="num">${esc(c.category)} [${esc(c.unit)}]</th>`).join("")}${withCalc ? '<th class="num">Pedigree indicator</th><th class="num">Checks</th>' : ""}</tr></thead><tbody>` +
       r.models.map((m) => `<tr><td><a href="#" data-openmodel="${m.id}">${esc(m.name)}</a>${m.locked ? ' <span class="hint">(locked)</span>' : ""}${m.missing ? ` <span class="danger hint">${m.missing} missing</span>` : ""}</td><td>${esc(m.fu)}</td><td class="num">${m.n_inputs}</td>
         <td class="num">${m.n_inputs ? m.default_pedigree + " of " + m.n_inputs : "-"}</td><td class="num">${m.n_inputs ? m.typed + " (" + m.primary + " primary)" : "-"}</td><td>${REV[m.review_status] || esc(m.review_status)}</td>
         ${withCalc ? (m.results ? m.results.map((x) => `<td class="num">${fmt(x.total)}</td>`).join("") + `<td class="num">${m.dqr.length ? m.dqr[0].toFixed(1) : "-"}</td><td class="num">${m.errors ? `<span class="danger">${m.errors} error(s)</span>` : m.warnings + " warning(s)"}</td>` : `<td colspan="${cats.length + 2}" class="hint">${esc(m.error || "no inputs")}</td>`) : ""}</tr>`).join("") + "</tbody></table></div>"

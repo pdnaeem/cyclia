@@ -22,8 +22,8 @@ life-cycle-assessment lca lca-software iso-14044 ecoinvent carbon-footprint epd 
 
 Settings > General > Social preview: upload `.github/social-preview.png`.
 
-## Release title for 1.3.2
+## Release title for 1.3.3
 
-Cyclia 1.3.2: key findings, data quality, life cycle costing, ISO 14025:2026 EPD
+Cyclia 1.3.3: scientific corrections (nested uncertainty, comparison checks, data quality, EPD)
 
-Paste the text of `docs/RELEASE_NOTES_v1.3.2.md` as the release description.
+Paste the text of `docs/RELEASE_NOTES_v1.3.3.md` as the release description.

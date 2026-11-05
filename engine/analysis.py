@@ -316,38 +316,100 @@ def compare_databases(store, db_a, db_b, method_ids, act_ids=None, sample=100, s
                     "name, product, location and unit."}
 
 
-def relink_plan(store, model_id, db_from, db_to, apply=False):
-    """Map every activity line of a model from one database to another. With apply=True the lines are switched
-    (one undo step)."""
+def _model_tree(store, model_id, seen=None):
+    """The model and every model nested in it (depth first, each once)."""
+    seen = seen if seen is not None else []
+    if model_id in seen:
+        return seen
+    seen.append(model_id)
+    m = store.model(model_id)
+    for i in (m or {}).get("inputs", []):
+        if i["kind"] == "model" and i["ref_id"]:
+            _model_tree(store, i["ref_id"], seen)
+    return seen
+
+
+MIGRATION_LABEL = "database migration"
+
+
+def relink_plan(store, model_id, db_from, db_to, apply=False, method_ids=None):
+    """Map every activity line of a model and of all models nested in it from one database to another. With
+    apply=True the lines are switched; each changed model gets one undo step, and `undo_migration` reverses all of
+    them. With method_ids, the results before and after are returned."""
+    import calc
     m = store.model(int(model_id))
     if not m:
         raise ValueError("Model not found.")
+    if int(db_from) == int(db_to):
+        raise ValueError("Choose two different databases.")
     names = {d["id"]: d["name"] for d in store.databases()}
-    src = names.get(int(db_from))
-    lines = [i for i in m["inputs"] if i["kind"] == "activity" and (i["target"].get("db") == src or
-                                                                    (i["missing"] and i["ref_db"] == src))]
-    ids = [i["ref_id"] for i in lines if i["ref_id"] and not i["missing"]]
-    pairs, _ = match_activities(store, int(db_from), int(db_to), ids) if ids else ([], [])
-    to = {a["id"]: b for a, b, _ in pairs}
-    by_key = {}
-    if any(i["missing"] for i in lines):
-        for r in store.q("SELECT id, key, name, unit FROM activities WHERE db_id=?", (int(db_to),)):
-            by_key[r["key"]] = r
-    plan = []
-    for i in lines:
-        b = to.get(i["ref_id"]) if not i["missing"] else by_key.get(i["ref_key"])
-        plan.append({"input_id": i["id"], "name": i["label"] or i["target"]["name"], "found": bool(b),
-                     "new_id": b["id"] if b else None, "new_name": b["name"] if b else None})
-    if apply:
-        todo = [p for p in plan if p["found"]]
-        if todo:
-            store.snapshot(int(model_id), f"relink to {names.get(int(db_to))}")
-            for p in todo:
-                r = store.one("SELECT a.key, d.name FROM activities a JOIN databases d ON d.id=a.db_id WHERE a.id=?",
-                              (p["new_id"],))
-                store.update_input(p["input_id"], {"ref_id": p["new_id"], "ref_db": r["name"], "ref_key": r["key"]})
-    return {"lines": plan, "n_found": sum(p["found"] for p in plan), "n_missing": sum(not p["found"] for p in plan),
-            "applied": bool(apply)}
+    src, dst = names.get(int(db_from)), names.get(int(db_to))
+    if not src or not dst:
+        raise ValueError("Database not found.")
+    plan, by_model = [], {}
+    for mid in _model_tree(store, int(model_id)):
+        mm = store.model(mid)
+        lines = [i for i in mm["inputs"] if i["kind"] == "activity" and (i["target"].get("db") == src or
+                                                                          (i["missing"] and i["ref_db"] == src))]
+        if not lines:
+            continue
+        ids = [i["ref_id"] for i in lines if i["ref_id"] and not i["missing"]]
+        pairs, _ = match_activities(store, int(db_from), int(db_to), ids) if ids else ([], [])
+        to = {a["id"]: b for a, b, _ in pairs}
+        by_key = {}
+        if any(i["missing"] for i in lines):
+            by_key = {r["key"]: r for r in store.q("SELECT id, key, name, unit FROM activities WHERE db_id=?", (int(db_to),))}
+        for i in lines:
+            b = to.get(i["ref_id"]) if not i["missing"] else by_key.get(i["ref_key"])
+            row = {"model_id": mid, "model": mm["name"], "input_id": i["id"], "name": i["label"] or i["target"]["name"],
+                   "found": bool(b), "new_id": b["id"] if b else None, "new_name": b["name"] if b else None}
+            plan.append(row)
+            by_model.setdefault(mid, []).append(row)
+    out = {"lines": plan, "n_found": sum(p["found"] for p in plan), "n_missing": sum(not p["found"] for p in plan),
+           "models": [{"id": mid, "name": store.model(mid)["name"], "n_lines": len(rows)} for mid, rows in by_model.items()],
+           "applied": False, "changed_models": []}
+    if not apply:
+        return out
+    before = None
+    if method_ids:
+        try:
+            before = [x["total"] for x in calc.run(store, int(model_id), method_ids, top=1)["results"]]
+        except calc.LCAError:
+            before = None
+    for mid, rows in by_model.items():
+        todo = [p for p in rows if p["found"]]
+        if not todo:
+            continue
+        store.snapshot(mid, f"{MIGRATION_LABEL} to {dst}")
+        for p in todo:
+            r = store.one("SELECT a.key, d.name FROM activities a JOIN databases d ON d.id=a.db_id WHERE a.id=?",
+                          (p["new_id"],))
+            store.update_input(p["input_id"], {"ref_id": p["new_id"], "ref_db": r["name"], "ref_key": r["key"]})
+        out["changed_models"].append(mid)
+    out["applied"] = True
+    if method_ids and out["changed_models"]:
+        try:
+            r = calc.run(store, int(model_id), method_ids, top=1)
+            after = [x["total"] for x in r["results"]]
+            out["results"] = [{"category": x["category"], "unit": x["unit"], "before": b, "after": a,
+                               "change_percent": ((a - b) / abs(b) * 100) if (b is not None and abs(b) > 1e-30) else None}
+                              for x, a, b in zip(r["results"], after, before or [None] * len(after))]
+        except calc.LCAError as e:
+            out["results_error"] = str(e)
+    return out
+
+
+def undo_migration(store, model_ids):
+    """Reverse a migration in every model it changed. Refuses a model whose last change is not the migration."""
+    done, skipped = [], []
+    for mid in model_ids:
+        h = store.one("SELECT label FROM main.history WHERE model_id=? ORDER BY id DESC LIMIT 1", (int(mid),))
+        if h and (h["label"] or "").startswith(MIGRATION_LABEL):
+            store.undo(int(mid))
+            done.append(int(mid))
+        else:
+            skipped.append(int(mid))
+    return {"undone": done, "skipped": skipped}
 
 
 # ============================================================================ checks
@@ -409,33 +471,12 @@ def energy_balance(model, lines):
 
 # ============================================================================ correlated parameters
 def correlated_draws(rng, dist, size, correlations):
-    """Samples of parameter distributions where some pairs are rank-correlated through a Gaussian copula.
-    `correlations` is a list of {"a": name, "b": name, "r": value}. Returns {name: array(size)}."""
-    names = [p["name"] for p in dist]
-    idx = {n: i for i, n in enumerate(names)}
-    pairs = [(c["a"], c["b"], float(c["r"])) for c in correlations or []
-             if c.get("a") in idx and c.get("b") in idx and c.get("a") != c.get("b")]
-    if not pairs:
-        return {p["name"]: calc.sample_param(rng, p, size) for p in dist}
-    from scipy import stats
-    involved = sorted({n for a, b, _ in pairs for n in (a, b)}, key=lambda n: idx[n])
-    k = {n: i for i, n in enumerate(involved)}
-    R = np.eye(len(involved))
-    for a, b, r in pairs:
-        if not -0.999 <= r <= 0.999:
-            raise calc.LCAError(f"The correlation between {a} and {b} must be between -1 and 1.")
-        R[k[a], k[b]] = R[k[b], k[a]] = r
-    try:
-        L = np.linalg.cholesky(R)
-    except np.linalg.LinAlgError:
-        raise calc.LCAError("The parameter correlations are not consistent with each other (the correlation matrix "
-                            "is not positive definite). Lower one of them.")
-    Z = rng.standard_normal((size, len(involved))) @ L.T
-    U = np.clip(stats.norm.cdf(Z), 1e-12, 1 - 1e-12)
-    out = {}
-    for p in dist:
-        if p["name"] in k:
-            out[p["name"]] = calc._ppf_param(p, U[:, k[p["name"]]])
-        else:
-            out[p["name"]] = calc.sample_param(rng, p, size)
-    return out
+    """Samples of parameter distributions where some pairs have a given Spearman rank correlation (Gaussian copula,
+    latent correlation 2 sin(pi rho / 6)). `correlations` is a list of {"a": name, "b": name, "r": rho}."""
+    import hier
+    var_list = [{"key": ("p", p["name"]), "p": p} for p in dist]
+    keys = {v["key"] for v in var_list}
+    pairs = [(("p", c["a"]), ("p", c["b"]), float(c["r"])) for c in correlations or []
+             if ("p", c.get("a")) in keys and ("p", c.get("b")) in keys and c.get("a") != c.get("b")]
+    d = hier.draw(rng, var_list, size, pairs)
+    return {k[1]: v for k, v in d.items()}

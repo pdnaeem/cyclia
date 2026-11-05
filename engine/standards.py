@@ -62,7 +62,39 @@ def declared_modules(model, result):
         if mod:
             used.add("A1-A3" if mod in ("A1", "A2", "A3") else mod)
     extra = set((model["scope"].get("epd") or {}).get("declared") or [])
-    return [c for c in COLUMNS if c in used or c in extra or c == "A1-A3"]
+    return [c for c in COLUMNS if c in used or c in extra]
+
+
+def unassigned_stages(result):
+    """Stage names that are not EN 15804 modules, with the lines in them (their impacts would fall outside the
+    module table)."""
+    out = {}
+    for l in result["lines"]:
+        if not module_of(l["stage"]):
+            out.setdefault(l["stage"] or "Unassigned stage", []).append(l["name"])
+    return out
+
+
+def reconcile(result):
+    """Largest relative gap between the module table and the LCA result (A-C total and module D)."""
+    gap = 0.0
+    for m, r in zip(by_module(result), result["results"]):
+        ac = sum(v for c, v in m["modules"].items() if c != "D") + m["unassigned"]
+        scale = max(abs(r["total"]), abs(r.get("module_d") or 0), 1e-30)
+        gap = max(gap, abs(ac - r["total"]) / scale, abs(m["modules"]["D"] - (r.get("module_d") or 0)) / scale)
+    return gap
+
+
+_EF = re.compile(r"\bEF\s*v?(\d+)\.(\d+)", re.I)
+
+
+def ef_reference(families):
+    """True when the methods are the EF reference package 3.0 or later (or Cyclia's EN 15804+A2 IPCC split)."""
+    ok = []
+    for f in families:
+        m = _EF.search(f)
+        ok.append(bool(m and (int(m.group(1)), int(m.group(2))) >= (3, 0)) or "EN 15804+A2" in f)
+    return bool(ok) and all(ok)
 
 
 def _match_core(results):
@@ -89,9 +121,17 @@ def epd_checklist(model, result):
     add(model.get("unit") and model.get("product"), "Declared or functional unit stated", "EN 15804+A2 6.3.2, 6.3.3")
     add(all(m in dec for m in ("A1-A3", "C1", "C2", "C3", "C4", "D")),
         "Modules A1-A3, C1-C4 and D declared (mandatory unless an exception of 5.2 applies)", "EN 15804+A2 5.2")
-    add(not [c for c in COLUMNS if c not in dec and c.startswith("B")] or epd.get("rsl"),
+    un = unassigned_stages(result)
+    add(not un, "Every line is in an EN 15804 module (A1 to D)" + (
+        f" (not assigned: {', '.join(sorted(un))})" if un else ""), "EN 15804+A2 5.2, 7.2")
+    add("A1-A3" in dec or any(c in dec for c in ("A1", "A2", "A3")), "Product stage A1-A3 declared with inventory lines",
+        "EN 15804+A2 5.2")
+    gap = reconcile(result)
+    add(gap < 1e-6, "Module totals reconcile with the LCA result" + (f" (gap {gap * 100:.2g} %)" if gap >= 1e-6 else ""),
+        "EN 15804+A2 7.2")
+    add(not [c for c in COLUMNS if c in dec and c.startswith("B")] or epd.get("rsl"),
         "Reference service life given when B modules are declared", "EN 15804+A2 6.3.3")
-    add(any("EF" in f or "EN 15804" in f for f in fams), "Characterisation factors of the EF reference package (EF 3.1)",
+    add(ef_reference(fams), "Characterisation factors of the EF reference package (EF 3.0 or later) for every indicator",
         "EN 15804+A2 Annex C")
     missing = [a for a, _, _ in CORE if a not in core]
     add(not missing, "All core indicators calculated" + (f" (missing: {', '.join(missing)})" if missing else ""),
@@ -113,7 +153,10 @@ def epd_checklist(model, result):
         add("independent" in (epd.get("verification") or "").lower() and epd.get("verifier"),
             "Consumer (B2C) EPD: independent third-party verification with the verifier named", "ISO 14025:2026")
     if epd.get("prospective"):
-        add(bool(result.get("uncertainty")), "Prospective EPD: uncertainty of the results quantified (Monte Carlo)",
+        u = result.get("uncertainty")
+        conv = bool(u) and all(m.get("converged") for m in u["methods"])
+        add(conv, "Prospective EPD: uncertainty of the results quantified with a converged Monte Carlo run" +
+            ("" if conv else (" (the run has not converged; use more iterations)" if u else " (run Monte Carlo in step 4)")),
             "ISO 14025:2026")
     add(not [c for c in result["checks"] if c["level"] == "error"], "No errors in the Cyclia checks", "ISO 14044 4.5.3")
     return {"items": items, "declared": dec, "core_found": list(core), "core_missing": missing,
@@ -121,18 +164,18 @@ def epd_checklist(model, result):
 
 
 def specific_share(result):
-    """Share of the GWP-total (or first climate category) result that comes from lines marked as primary data."""
+    """Share of the GWP-total (or first climate category) result that comes from supply-chain-specific (primary)
+    data, over every level of nested models, with credits and module D left out (from the data quality weights)."""
     k = next((i for i, r in enumerate(result["results"]) if "climate" in r["category"].lower() and
               ("total" in r["category"].lower() or "total" in r["indicator"].lower())), None)
     if k is None:
         k = next((i for i, r in enumerate(result["results"]) if "climate" in r["category"].lower()), None)
     if k is None:
         return None
-    lines = [l for l in result["lines"] if not l["module_d"]]
-    tot = sum(abs(l["impact"][k]) for l in lines)
-    if not tot:
-        return None
-    return sum(abs(l["impact"][k]) for l in lines if l.get("data_type") == "primary") / tot
+    r = result["results"][k]
+    c = next((c for c in (result.get("data_quality") or {}).get("by_category", [])
+              if c["category"] == r["category"] and c["family"] == r["family"]), None)
+    return c["primary_share"] if c else None
 
 
 def _cell(v, declared):
@@ -148,6 +191,16 @@ def epd_word(path, model, result, databases, version=""):
     mods = by_module(result)
     dec = declared_modules(model, result)
     chk = epd_checklist(model, result)
+    un = unassigned_stages(result)
+    if un:
+        raise ValueError("The EPD cannot be written yet: these stages are not EN 15804 modules, so their impacts would be "
+                         "missing from the module table: " + "; ".join(f"'{k}' ({len(v)} line(s))" for k, v in un.items()) +
+                         ". Rename the stages in step 3 to A1-A3, A4, A5, B1 to B7, C1 to C4 or D.")
+    if not any(c in dec for c in ("A1-A3", "A1", "A2", "A3")):
+        raise ValueError("The EPD cannot be written yet: no line is in the product stage A1-A3.")
+    if reconcile(result) >= 1e-6:
+        raise ValueError("The EPD cannot be written: the module table does not add up to the LCA result. Please report "
+                         "this to support@niellosoft.com with the project file.")
     doc = Document()
     doc.styles["Normal"].font.size = Pt(9.5)
     sec = doc.sections[0]
@@ -234,11 +287,12 @@ def epd_excel(path, model, result):
     ws.title = "Indicators"
     dec = declared_modules(model, result)
     bold = Font(bold=True)
-    ws.append(["Indicator", "Indicator detail", "Unit"] + COLUMNS)
+    ws.append(["Indicator", "Indicator detail", "Unit"] + COLUMNS + ["Not in a module", "LCA result A-C", "Module D result"])
     for c in ws[1]:
         c.font = bold
-    for m in by_module(result):
-        ws.append([m["category"], m["indicator"], m["unit"]] + [m["modules"][c] if c in dec else "ND" for c in COLUMNS])
+    for m, r in zip(by_module(result), result["results"]):
+        ws.append([m["category"], m["indicator"], m["unit"]] + [m["modules"][c] if c in dec else "ND" for c in COLUMNS] +
+                  [m["unassigned"], r["total"], r.get("module_d") or 0])
     ws2 = wb.create_sheet("Checklist")
     ws2.append(["Requirement", "Status", "Reference"])
     for i in epd_checklist(model, result)["items"]:

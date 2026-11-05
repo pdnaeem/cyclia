@@ -393,9 +393,9 @@ and of waste.
   each result rests on primary data. Reviewers look at this first for the main contributors.
 - **Data source** and **note**: where the number comes from, and comments for co-authors.
 - **Details**: the reference or document, the year of the data, the supplier or site, whether it was checked
-  by a third party, and a price for life cycle costing. These go into the report's data provenance table.
-  Data older than 10 years raise a warning (EN 15804+A2 allows 10 years for generic data and 5 years for
-  producer-specific data).
+  by a third party, a price for life cycle costing, and optionally the four **PEF data quality scores** (TeR,
+  GeR, TiR, P). These go into the report's data provenance table. Producer-specific (primary) data older than
+  5 years and other data older than 10 years raise a warning (EN 15804+A2 6.3.8.2).
 - **Replace**: swap the dataset, keep the amount.
 - **Remove** and **Undo** (top).
 
@@ -451,7 +451,8 @@ or another method.
   year) or a consequential scenario defined in the Toolbox.
 - **Uncertainty analysis**: none; foreground (data quality and parameter distributions, seconds); or full
   Monte Carlo including the database's own uncertainty (minutes for ecoinvent; runs in the background).
-  1,000 iterations are usual.
+  1,000 iterations are usual. Both include every line and every parameter distribution of nested models
+  (models used inside your model), each with its own data quality, and the correlations you defined.
 
 Press **Calculate**.
 
@@ -466,10 +467,12 @@ can be concluded.
   contributors and stage, credits and module D, and the Monte Carlo interval if you ran one. It also says when
   different categories have different hotspots (a risk of burden shifting), which change would lower the
   result most, which important lines still have weak or default data, and what must be fixed first. Below
-  the findings, **Data quality of the results** gives a data quality rating (DQR) per category: the pedigree
-  scores weighted by each line's share of the impact, in the PEF form (TeR + GeR + TiR + P) / 4, from 1
-  (excellent) to 5 (poor), with the shares of primary, secondary, estimated and unstated data. The DQR is
-  indicative unless you gave the pedigree scores with the PEF criteria. Treat the findings as a draft for
+  the findings, **Data quality of the results** gives, per category, a **pedigree indicator**: the pedigree
+  scores of every line (also inside nested models) weighted by its share of the impact, credits left out, in
+  the form (TeR + GeR + TiR + P) / 4 from 1 (excellent) to 5 (poor). It is not a PEF DQR, because pedigree
+  reliability is not PEF precision. Enter the four PEF scores for your lines (Details in step 3) to get the
+  **PEF DQR** and the share of the impact it covers. The table also gives the shares of primary, secondary,
+  estimated and unstated data. Treat the findings as a draft for
   your interpretation: check each one against the other tabs and add what you know about the system.
   When you entered prices, the Summary also shows the **life cycle cost**; when the inventory has water flows,
   a **water inventory** (withdrawal, release, consumption).
@@ -482,8 +485,8 @@ can be concluded.
 - **Stages**: impact per life cycle stage.
 - **Sensitivity**: the effect of changing each input by the chosen %, parameter sensitivity, and Sobol
   indices (which uncertain inputs explain the spread).
-- **Uncertainty**: histogram and intervals from Monte Carlo, and whether the run has **converged** (standard
-  error of the mean below 1 % and a stable 95 % interval). If not, run more iterations.
+- **Uncertainty**: histogram and intervals from Monte Carlo, and whether the run has **converged** (the mean
+  is known to within 1 % of the 95 % interval, and the interval is stable). If not, run more iterations.
 - **Dynamic climate**: climate impact over time, when dynamic GWP is on.
 - **Map**: where impacts occur, by country of the processes.
 - **Explore parameters**: sweeps (result as a parameter changes), optimisation (best parameter values under
@@ -492,10 +495,17 @@ can be concluded.
 - **Inventory results**: all elementary flows, flows without a factor, toxicity coverage.
 - **Checks**: completeness, consistency and sensitivity checks (ISO 14044 4.5.3). Each check links to the
   step where you fix it. Errors must be fixed; warnings and notes should be explained in the report.
-- **Compare**: models side by side (with paired Monte Carlo: the probability that A is lower than B) and
+- **Compare**: before comparing, write the **functional equivalence**: why the alternatives give the same
+  function (performance, service life, quality). Cyclia blocks comparisons whose functional units differ, and
+  lists differences in boundary, stages, allocation, approach, geography, period, background data and data
+  quality. Only without such differences and with the equivalence statement is it a valid comparison;
+  otherwise it is shown as a screening comparison, which you must not present as a comparative assertion.
+  Models side by side (with paired Monte Carlo: the probability that A is lower than B) and
   scenarios of one model. Above the chart Cyclia states which alternative is lowest in each category. When
   no alternative is lowest everywhere, choosing one shifts burdens to other categories, and the report must
-  show all categories. Differences below 10 % are flagged as likely within data uncertainty.
+  show all categories. Whether a difference is real is judged with the **comparative Monte Carlo**: a difference
+  counts as robust when one alternative is lower in at least 95 % of the runs. Scenario comparison lists, per
+  scenario, which categories go down and which go up.
 
 **A difference is only meaningful when it is larger than the uncertainty.** Use the paired Monte Carlo in
 Compare before you claim that one product is better.
@@ -523,7 +533,9 @@ Compare before you claim that one product is better.
 - **Write methods paragraph**: the methods text alone, to copy.
 - **Standards and declarations**: EPD per ISO 14025:2026 and EN 15804+A2 (modules A1 to D, with a requirements
   check, the intended audience, the share of the GWP result from supply-chain-specific data, months of
-  specific data, and prospective EPDs with their uncertainty), an ISO
+  specific data, and prospective EPDs with their uncertainty). Every line must be in an EN 15804 module (A1-A3,
+  A4, A5, B1 to B7, C1 to C4, D); Cyclia does not write the EPD while a stage has another name, and checks that
+  the module table adds up to the LCA result. Then an ISO
   14067 carbon footprint report and a GHG Protocol workbook.
 - **Critical review checklist**: the ISO 14044 items a reviewer checks, with your notes, exported to Excel.
 - **Share, reproduce, exchange**: a reproducibility bundle (models, settings and fingerprints of the
@@ -546,7 +558,8 @@ Compare before you claim that one product is better.
 - **Teaching**: exercises with automatic checking and an answer key for teachers.
 - **Database versions**: compare two databases (for example two ecoinvent versions) on the datasets your
   project uses or on a sample, with the median change per category and the largest changes, and move the open
-  model to the new version in one step (with undo).
+  model and every model nested in it to the new version in one step, with results before and after and one
+  button to undo the whole migration.
 - **Project overview**: all models of the project with their inventory size, data quality and review status;
   **Calculate all models** adds their results.
 

@@ -1112,15 +1112,15 @@ function renderResults() {
   renderSummary(); renderCat(); renderStages(); renderChecks(); renderLci(); renderDyn(); renderTox(); prepareExplore();
   showTab(S.rt);
 }
-const FINDING_ICON = { priority: "Focus", result: "Result", tradeoff: "Trade-off", improve: "Improve", data: "Data", quality: "Quality", cost: "Cost", error: "Fix" };
+const FINDING_ICON = { priority: "Focus", result: "Result", hotspots: "Hotspots", improve: "Improve", credit: "Credit", data: "Data", quality: "Quality", cost: "Cost", error: "Fix" };
 function renderSummary() {
   const r = S.result, f = r.findings || [], dq = r.data_quality || {};
   $("#summaryFindings").innerHTML = f.length ? f.map((x) => `<article class="finding k-${esc(x.kind)}"><span class="ftag">${FINDING_ICON[x.kind] || ""}</span><div><h3>${esc(x.title)}</h3><p>${esc(x.text)}</p></div></article>`).join("")
     : '<p class="empty">No findings yet. Add inputs with an impact and calculate again.</p>';
   const cats = dq.by_category || [];
   const share = (v) => (100 * v).toFixed(0) + "%";
-  $("#summaryDq").innerHTML = cats.length ? `<div class="table-wrap"><table><thead><tr><th>Impact category</th><th class="num">DQR</th><th>Rating</th><th class="num">Primary</th><th class="num">Secondary</th><th class="num">Estimate</th><th class="num">Not stated</th></tr></thead><tbody>` +
-    cats.map((c) => `<tr><td>${esc(c.category)}</td><td class="num">${c.dqr.toFixed(2)}</td><td><span class="dq-pill dq-${esc(c.rating.replace(" ", "-"))}">${esc(c.rating)}</span></td><td class="num">${share(c.primary_share)}</td><td class="num">${share(c.secondary_share)}</td><td class="num">${share(c.estimate_share)}</td><td class="num">${share(c.unstated_share)}</td></tr>`).join("") +
+  $("#summaryDq").innerHTML = cats.length ? `<div class="table-wrap"><table><thead><tr><th>Impact category</th><th class="num">Pedigree indicator</th><th class="num">PEF DQR</th><th class="num">Primary</th><th class="num">Secondary</th><th class="num">Estimate</th><th class="num">Not stated</th></tr></thead><tbody>` +
+    cats.map((c) => `<tr><td>${esc(c.category)}</td><td class="num">${c.dqr.toFixed(2)} <span class="dq-pill dq-${esc(c.rating.replace(" ", "-"))}">${esc(c.rating)}</span></td><td class="num">${c.pef_dqr != null ? `${c.pef_dqr.toFixed(2)} <span class="dq-pill dq-${esc(c.pef_rating.replace(" ", "-"))}">${esc(c.pef_rating)}</span><br><span class="hint">covers ${share(c.pef_coverage)}</span>` : '<span class="hint">enter PEF scores</span>'}</td><td class="num">${share(c.primary_share)}</td><td class="num">${share(c.secondary_share)}</td><td class="num">${share(c.estimate_share)}</td><td class="num">${share(c.unstated_share)}</td></tr>`).join("") +
     `</tbody></table></div><p class="hint">${esc(dq.note || "")}${dq.default_lines ? ` ${dq.default_lines} line${dq.default_lines > 1 ? "s still have" : " still has"} the default pedigree (3,3,3,3,3): rate them in step 3.` : ""}</p>` +
     ((dq.priority || []).length ? `<h3>Improve these data first</h3><ul class="dq-list">${dq.priority.map((x) => `<li><b>${esc(x.name)}</b> <span class="hint">${esc(x.stage)}</span>: up to ${share(x.max_share)} of a category, pedigree (${x.pedigree.join(",")}), ${esc(x.data_type || "type not stated")}${x.default ? ", default scores" : ""}</li>`).join("")}</ul>` : "")
     : '<p class="empty">No data quality to show.</p>';
@@ -1162,7 +1162,7 @@ function renderCat() {
       <line x1="${xp(x.total)}" x2="${xp(x.total)}" y1="0" y2="${H}" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="3 3"/>
       <text x="0" y="${H + 17}" font-size="11" fill="var(--ink-soft)">${fmt(lo)}</text>
       <text x="${W}" y="${H + 17}" font-size="11" fill="var(--ink-soft)" text-anchor="end">${fmt(hi)}</text></svg>`;
-    $("#mcNote").textContent = `${x.category}: median ${fmt(m.median)}, 95% interval ${fmt(m.p2_5)} to ${fmt(m.p97_5)} ${x.unit}, CV ${m.cv_percent != null ? m.cv_percent.toFixed(1) : "-"}%. ${m.converged === true ? `Converged (standard error of the mean ${m.se_mean_percent.toFixed(2)} %).` : m.converged === false ? `Not converged yet (standard error of the mean ${m.se_mean_percent != null ? m.se_mean_percent.toFixed(2) : "-"} %, interval moved ${m.interval_drift_percent != null ? m.interval_drift_percent.toFixed(0) : "-"} % between the first half and all runs): use more iterations.` : ""} Dashed line: deterministic result. ${u.note}`;
+    $("#mcNote").textContent = `${x.category}: median ${fmt(m.median)}, 95% interval ${fmt(m.p2_5)} to ${fmt(m.p97_5)} ${x.unit}, CV ${m.cv_percent != null ? m.cv_percent.toFixed(1) : "-"}%. ${m.converged === true ? `Converged (standard error of the mean ${m.se_width_percent.toFixed(2)} % of the interval width; interval stable within ${m.interval_drift_percent.toFixed(0)} %).` : m.converged === false ? `Not converged yet (standard error of the mean ${m.se_width_percent != null ? m.se_width_percent.toFixed(2) : "-"} % of the interval width, interval moved ${m.interval_drift_percent != null ? m.interval_drift_percent.toFixed(0) : "-"} % between the first half and all runs; aim for below 1 % and 10 %): use more iterations.` : ""} Dashed line: deterministic result. ${u.note}`;
   }
   if (S.rt === "tree") renderTree();
   if (S.rt === "map") renderMap();
@@ -1288,23 +1288,21 @@ function compareIds() {
   return ids;
 }
 function compareNotes(res) {
-  // Which alternative is lowest in each category, whether that changes between categories (burden shifting),
-  // and which differences are small enough to be within ordinary LCA uncertainty.
+  // Which alternative has the lower result per category. Whether a difference is real is judged with the
+  // comparative Monte Carlo, not with a fixed threshold.
   const names = res.models.map((m) => m.model.name);
-  const best = {}, close = [];
+  const best = {};
   res.methods.forEach((meth, k) => {
     const vals = res.models.map((m) => m.totals[k]);
-    const lo = Math.min(...vals), i = vals.indexOf(lo);
-    const sorted = [...vals].sort((a, b) => a - b);
+    const i = vals.indexOf(Math.min(...vals));
     (best[names[i]] = best[names[i]] || []).push(meth.category);
-    if (sorted.length > 1 && Math.abs(sorted[1]) > 0 && Math.abs(sorted[1] - sorted[0]) / Math.abs(sorted[1]) < 0.1) close.push(meth.category);
   });
   const winners = Object.keys(best);
   const lines = [];
-  if (winners.length > 1) lines.push(`<p><b>No alternative is lowest in every category.</b> ${winners.map((n) => `${esc(n)} is lowest in ${best[n].map(esc).join(", ")}`).join("; ")}. Choosing one shifts burdens to other categories (ISO 14044 4.5). Report all categories, not only the favourable ones.</p>`);
-  else if (winners.length === 1 && res.methods.length > 1) lines.push(`<p><b>${esc(winners[0])} is lowest in every selected category.</b> Check that the functional units and system boundaries are the same before you conclude.</p>`);
-  if (close.length) lines.push(`<p>Differences below 10 % in ${close.map(esc).join(", ")}: these are often within data uncertainty. Run the comparative Monte Carlo below before you claim one is better.</p>`);
-  return lines.length ? `<div class="cmp-notes">${lines.join("")}</div>` : "";
+  if (winners.length > 1) lines.push(`<p><b>No alternative has the lowest result in every category.</b> ${winners.map((n) => `${esc(n)}: lowest in ${best[n].map(esc).join(", ")}`).join("; ")}. Choosing one moves burdens to other categories (burden shifting, ISO 14044 4.5); report all categories.</p>`);
+  else if (winners.length === 1 && res.methods.length > 1) lines.push(`<p><b>${esc(winners[0])} has the lowest result in every selected category.</b></p>`);
+  lines.push('<p class="hint">Run the comparative Monte Carlo below to see whether each difference is larger than the uncertainty.</p>');
+  return `<div class="cmp-notes">${lines.join("")}</div>`;
 }
 function groupedBars(names, methods, values) {
   return `<div class="cmp-legend">${names.map((n, i) => `<span><i style="background:${CMP_COLORS[i % 6]}"></i>${esc(n)}</span>`).join("")}</div>` +
@@ -1316,10 +1314,17 @@ function groupedBars(names, methods, values) {
     }).join("");
 }
 $("#btnCompare").addEventListener("click", (e) => guard(e.target, async () => {
-  const res = await api("POST", "/api/compare", { model_ids: compareIds(), method_ids: [...S.selectedMethods], scenario: $("#scenarioSel").value || null, ...bgBody() });
+  const res = await api("POST", "/api/compare", { model_ids: compareIds(), method_ids: [...S.selectedMethods], scenario: $("#scenarioSel").value || null,
+    equivalence: $("#compareEquiv").value.trim(), ...bgBody() });
   const out = $("#compareOut");
   out.hidden = false;
-  out.innerHTML = res.warnings.map((w) => `<p class="danger">${esc(w)}</p>`).join("") + compareNotes(res) + groupedBars(res.models.map((m) => m.model.name), res.methods, res.models.map((m) => m.totals));
+  S.compareStatus = res.status;
+  const head = { valid: "Comparison checks passed", screening: "Screening comparison, not a comparative assertion", blocked: "These models cannot be compared yet" }[res.status];
+  out.innerHTML = `<div class="cmp-gate g-${res.status}"><h3>${head}</h3><p>${esc(res.note)}</p>` +
+    (res.blocking.length ? `<ul>${res.blocking.map((w) => `<li class="danger">${esc(w)}</li>`).join("")}</ul>` : "") +
+    (res.issues.length ? `<p><b>Differences to resolve or justify:</b></p><ul>${res.issues.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : "") +
+    (!res.blocking.length && !res.equivalence ? '<p class="hint">Add a functional equivalence statement above and compare again.</p>' : "") + "</div>" +
+    (res.status === "blocked" ? "" : compareNotes(res) + groupedBars(res.models.map((m) => m.model.name), res.methods, res.models.map((m) => m.totals)));
 }));
 $("#btnCompareMc").addEventListener("click", (e) => guard(e.target, async () => {
   const ids = compareIds();
@@ -1329,10 +1334,15 @@ $("#btnCompareMc").addEventListener("click", (e) => guard(e.target, async () => 
   out.hidden = false; out.innerHTML = '<p class="hint">Running the comparative Monte Carlo; progress is shown at the bottom left.</p>';
   watchJob(job, { quiet: true, onDone: async (j) => {
     const r = j.result;
-    out.innerHTML = `<h2>Comparative Monte Carlo (${r.iterations} iterations)</h2><p class="hint">${esc(r.note)} All models use the same random values in each iteration.</p>
+    const verdict = (v, a, b) => v == null ? "no difference" : v >= 0.95 ? `${esc(a)} lower (${(100 * v).toFixed(0)} %)` : v <= 0.05 ? `${esc(b)} lower (${(100 * (1 - v)).toFixed(0)} %)` : `not distinguishable (${(100 * v).toFixed(0)} %)`;
+    const conv = r.models.every((m) => m.methods.every((x) => x.converged));
+    out.innerHTML = `<h2>Comparative Monte Carlo (${r.iterations} iterations)</h2><p class="hint">${esc(r.note)}</p>
+      ${S.compareStatus && S.compareStatus !== "valid" ? '<p class="danger">The comparison checks did not pass (see above): treat these probabilities as a screening result.</p>' : ""}
+      ${conv ? "" : '<p class="danger">Not all results have converged: run more iterations before drawing conclusions.</p>'}
       <div class="table-wrap"><table class="prob-table"><thead><tr><th>Comparison</th>${r.methods.map((m) => `<th class="num">${esc(m.category)}</th>`).join("")}</tr></thead><tbody>` +
-      r.pairs.map((p) => `<tr><td>Probability that ${esc(p.a)} is lower than ${esc(p.b)}</td>${p.p_a_lower.map((v) => `<td class="num">${v == null ? "no difference" : (100 * v).toFixed(0) + "%"}</td>`).join("")}</tr>`).join("") +
-      "</tbody></table></div>" +
+      r.pairs.map((p) => `<tr><td>${esc(p.a)} vs ${esc(p.b)}<br><span class="hint">probability that ${esc(p.a)} is lower</span></td>${p.p_a_lower.map((v) => `<td class="num">${verdict(v, p.a, p.b)}</td>`).join("")}</tr>` +
+        `<tr><td class="hint">95 % interval of the difference ${esc(p.a)} minus ${esc(p.b)}</td>${p.diff_p2_5.map((lo, k) => `<td class="num hint">${fmt(lo)} to ${fmt(p.diff_p97_5[k])}</td>`).join("")}</tr>`).join("") +
+      "</tbody></table></div><p class=\"hint\">A difference counts as robust here when one alternative is lower in at least 95 % of the runs (the difference interval then excludes zero on that side).</p>" +
       `<div class="table-wrap"><table><thead><tr><th>Model</th>${r.methods.map((m) => `<th class="num">${esc(m.category)} 95% interval</th>`).join("")}</tr></thead><tbody>` +
       r.models.map((m) => `<tr><td>${esc(m.name)}</td>${m.methods.map((s) => `<td class="num">${fmt(s.p2_5)} to ${fmt(s.p97_5)}</td>`).join("")}</tr>`).join("") + "</tbody></table></div>";
     toast("Comparative Monte Carlo finished.");
@@ -1344,7 +1354,14 @@ $("#btnCompareScen").addEventListener("click", (e) => guard(e.target, async () =
   const ids = $$("#compareScen input:checked").map((i) => Number(i.value));
   if (!ids.length) throw new Error("Tick at least one scenario.");
   const res = await api("POST", "/api/compare-scenarios", { model_id: S.model.id, method_ids: [...S.selectedMethods], scenario_ids: ids, ...bgBody() });
-  $("#compareScenOut").innerHTML = groupedBars(res.scenarios.map((s) => s.scenario), res.methods, res.scenarios.map((s) => s.totals));
+  const base = res.scenarios[0];
+  const shifts = res.scenarios.slice(1).map((sc) => {
+    const up = [], down = [];
+    res.methods.forEach((m, k) => { const d = sc.totals[k] - base.totals[k], rel = Math.abs(base.totals[k]) > 0 ? d / Math.abs(base.totals[k]) : 0;
+      if (d > 0 && Math.abs(rel) > 1e-9) up.push(`${esc(m.category)} +${(100 * rel).toFixed(1)} %`); else if (d < 0 && Math.abs(rel) > 1e-9) down.push(`${esc(m.category)} ${(100 * rel).toFixed(1)} %`); });
+    return `<li><b>${esc(sc.scenario)}</b> against base values: ${down.length ? "lower in " + down.join(", ") : "no category lower"}${up.length ? `; <span class="danger">higher in ${up.join(", ")}</span>${down.length ? " (burden shifting)" : ""}` : ""}.</li>`;
+  });
+  $("#compareScenOut").innerHTML = (shifts.length ? `<ul class="cmp-notes">${shifts.join("")}</ul>` : "") + groupedBars(res.scenarios.map((s) => s.scenario), res.methods, res.scenarios.map((s) => s.totals));
 }));
 
 /* ---------------- report ---------------- */
