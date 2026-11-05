@@ -22,8 +22,8 @@ life-cycle-assessment lca lca-software iso-14044 ecoinvent carbon-footprint epd 
 
 Settings > General > Social preview: upload `.github/social-preview.png`.
 
-## Release title for 1.4.0
+## Release title for 1.4.1
 
-Cyclia 1.4.0: land use agrees with ecoinvent, inventory check, database integrity
+Cyclia 1.4.1: validated against ecoinvent (100 % of 2,500 results within 0.1 %)
 
-Paste the text of `docs/RELEASE_NOTES_v1.4.0.md` as the release description.
+Paste the text of `docs/RELEASE_NOTES_v1.4.1.md` as the release description.

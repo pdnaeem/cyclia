@@ -681,6 +681,13 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
             x["note"] = f"{u_['n']} unresolved inputs in the supply chain ({', '.join(u_['products'][:3])})"
     res = _bench_summary(store, mc, M, mcols, out, len(chosen), len(rows), len(matched), groups)
     res["database"] = db_name
+    # what was compared, for the record (1.4.1): database name, version and system model, and the results file
+    ids = sorted({a["id"] for _, _, a in chosen})
+    dbs = store.q("SELECT DISTINCT d.name, d.version, d.system_model FROM databases d JOIN activities a ON a.db_id=d.id "
+                  f"WHERE a.id IN ({','.join('?' * len(ids))})", ids) if ids else []
+    res["databases_compared"] = [dict(d) for d in dbs]
+    res["results_file"] = os.path.basename(str(path))
+    res["lci_file"] = os.path.basename(str(lci_path)) if lci_path else ""
     progress(99, "Looking for the causes of deviations")
     res["diagnosis"] = diagnose(store, mc, M, mcols, out)
     res["factor_finder"] = factor_finder(store, mc, M, mcols, out, G)
@@ -1010,7 +1017,14 @@ def benchmark_excel(path, res):
     ws.append(["Cyclia benchmark against ecoinvent's cumulative LCIA results"])
     ws["A1"].font = b
     env = res["environment"]
+    dbs = res.get("databases_compared") or []
     for k, v in (("Verdict", res["verdict"]), ("Cyclia", env["cyclia"]), ("Date", env["date"]),
+                 ("Database", "; ".join(d["name"] for d in dbs)),
+                 ("Database version", "; ".join(str(d["version"] or "") for d in dbs)),
+                 ("System model", "; ".join(str(d["system_model"] or "") for d in dbs)),
+                 ("Methods", ", ".join(res.get("families") or [])),
+                 ("ecoinvent results file", res.get("results_file", "")),
+                 ("ecoinvent cumulative LCI file", res.get("lci_file", "") or "not used"),
                  ("Datasets compared", res["datasets"]), ("Datasets in the results file", res["datasets_in_file"]),
                  ("Found in the library", res["datasets_matched"]), ("Categories", res["categories"]),
                  ("Results compared", res["summary"].get("n")), ("Median deviation (%)", res["summary"].get("median")),

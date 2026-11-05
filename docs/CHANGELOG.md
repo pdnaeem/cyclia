@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.1 (2026-11-05)
+
+- **Validation against ecoinvent recorded**: docs/VALIDATION_ECOINVENT.md. 100 % of 2,500 results (100 datasets x
+  25 EF v3.1 categories, cut-off) agree with ecoinvent's published results within 0.1 %; median deviation 3.9e-07 %,
+  largest 0.0018 %. README updated.
+- The benchmark report's Summary sheet now records the compared database (name, version, system model), the methods
+  and the names of ecoinvent's results and cumulative LCI files, so a report identifies what it validated.
+
 ## 1.4.0 (2026-11-05)
 
 First release with the work of 1.3.8 to 1.3.10 that passes the build on every platform. 1.3.10 failed the macOS

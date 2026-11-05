@@ -125,7 +125,10 @@ LCA results only matter if they are right. Cyclia checks itself in six independe
 3. **An independent cross-check**: datasets and models recalculated by a second implementation (matrices rebuilt,
    a different solver) inside the app; see [`docs/CROSS_VALIDATION.md`](docs/CROSS_VALIDATION.md).
 4. **Automatic comparison with ecoinvent's own LCIA results**: connect your ecoinvent account and
-   Cyclia recalculates a sample of datasets and reports the deviation per impact category.
+   Cyclia recalculates a sample of datasets and reports the deviation per impact category. Result
+   (EF v3.1, cut-off): **100 % of 2,500 results within 0.1 % of ecoinvent, median deviation 3.9e-07 %**; see
+   [`docs/VALIDATION_ECOINVENT.md`](docs/VALIDATION_ECOINVENT.md). An inventory check against ecoinvent's
+   cumulative LCI tells an inventory difference from a factor difference.
 5. **Factor matching validation**: Cyclia's characterisation factors compared flow by flow with an openLCA
    JSON-LD export, a Brightway export or a CSV, with the effect of every difference on your models.
 6. **A comparison kit** that runs the same database in Brightway and openLCA and reports the differences.
@@ -184,7 +187,7 @@ login or to check for updates.
 
 If Cyclia helps your research, please cite it. Citing is how free scientific software gets credit.
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.4.0)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.4.1)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [`CITATION.cff`](CITATION.cff). Inside
@@ -216,7 +219,7 @@ python -m unittest discover -s engine/tests -v
 ```
 
 On Windows, `build-windows.bat` runs the tests, builds the engine and produces the installer in
-`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.4.0` makes GitHub
+`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.4.1` makes GitHub
 Actions build Windows, macOS and Linux installers and publish them as a release.
 
 ```

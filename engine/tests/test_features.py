@@ -784,6 +784,10 @@ class TestOfficial(unittest.TestCase):
         wb = load_workbook(self.api("POST", "/api/export/benchmark", {})["path"])
         self.assertIn("Cause of deviations", wb.sheetnames)
         self.assertIn("Inventory check", wb.sheetnames)
+        summ = {r[0]: r[1] for r in wb["Summary"].iter_rows(values_only=True) if r and r[0]}
+        self.assertTrue(summ["Database"])
+        self.assertEqual(summ["ecoinvent cumulative LCI file"], "lci.xlsx")
+        self.assertIn(demo.FAMILY, summ["Methods"])
 
     def test_inventory_check_inventory_cause(self):
         """1.3.8: when ecoinvent's inventory has more of a flow than Cyclia's, the deviation is an inventory cause and
