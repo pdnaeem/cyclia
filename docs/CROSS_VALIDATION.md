@@ -29,8 +29,10 @@ expansion:
 The comparison is made per dataset (one unit of its reference product) and per model (the functional unit),
 for every selected impact category. Agreement means a relative difference below 1e-5. A dense solve agrees to
 round-off (around 1e-14); an iterative solve agrees to about the condition number of the matrix times machine
-precision. Values below 1e-12 of the largest result of a category are treated as zero, because the engine sets
-such round-off to zero.
+precision. Differences are measured against at least 1e-9 of the largest result of a category, the size of
+that round-off for the tutorial library (condition number 4e6). Until 1.3.4 this floor was 1e-12, which made a
+model result that cancels to about zero (a credit for avoided steel) fail the check on macOS, where the
+numerical libraries round differently: 1e-14 of round-off was reported as a relative difference of 6e-5.
 
 The test suite checks that the cross-check fails when the engine is made wrong by 0.01 %.
 

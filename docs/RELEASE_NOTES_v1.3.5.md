@@ -29,6 +29,12 @@ with its own code, tests, demonstration data and acceptance criteria (`docs/ACCE
   recycling loops, checked for mass balance every year, plus the Material Circularity Indicator.
 - **Grouped results tabs**: the main analyses in front, the rest under "More analyses".
 
+## Fixed
+
+- The macOS installer was not built for 1.3.4: the independent cross-check, which runs before every build,
+  reported round-off of a result close to zero as a difference. This is fixed, so the macOS version is available
+  again.
+
 ## What 1.3.5 does not do
 
 - It ships no AWARE, LANCA, PSILCA or SOCA data, because these must come from their owners.

@@ -47,6 +47,12 @@ Interface
 - Results tabs grouped: the main analyses in front, Dynamic climate, Map, Explore parameters and PEF under
   "More analyses".
 
+Fixed
+- The independent cross-check failed on macOS (and the macOS installer was not built) because a model result
+  that cancels to about zero turned 1e-14 of round-off into a relative difference of 6e-5. Differences are now
+  measured against at least 1e-9 of the largest result of the category, and the iterative solver refines until
+  the residual stops improving.
+
 Tests
 - 137 automated tests (24 new for 1.3.5, including the shipped demonstration files).
 

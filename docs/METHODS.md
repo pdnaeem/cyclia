@@ -310,8 +310,10 @@ its non-dominated points form the Pareto front.
 **Independent cross-check**: datasets and models are recalculated by a second implementation that rebuilds A and B
 from the library tables, solves with LAPACK dense LU (up to 4,000 datasets) or GMRES with an ILU preconditioner
 and iterative refinement, applies factors per flow and site factors from their own table, and flattens nested
-models separately. Agreement: relative difference below 1e-5, with values below 1e-12 of the largest result of a
-category taken as zero. Details and results: docs/CROSS_VALIDATION.md.
+models separately. Agreement: relative difference below 1e-5, measured against at least 1e-9 of the largest result of
+the category (the round-off of solving A s = f is about machine precision times the condition number of A, 1e-9
+for the tutorial library; without this floor a result that cancels to about zero turns round-off into a large
+relative difference). Details and results: docs/CROSS_VALIDATION.md.
 
 **Land use reconciliation** (ecoinvent benchmark): for each land use category, Cyclia's result of every compared
 dataset is split into occupation, transformation-from and transformation-to contributions c_dg; the factor

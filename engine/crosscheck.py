@@ -64,6 +64,7 @@ def _cf_matrix(store, method_ids, fpos):
 class _Solver:
     DENSE_MAX = 4000
     TOLERANCE = 1e-5     # relative; above round-off of ill-conditioned matrices, far below any modelling error
+    ROUNDOFF = 1e-9      # differences are measured against at least this share of the largest result of the category
 
     def __init__(self, A):
         self.A = A
@@ -84,18 +85,29 @@ class _Solver:
             return lu_solve(self.dense, f)
         nf = np.linalg.norm(f) or 1.0
         x = np.zeros_like(f)
-        for _ in range(8):  # GMRES with iterative refinement on the residual
+        best_x, best_r = x, 1.0
+        stalled = 0
+        # GMRES with iterative refinement on the residual, continued until the residual reaches round-off or stops
+        # improving; the best iterate is kept.
+        for _ in range(60):
             r = f - self.A @ x
-            if np.linalg.norm(r) / nf < 1e-12:
+            rn = np.linalg.norm(r) / nf
+            if rn < best_r * 0.5:
+                stalled = 0
+            else:
+                stalled += 1
+            if rn < best_r:
+                best_x, best_r = x, rn
+            if rn < 1e-15 or stalled >= 3:
                 break
             try:
-                d, _info = spl.gmres(self.A, r, M=self.M, rtol=1e-12, atol=0.0, restart=200, maxiter=500)
+                d, _info = spl.gmres(self.A, r, M=self.M, rtol=1e-14, atol=0.0, restart=200, maxiter=1000)
             except TypeError:  # SciPy older than 1.12
-                d, _info = spl.gmres(self.A, r, M=self.M, tol=1e-12, atol=0.0, restart=200, maxiter=500)
+                d, _info = spl.gmres(self.A, r, M=self.M, tol=1e-14, atol=0.0, restart=200, maxiter=1000)
             x = x + d
-        if np.linalg.norm(f - self.A @ x) / nf > 1e-9:
+        if best_r > 1e-9:
             raise ValueError("The iterative solver did not converge (relative residual above 1e-9).")
-        return x
+        return best_x
 
 
 def _model_demand(store, ctx, model_id, pos, fpos, keep_top, depth=0, factor=1.0, f=None, g=None, fixed=None):
@@ -177,8 +189,11 @@ def run(store, method_ids, sample=200, seed=5, model_ids=None, progress=lambda *
                      "cyclia": [float(x) for x in eng]})
     progress(95, "Comparing")
     worst = 0.0
-    # values below 1e-12 of the largest result of a category are round-off (the engine sets such values to zero)
-    floor = [1e-12 * max([max(abs(r["independent"][k]), abs(r["cyclia"][k])) for r in rows] or [0.0])
+    # Round-off floor: differences are measured against at least ROUNDOFF x the largest result of the category.
+    # Solving A s = f in double precision leaves errors up to about eps x cond(A) of the largest values (cond 4e6 for
+    # the tutorial library gives 1e-9), so a result that cancels to about zero (credits, avoided products) would
+    # otherwise turn 1e-14 of round-off into a large "relative" difference. Results are then compared to 1e-5.
+    floor = [_Solver.ROUNDOFF * max([max(abs(r["independent"][k]), abs(r["cyclia"][k])) for r in rows] or [0.0])
              for k in range(len(method_ids))]
     for r in rows:
         dev = []

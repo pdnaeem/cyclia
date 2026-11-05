@@ -186,8 +186,11 @@ class TestCrossCheck(Base):
         r2 = crosscheck.run(self.st, mids, sample=1000, model_ids=ids)
         self.assertEqual(r2["solver"], "GMRES with ILU preconditioner")
         self.assertLess(r2["max_relative_difference"], crosscheck._Solver.TOLERANCE)
+        self.assertLess(r2["max_relative_difference"], 1e-6)   # margin: macOS arm64 gave 6e-5 before the 1.3.5 fix
         self.assertTrue(r2["passed"])
-        self.assertLess(r["max_relative_difference"], 1e-12)          # dense LU: round-off only
+        # dense LU: round-off only. Not 1e-12: a result that cancels to about zero is measured against 1e-9 of the
+        # category's largest result, and 1e-14 of round-off on another platform must not fail the build
+        self.assertLess(r["max_relative_difference"], 1e-6)
         xl = os.path.join(self.dir, "x.xlsx")
         crosscheck.to_excel(xl, r2, "x")
         self.assertTrue(os.path.exists(xl))
