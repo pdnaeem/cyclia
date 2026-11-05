@@ -692,7 +692,7 @@
         <button data-tt="chem">Chemicals and site factors</button><button data-tt="tpl">Templates</button>
         <button data-tt="code">Python, R and other software</button><button data-tt="teach">Teaching</button>
         <button data-tt="dbs">Database versions</button><button data-tt="dash">Project overview</button><button data-tt="alloc">Allocation</button>
-        <button data-tt="regional">Regional methods</button><button data-tt="social">Social LCA</button><button data-tt="mfa">Material flows</button>
+        <button data-tt="regional">Regional methods</button><button data-tt="social">Social LCA</button><button data-tt="mfa">Material flows</button><button data-tt="explore">Database explorer</button>
       </div>
       <div class="tt" id="tt-valid">
         <div class="block">
@@ -761,7 +761,8 @@
           <h2>Assess the open model</h2>
           <div class="form-grid">
             <label>Site or watershed of the model's own water use (AWARE location code)<input id="awareLoc" placeholder="e.g. FR, or a basin id of your AWARE table"></label>
-            <label>Type of water use of the model and its suppliers<select id="awareUse"><option value="unknown">unknown</option><option value="non-agri">non-agricultural</option><option value="agri">agricultural</option></select></label>
+            <label>Type of use of the model's own water<select id="awareUse"><option value="unknown">unknown</option><option value="non_agri">non-agricultural</option><option value="agri">agricultural</option></select></label>
+            <label>Type of use in the supply chain<select id="awareBg"><option value="by process">by process: irrigation agricultural, others non-agricultural</option><option value="unknown">unknown, except irrigation</option></select></label>
           </div>
           <div class="row"><button class="primary" id="btnAware">AWARE water scarcity</button><button class="primary" id="btnLanca">LANCA land use</button></div>
           <div id="regOut"></div>
@@ -800,6 +801,14 @@
             <label>Intensity of use / industry average<input data-mci="U_ratio" type="number" step="0.1" min="0.01" value="1"></label>
           </div>
           <div class="row"><button class="primary" id="btnMci">Calculate MCI</button><span id="mciOut"></span></div>
+        </div>
+      </div>
+      <div class="tt" id="tt-explore" hidden>
+        <div class="block">
+          <h2>Database explorer</h2>
+          <p class="hint">Browse every dataset of the library: its identity, inputs and their suppliers, the datasets that use it, inputs without a supplier and why, elementary flows with their uncertainty, and data quality. Click a supplier or a user to move along the supply chain.</p>
+          <div class="row"><select id="exDb"></select><input id="exQ" class="grow" placeholder="Search name, product or location (empty: first 100)"><label class="inline"><input type="checkbox" id="exUnres"> only datasets with unresolved inputs</label><button class="primary" id="btnExSearch">Search</button></div>
+          <div class="ex-cols"><ul class="results" id="exResults"></ul><div id="exDetail"><p class="empty">Choose a dataset.</p></div></div>
         </div>
       </div>
       <div class="tt" id="tt-alloc" hidden>
@@ -966,5 +975,6 @@
 <script src="setup.js"></script>
 <script src="pro.js"></script>
 <script src="v135.js"></script>
+<script src="v136.js"></script>
 </body>
 </html>

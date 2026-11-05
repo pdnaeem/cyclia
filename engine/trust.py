@@ -626,6 +626,15 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
         v = [abs(r["values"][c["id"]]) for _, r, _ in chosen if r["values"].get(c["id"])]
         scale_of[c["id"]] = float(np.median(v)) if v else 0.0
     out = []
+    # unresolved inputs (no supplier, ambiguous, or no link in the dataset): a deviating dataset whose supply chain
+    # holds some may simply miss part of its inventory; such deviations show in several categories at once
+    unl = {}
+    for u in store.q("SELECT output_id, product, reason FROM unlinked WHERE linked_to IS NULL"):
+        j_ = mc.act_index.get(u["output_id"])
+        if j_ is not None:
+            unl.setdefault(j_, []).append(u)
+    unl_idx = np.array(sorted(unl), dtype=int)
+    unresolved_of = {}
     for n, (g, r, a) in enumerate(chosen):
         j = mc.act_index.get(a["id"])
         if j is None:
@@ -635,6 +644,12 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
         x_s = mc.solve(f)
         h = M.Q @ x_s
         G[a["id"]] = mc.B @ x_s
+        if len(unl_idx):
+            hit = unl_idx[np.abs(x_s[unl_idx]) > 1e-12 * (np.abs(x_s).max() or 1)]
+            if len(hit):
+                us = [u for i_ in hit for u in unl[int(i_)]]
+                unresolved_of[a["id"]] = {"n": len(us), "products": sorted({u["product"] for u in us})[:8],
+                                          "reasons": sorted({u["reason"] or "no producer" for u in us})}
         for k, c in enumerate(mcols):
             ref = r["values"].get(c["id"])
             if ref is None:
@@ -657,6 +672,11 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
             progress(40 + 55 * n / max(1, len(chosen)), f"Calculating dataset {n + 1} of {len(chosen)}")
     progress(97, "Summarising")
     progress(98, "Summarising")
+    for x in out:
+        u_ = unresolved_of.get(x["act_id"])
+        x["unresolved_inputs_in_supply_chain"] = u_["n"] if u_ else 0
+        if u_ and x["deviation_percent"] is not None and abs(x["deviation_percent"]) > 0.1 and not x["note"]:
+            x["note"] = f"{u_['n']} unresolved inputs in the supply chain ({', '.join(u_['products'][:3])})"
     res = _bench_summary(store, mc, M, mcols, out, len(chosen), len(rows), len(matched), groups)
     res["database"] = db_name
     progress(99, "Looking for the causes of deviations")
@@ -744,17 +764,41 @@ def land_use_reconciliation(store, mc, M, mcols, out, G):
             explained = float(1 - np.sum((yw - fit) ** 2) / np.sum(yw ** 2)) if np.sum(yw ** 2) else None
         tot = np.abs(X).sum(axis=0)
         share = (tot / tot.sum()).tolist() if tot.sum() else [0.0] * len(groups)
+        # Targeted test: can land flows WITHOUT a factor in Cyclia explain the gap? gap_d = sum_f g_df * cf_f over the
+        # uncharacterised land flows (most important first), by weighted least squares. A high share explained and
+        # plausible implied factors point to factors that ecoinvent's implementation has and the method file lacks.
+        implied, explained_u = [], None
+        top_missing = [key for key, _v in sorted(missing.items(), key=lambda t: -t[1])[:8]]
+        if top_missing and np.any(yw):
+            idx_of = {fname(i): i for i in land_idx if M.C[k, i] == 0}
+            cols_u = [idx_of[key] for key in top_missing if key in idx_of]
+            U = np.array([[float(G[x["act_id"]][i]) for i in cols_u] for x in items]) * w[:, None]
+            keep = [j for j in range(U.shape[1]) if np.any(U[:, j])]
+            if keep:
+                sol_u, *_ = np.linalg.lstsq(U[:, keep], yw, rcond=None)
+                fit_u = U[:, keep] @ sol_u
+                explained_u = float(1 - np.sum((yw - fit_u) ** 2) / np.sum(yw ** 2))
+                for j, cf in zip(keep, sol_u):
+                    i = cols_u[j]
+                    fr = store.flow(int(mc.flow_ids[i])) or {}
+                    implied.append({"flow": fname(i)[0], "compartment": fname(i)[1], "unit": fr.get("unit", ""),
+                                    "implied_factor": float(cf),
+                                    "datasets_with_flow": int(sum(1 for x in items if G[x["act_id"]][i]))})
         res.append({"category": m["category"], "indicator": m["indicator"], "n": len(items),
                     "groups": [{"group": g, "share_of_result": share[j],
                                 "factor_change_percent": (alpha[j] * 100) if alpha[j] is not None else None}
                                for j, g in enumerate(groups)],
                     "explained": explained,
+                    "implied_factors_uncharacterised": implied, "explained_by_uncharacterised": explained_u,
                     "uncharacterised_land_flows": [{"flow": n_, "compartment": c_, "weight": v}
                                                    for (n_, c_), v in sorted(missing.items(), key=lambda t: -t[1])[:15]],
                     "note": "factor_change_percent: the uniform change of the factors of that flow group that best explains "
                             "the gap to ecoinvent (e.g. +8 means ecoinvent's factors of that group appear 8 % higher). "
                             "explained: share of the gap variance explained. A high weight for an uncharacterised land "
-                            "flow means that flow carries much of the result in ecoinvent but has no factor in Cyclia."})
+                            "flow means that flow carries much of the result in ecoinvent but has no factor in Cyclia. "
+                            "implied_factors_uncharacterised: the factors those flows would need to explain the gap (least "
+                            "squares over the compared datasets); explained_by_uncharacterised: the share of the gap "
+                            "variance they explain. Treat them as a diagnosis: add a factor only from the method's source."})
     return res
 
 
@@ -902,9 +946,17 @@ def _bench_summary(store, mc, M, mcols, out, n_datasets, n_file, n_matched, grou
     total = stats(out)
     worst = sorted([x for x in out if x["deviation_percent"] is not None], key=lambda x: -abs(x["deviation_percent"]))[:40]
     unlinked = store.one("SELECT COUNT(*) AS n FROM unlinked WHERE linked_to IS NULL")["n"]
-    if total.get("n") and total["within_0_1"] >= 95:
+    # the verdict names every category that does not agree, so a good overall share never hides one weak category
+    weak = [c for c in by_cat if c.get("n") and c["within_1"] < 95]
+    weak_txt = "; ".join(f"{c['category']} ({c['within_0_1']:.0f} % within 0.1 %, max {c['max']:.2g} %)" for c in weak)
+    if total.get("n") and total["within_0_1"] >= 95 and not weak:
         verdict = (f"Validated: {total['within_0_1']:.1f} % of {total['n']:,} results agree with ecoinvent within 0.1 % "
                    f"(median deviation {total['median']:.2g} %).")
+    elif total.get("n") and total["within_0_1"] >= 95:
+        verdict = (f"Validated except {len(weak)} categor{'y' if len(weak) == 1 else 'ies'}: {total['within_0_1']:.1f} % of "
+                   f"{total['n']:,} results agree within 0.1 %, but not {weak_txt}. Do not publish results of "
+                   f"{'this category' if len(weak) == 1 else 'these categories'} before the cause is found (see the "
+                   "diagnosis sheets).")
     elif total.get("n") and total["within_1"] >= 95:
         verdict = (f"Close agreement: {total['within_1']:.1f} % of results within 1 %, {total['within_0_1']:.1f} % within "
                    "0.1 %. Look at the categories and datasets below before publishing.")
@@ -971,6 +1023,13 @@ def benchmark_excel(path, res):
         for c_ in res["land_use"]:
             for f_ in c_["uncharacterised_land_flows"]:
                 wl.append([c_["category"], f_["flow"], f_["compartment"], f_["weight"]])
+        wl.append([])
+        wl.append(["Category", "Uncharacterised land flow", "Compartment", "Unit", "Factor ecoinvent appears to use",
+                   "Datasets with the flow", "Gap variance explained by these flows"])
+        for c_ in res["land_use"]:
+            for f_ in c_.get("implied_factors_uncharacterised") or []:
+                wl.append([c_["category"], f_["flow"], f_["compartment"], f_["unit"], f_["implied_factor"],
+                           f_["datasets_with_flow"], c_.get("explained_by_uncharacterised")])
         wl.append([])
         wl.append([res["land_use"][0]["note"]])
     if res.get("cf_conflicts"):

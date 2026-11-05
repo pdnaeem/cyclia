@@ -316,9 +316,10 @@ class TestRegional(Base):
         self.st.add_input(m, "flow", water, 0.5)
         self.st.add_input(m, "activity", self.find("tap water"), 100)
         res = regional.aware(self.st, m)
-        # electricity: 10 kWh x 0.002 m3 at FR (unknown 7); own water 0.5 m3 at DE -> GLO (30);
-        # tap water: 100 kg x 0.001 m3 at FR-IDF -> country FR (7), plus its electricity at FR
-        e = 10 * 0.002 * 7 + 0.5 * 30 + 100 * 0.001 * 7 + 100 * 0.0005 * 0.002 * 7
+        # supply chain non-agricultural since 1.3.6 (1.3.5 never found the non-agri factor and used 'unknown'):
+        # electricity: 10 kWh x 0.002 m3 at FR (non-agri 5); own water 0.5 m3 at DE -> GLO (unknown 30);
+        # tap water: 100 kg x 0.001 m3 at FR-IDF -> country FR (5), plus its electricity at FR
+        e = 10 * 0.002 * 5 + 0.5 * 30 + 100 * 0.001 * 5 + 100 * 0.0005 * 0.002 * 5
         self.assertAlmostEqual(res["total"], e, places=10)
         self.assertGreater(res["completeness"]["global"], 0)
         self.assertGreater(res["completeness"]["country"], 0)
@@ -334,7 +335,7 @@ class TestRegional(Base):
         row = next(x for x in res["top"] if x["process"].startswith("irrigation"))
         self.assertEqual((row["use"], row["factor"]), ("agri", 40.0))
         others = [x for x in res["top"] if not x["process"].startswith("irrigation")]
-        self.assertTrue(all(x["use"] == "unknown" and x["factor"] == 30.0 for x in others))
+        self.assertTrue(all(x["use"] == "non_agri" and x["factor"] == 20.0 for x in others))
 
     def test_lanca_occupation_and_transformation(self):
         rows = ("indicator,kind,land_use,location,value,unit\n"

@@ -343,6 +343,37 @@ class TestFeatures(unittest.TestCase):
         out = self.api("POST", "/api/export/factor-match", {"path": os.path.join(self.dir, "fm.xlsx")})
         self.assertTrue(os.path.exists(out["path"]))
 
+    def test_v136_database_provenance_and_statuses(self):
+        p = os.path.join(self.dir, "sp136.csv")
+        with open(p, "w") as fh:
+            fh.write("{SimaPro 9.5.0}\n{CSV separator: Semicolon}\n{Decimal separator: .}\n\nProcess\n\nGeography\nCH\n\n"
+                     "Products\nWidget 136;kg;1;100;not defined;Cat;\n\nEmissions to air\nCarbon dioxide, fossil;;kg;1;"
+                     "Undefined;0;0;0;\n\nEnd\n")
+        res = self.api.job("/api/import/simapro", {"path": p, "name": "SP 136", "version": "9.5", "licence": "own data",
+                                                   "release_date": "2026-11-01"})
+        md = res["metadata"]
+        import hashlib
+        with open(p, "rb") as fh:
+            self.assertEqual(md["source_sha256"], hashlib.sha256(fh.read()).hexdigest())
+        self.assertEqual((md["version"], md["licence"], md["release_date"]), ("9.5", "own data", "2026-11-01"))
+        self.assertTrue(md["importer_version"].startswith("Cyclia "))
+        self.assertIn("activities", json.loads(md["import_report"]))
+        r = self.api("PATCH", f"/api/databases/{md['id']}", {"system_model": "attributional", "geography": "CH"})
+        self.assertEqual(r["database"]["system_model"], "attributional")
+        v = self.api("POST", "/api/validate", {"db_id": md["id"]})
+        keys = [x["key"] for x in v["statuses"]]
+        self.assertEqual(keys, ["matrix", "technosphere", "flows", "units", "metadata", "lcia"])
+        meta = next(x for x in v["statuses"] if x["key"] == "metadata")
+        self.assertEqual(meta["level"], "ok", meta)          # version, system model, source, licence, date, hash, importer
+        hits = self.api("GET", "/api/explore?q=Widget+136")["results"]
+        self.assertEqual(len(hits), 1)
+        ex = self.api("GET", f"/api/explore/{hits[0]['id']}")["activity"]
+        self.assertEqual((ex["n_emissions"], ex["db"]), (1, "SP 136"))
+        self.assertIn("used_by", ex)
+        db = self.api("GET", "/api/databases")["databases"]
+        self.api("DELETE", f"/api/databases/{md['id']}")
+        self.assertTrue(any(d["name"] == "SP 136" for d in db))
+
     def test_templates(self):
         t = self.api("GET", "/api/model-templates")["templates"]
         self.assertGreaterEqual(len(t), 4)

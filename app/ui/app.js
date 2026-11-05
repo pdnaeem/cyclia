@@ -169,6 +169,7 @@ function renderDbs() {
     ${d.n_unlinked ? `<br><span class="meta warn">${d.n_unlinked} product(s) without a supplier</span>` : ""}
     ${d.note ? `<br><span class="meta">${esc(d.note)}</span>` : ""}</span>
     ${d.n_unlinked ? `<button data-link="${d.id}">Link missing suppliers</button>` : ""}
+    <button class="ghost" data-dbmeta="${d.id}">Details</button>
     <button class="ghost" data-validate="${d.id}">Check</button>
     <button class="ghost danger" data-deldb="${d.id}">Remove</button></li>`).join("")
     : '<li class="empty">No database yet. Pick one of the options below.</li>';
@@ -179,18 +180,43 @@ $("#dbList").addEventListener("click", (e) => {
   if (del && confirm("Remove this database from the library? Every project on this computer uses the same library."))
     guard(del, async () => { await api("DELETE", "/api/databases/" + del.dataset.deldb); S.result = null; await refreshStatus(); });
   if (lk) guard(lk, () => openLinkPanel(Number(lk.dataset.link)));
+  const dm = e.target.closest("[data-dbmeta]");
+  if (dm) guard(dm, async () => {
+    const d = S.status.databases.find((x) => x.id === Number(dm.dataset.dbmeta));
+    const p = $("#validatePanel");
+    const F = [["original_name", "Original name"], ["version", "Version"], ["system_model", "System model"], ["source", "Source / format"],
+      ["release_date", "Release date (YYYY-MM-DD)"], ["geography", "Geography"], ["technology", "Technology"], ["licence", "Licence"],
+      ["reference_period", "Reference period"], ["data_reference", "Data reference (citation or DOI)"]];
+    p.hidden = false;
+    p.innerHTML = `<div class="row"><h3 class="grow">Database details: ${esc(d.name)}</h3><button class="ghost" data-close>Close</button></div>
+      <p class="hint">Recorded for reproducibility and printed in reports. The fingerprint, importer version and import report are set by Cyclia.</p>
+      <form id="dbMetaForm" class="form-grid">${F.map(([k, l]) => `<label>${l}<input name="${k}" value="${esc(d[k] || "")}"></label>`).join("")}</form>
+      <table><tbody><tr><td>Imported</td><td>${esc(d.imported_at || "")}</td></tr><tr><td>Importer</td><td>${esc(d.importer_version || "(before 1.3.6)")}</td></tr>
+      <tr><td>Source file</td><td>${esc(d.source_path || "")}</td></tr><tr><td>SHA-256</td><td><code>${esc(d.source_sha256 || "not recorded")}</code></td></tr></tbody></table>
+      <div class="row"><button class="primary" data-savemeta="${d.id}">Save details</button></div>`;
+  });
   if (va) guard(va, async () => {
     const p = $("#validatePanel");
     p.hidden = false; p.innerHTML = '<p class="hint">Checking the matrix...</p>';
     const v = await api("POST", "/api/validate", { db_id: Number(va.dataset.validate) });
     p.innerHTML = `<div class="row"><h3 class="grow">Database check</h3><button class="ghost" data-close>Close</button></div><p><b>${esc(v.verdict)}</b></p>
+      ${(v.statuses || []).length ? `<table><thead><tr><th>Check</th><th>Status</th><th>Result</th></tr></thead><tbody>${v.statuses.map((x) => `<tr><td>${esc(x.label)}</td><td><span class="${x.level === "ok" ? "ok" : x.level === "error" ? "danger" : "warn"}">${esc(x.level)}</span></td><td>${esc(x.message)}</td></tr>`).join("")}</tbody></table><h3>Numbers</h3>` : ""}
       <table><tbody>${[["Datasets in the library", v.datasets], ["Technosphere exchanges", v.exchanges], ["Elementary exchanges", v.elementary_exchanges],
         ["Random solves checked", v.sampled], ["Largest relative residual", v.max_relative_residual.toExponential(1)], ["Datasets with zero production", v.zero_production],
         ["Inputs without supplier", v.unlinked_inputs], ["Elementary flows used", v.flows_used], ["...of which without any factor", v.flows_without_any_factor]]
         .map(([k, x]) => `<tr><td>${k}</td><td class="num">${esc(x)}</td></tr>`).join("")}</tbody></table>${v.note ? `<p class="hint">${esc(v.note)}</p>` : ""}`;
   });
 });
-$("#validatePanel").addEventListener("click", (e) => { if (e.target.closest("[data-close]")) $("#validatePanel").hidden = true; });
+$("#validatePanel").addEventListener("click", (e) => {
+  if (e.target.closest("[data-close]")) $("#validatePanel").hidden = true;
+  const sv = e.target.closest("[data-savemeta]");
+  if (sv) guard(sv, async () => {
+    const body = {};
+    $$("#dbMetaForm input").forEach((i) => (body[i.name] = i.value.trim()));
+    await api("PATCH", "/api/databases/" + sv.dataset.savemeta, body);
+    toast("Database details saved."); await refreshStatus();
+  });
+});
 
 async function openLinkPanel(dbId) {
   S.linkDb = dbId;
@@ -200,12 +226,13 @@ async function openLinkPanel(dbId) {
   p.hidden = false;
   p.innerHTML = `<div class="row"><h3 class="grow">Link missing suppliers of ${esc(db ? db.name : "")}</h3>
       <button data-autolink>Link exact matches automatically</button><button class="ghost" data-close>Close</button></div>
-    <p class="hint">Each product below is used by datasets in this database but produced in none of them. Choose a supplier from another database; units are converted.</p>
-    <table class="link-table"><thead><tr><th>Product</th><th>Unit</th><th class="num">Uses</th><th>Status</th><th></th></tr></thead><tbody>
-    ${groups.map((g, i) => `<tr data-i="${i}"><td>${esc(g.product)}${g.locations ? ` <span class="hint">[${esc(g.locations)}]</span>` : ""}</td><td>${esc(g.unit)}</td><td class="num">${g.uses}</td>
+    <p class="hint">Each row is a product used by datasets in this database without a single supplier: produced in no dataset of the import, produced by several (Cyclia does not guess), or without a supplier link in the dataset. Each location is a separate row, so every location gets its own supplier. Units are converted. "Link automatically" only links rows with exactly one supplier at the same location (or one global market for inputs without a location).</p>
+    <table class="link-table"><thead><tr><th>Product</th><th>Location</th><th>Unit</th><th class="num">Uses</th><th>Why unlinked</th><th>Status</th><th></th></tr></thead><tbody>
+    ${groups.map((g, i) => `<tr data-i="${i}"><td>${esc(g.product)}</td><td>${esc(g.location || "-")}</td><td>${esc(g.unit)}</td><td class="num">${g.uses}</td>
+      <td>${esc(g.reasons || "no producer")}${g.candidates && g.candidates.length ? ` <span class="hint">(${g.candidates.length} candidates)</span>` : ""}</td>
       <td>${g.linked ? '<span class="ok">linked</span>' : '<span class="warn">missing</span>'}</td>
       <td>${g.linked ? `<button class="ghost" data-unlink="${i}">Unlink</button>` : `<button data-suggest="${i}">Find supplier</button>`}</td></tr>
-      <tr class="sugg" id="sugg-${i}" hidden><td colspan="5"></td></tr>`).join("")}</tbody></table>`;
+      <tr class="sugg" id="sugg-${i}" hidden><td colspan="7"></td></tr>`).join("")}</tbody></table>`;
   p._groups = groups;
 }
 $("#linkPanel").addEventListener("click", (e) => {
@@ -214,31 +241,31 @@ $("#linkPanel").addEventListener("click", (e) => {
   const auto = e.target.closest("[data-autolink]");
   if (auto) guard(auto, async () => {
     const r = await api("POST", `/api/databases/${S.linkDb}/autolink`, {});
-    toast(`${r.auto_linked} product(s) linked automatically.`); S.result = null;
+    toast(`${r.auto_linked} product(s) linked automatically` + (r.left_for_review ? `; ${r.left_for_review} need your choice (several or no suppliers at their location).` : "."), false); S.result = null;
     await refreshStatus(); await openLinkPanel(S.linkDb);
   });
   const sg = e.target.closest("[data-suggest]");
   if (sg) guard(sg, async () => {
     const g = groups[Number(sg.dataset.suggest)];
     const row = $(`#sugg-${sg.dataset.suggest}`);
-    const { suggestions } = await api("POST", `/api/databases/${S.linkDb}/suggest`, { product: g.product, unit: g.unit });
+    const { suggestions } = await api("POST", `/api/databases/${S.linkDb}/suggest`, { product: g.product, unit: g.unit, location: g.location || "" });
     row.hidden = false;
     row.firstElementChild.innerHTML = (suggestions.length ? `<ul class="results">${suggestions.map((s) => `<li><button data-linkto="${s.id}" data-g="${sg.dataset.suggest}">
-      <span class="rname">${esc(s.name)}</span><span class="loc">${esc(s.location)}</span><span class="rmeta">${esc(s.product)}, ${esc(s.unit)}, ${esc(s.db)}${s.factor !== 1 ? `, x ${fmt(s.factor)}` : ""}</span></button></li>`).join("")}</ul>`
+      <span class="rname">${esc(s.name)}</span><span class="loc">${esc(s.location)}</span><span class="rmeta">${esc(s.product)}, ${esc(s.unit)}, ${esc(s.db)}${s.factor !== 1 ? `, x ${fmt(s.factor)}` : ""}${s.recorded_candidate ? ", producer in this import" : ""}${g.location && !s.same_location ? ", other location" : ""}</span></button></li>`).join("")}</ul>`
       : '<p class="hint">No dataset with a matching name and unit. Search below.</p>') +
       `<div class="row"><input class="grow" data-linksearch="${sg.dataset.suggest}" placeholder="Search another name"></div><ul class="results" data-linkres="${sg.dataset.suggest}"></ul>`;
   });
   const lt = e.target.closest("[data-linkto]");
   if (lt) guard(lt, async () => {
     const g = groups[Number(lt.dataset.g)];
-    const r = await api("POST", `/api/databases/${S.linkDb}/link`, { product: g.product, unit: g.unit, target_id: Number(lt.dataset.linkto) });
+    const r = await api("POST", `/api/databases/${S.linkDb}/link`, { product: g.product, unit: g.unit, location: g.location || "", target_id: Number(lt.dataset.linkto) });
     toast(`Linked ${r.linked} input(s).`); S.result = null;
     await refreshStatus(); await openLinkPanel(S.linkDb);
   });
   const ul = e.target.closest("[data-unlink]");
   if (ul) guard(ul, async () => {
     const g = groups[Number(ul.dataset.unlink)];
-    await api("POST", `/api/databases/${S.linkDb}/unlink`, { product: g.product, unit: g.unit });
+    await api("POST", `/api/databases/${S.linkDb}/unlink`, { product: g.product, unit: g.unit, location: g.location || "" });
     S.result = null; await refreshStatus(); await openLinkPanel(S.linkDb);
   });
 });

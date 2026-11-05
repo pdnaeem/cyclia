@@ -85,14 +85,14 @@ def import_folder(store, folder, name, version="", system_model="", progress=lam
 def _import(store, db_id, name, ds_dir, files, progress):
     flow_ids = store.flow_id_map()
     parser = etree.XMLParser(huge_tree=True, remove_comments=True, resolve_entities=False, no_network=True)
-    skipped_links = unallocated = bad_files = 0
+    skipped_links = unallocated = bad_files = duplicates = 0
     c = store.conn
     with store.lock:
         c.execute("DROP TABLE IF EXISTS temp.pending")
         c.execute("CREATE TEMP TABLE pending (output_id INTEGER, link_key TEXT, amount REAL, "
                   "utype INTEGER, p1 REAL, p2 REAL, p3 REAL, p_name TEXT, p_unit TEXT)")
         c.execute("DELETE FROM pending")
-        batch_bio, batch_pending = [], []
+        batch_bio, batch_pending, batch_nolink = [], [], []
         total = len(files)
         for n, fname in enumerate(files):
             try:
@@ -134,6 +134,7 @@ def _import(store, db_id, name, ds_dir, files, progress):
                 (db_id, key, act_name, _text(ref, NS + "name"), loc, _text(ref, NS + "unitName"),
                  _f(ref.get("amount"), 1.0), comment, ref.get("intermediateExchangeId")))
             if cur.rowcount == 0:
+                duplicates += 1
                 continue
             out_id = cur.lastrowid
             for ex in flow_data.iter(NS + "intermediateExchange"):
@@ -144,7 +145,11 @@ def _import(store, db_id, name, ds_dir, files, progress):
                     continue
                 link = ex.get("activityLinkId")
                 if not link:
+                    # kept, never dropped: an input without a supplier link is stored as unresolved so the user can
+                    # link it (Link missing suppliers); leaving it out would silently shorten the supply chain
                     skipped_links += 1
+                    batch_nolink.append((db_id, out_id, _text(ex, NS + "name"), _text(ex, NS + "unitName"), amt, "",
+                                         ex.get("intermediateExchangeId")) + parse_uncertainty(ex))
                     continue
                 batch_pending.append((out_id, f"{link}_{ex.get('intermediateExchangeId')}", amt) + parse_uncertainty(ex)
                                      + (_text(ex, NS + "name"), _text(ex, NS + "unitName")))
@@ -161,22 +166,26 @@ def _import(store, db_id, name, ds_dir, files, progress):
                                          ex.get("casNumber", ""))
                     flow_ids[fuuid] = fid
                 batch_bio.append((out_id, fid, amt) + parse_uncertainty(ex))
-            if len(batch_bio) > 50000 or len(batch_pending) > 50000:
+            if len(batch_bio) > 50000 or len(batch_pending) > 50000 or len(batch_nolink) > 50000:
                 c.executemany("INSERT INTO bio(activity_id,flow_id,amount,utype,p1,p2,p3) VALUES(?,?,?,?,?,?,?)", batch_bio)
                 c.executemany("INSERT INTO pending VALUES(?,?,?,?,?,?,?,?,?)", batch_pending)
-                batch_bio, batch_pending = [], []
+                c.executemany("INSERT INTO unlinked(db_id,output_id,product,unit,amount,location,link_key,utype,p1,p2,p3,"
+                              "reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,'no supplier link in the dataset')", batch_nolink)
+                batch_bio, batch_pending, batch_nolink = [], [], []
             if n % 200 == 0:
                 progress(int(88 * n / max(total, 1)), f"Reading datasets {n:,}/{total:,}")
         c.executemany("INSERT INTO bio(activity_id,flow_id,amount,utype,p1,p2,p3) VALUES(?,?,?,?,?,?,?)", batch_bio)
         c.executemany("INSERT INTO pending VALUES(?,?,?,?,?,?,?,?,?)", batch_pending)
+        c.executemany("INSERT INTO unlinked(db_id,output_id,product,unit,amount,location,link_key,utype,p1,p2,p3,reason) "
+                      "VALUES(?,?,?,?,?,?,?,?,?,?,?,'no supplier link in the dataset')", batch_nolink)
         progress(90, "Linking supply chains")
         c.execute("CREATE INDEX IF NOT EXISTS temp.idx_pending ON pending(link_key)")
         c.execute("INSERT INTO tech(output_id,input_id,amount,utype,p1,p2,p3) "
                   "SELECT p.output_id, a.id, p.amount, p.utype, p.p1, p.p2, p.p3 FROM pending p "
                   "JOIN activities a ON a.db_id=? AND a.key=p.link_key", (db_id,))
-        c.execute("INSERT INTO unlinked(db_id,output_id,product,unit,amount,location,link_key,utype,p1,p2,p3) "
-                  "SELECT ?, p.output_id, p.p_name, p.p_unit, p.amount, '', p.link_key, p.utype, p.p1, p.p2, p.p3 "
-                  "FROM pending p WHERE NOT EXISTS (SELECT 1 FROM activities a WHERE a.db_id=? AND a.key=p.link_key)",
+        c.execute("INSERT INTO unlinked(db_id,output_id,product,unit,amount,location,link_key,utype,p1,p2,p3,reason) "
+                  "SELECT ?, p.output_id, p.p_name, p.p_unit, p.amount, '', p.link_key, p.utype, p.p1, p.p2, p.p3, "
+                  "'supplier not in this import' FROM pending p WHERE NOT EXISTS (SELECT 1 FROM activities a WHERE a.db_id=? AND a.key=p.link_key)",
                   (db_id, db_id))
         unresolved = c.execute("SELECT COUNT(*) FROM unlinked WHERE db_id=?", (db_id,)).fetchone()[0]
         c.execute("DROP TABLE IF EXISTS temp.pending")
@@ -187,14 +196,22 @@ def _import(store, db_id, name, ds_dir, files, progress):
     lcia.rematch_all(store)
     n_act = store.one("SELECT n_activities FROM databases WHERE id=?", (db_id,))["n_activities"]
     warnings = []
-    if unresolved:
-        warnings.append(f"{unresolved} inputs point to datasets that are not in this folder. Link them under "
-                        "'Link missing suppliers' so the supply chains are complete.")
+    if unresolved - skipped_links > 0:
+        warnings.append(f"{unresolved - skipped_links} inputs point to datasets that are not in this folder. Link them "
+                        "under 'Link missing suppliers' so the supply chains are complete.")
     if skipped_links:
-        warnings.append(f"{skipped_links} inputs had no supplier link; they were left out.")
+        warnings.append(f"{skipped_links} inputs have no supplier link in the dataset (activityLinkId). They are kept as "
+                        "unresolved inputs and listed under 'Link missing suppliers' (1.3.5 left them out without a "
+                        "record). They add nothing to the results until linked, as before. Link them only when the "
+                        "database intends a supplier; inputs cut off by the system model (e.g. recycled content in the "
+                        "cut-off model) must stay unlinked. Datasets of the 'undefined' (unlinked) system model have "
+                        "no links at all.")
+    if duplicates:
+        warnings.append(f"{duplicates} datasets appeared twice (same activity and product id); the second copy was skipped.")
     if unallocated:
         warnings.append(f"{unallocated} datasets have several co-products. Use an allocated system model "
                         "(cut-off, APOS or consequential), not the 'undefined' unit processes.")
     if bad_files:
         warnings.append(f"{bad_files} files could not be read and were skipped.")
-    return {"database": name, "activities": n_act, "warnings": warnings}
+    return {"database": name, "activities": n_act, "warnings": warnings, "unlinked_inputs": unresolved,
+            "inputs_without_link": skipped_links, "duplicates": duplicates}

@@ -321,7 +321,7 @@ changes α_g that best explain the gap, (ref_d - cyclia_d) = Σ_g α_g c_dg, are
 (weights 1 / |ref_d|), with the share of the gap variance explained. Land flows of the inventories without a
 factor, and raw factors that give one flow two different values, are listed.
 
-`engine/tests` holds 137 automated tests (1.3.5), including: a hand-calculated wall model; agreement with an
+`engine/tests` holds 167 automated tests (1.3.6), including: a hand-calculated wall model; agreement with an
 independent dense solution to 10⁻⁹; supply loops and waste treatment from ecoSpold2; unit conversion and
 waste flows from openLCA JSON-LD; ecoSpold1, SimaPro CSV and ILCD imports against hand calculations;
 cross-database linking and unlinking; flow mapping; regional factors; module D; co-product allocation;
@@ -362,13 +362,15 @@ sources: an openLCA JSON-LD export of the method (factors per flow UUID), a Brig
 rows with the flow keys, names, categories and units), or a CSV with the columns category, flow_uuid, flow_name,
 compartment, subcompartment, unit, cf (and location). Lines starting with `#` are comments.
 
-1. **Pairing of categories**: each selected Cyclia category is paired with the external category of the highest
-   word overlap (Jaccard index of the words), scored on the category name alone and on category plus
-   indicator; the higher score counts and a pair needs at least 0.4. Pairs can be set by hand.
+1. **Pairing of categories**: one to one. Every (Cyclia, external) pair is scored by word overlap (Jaccard index,
+   on the category name alone and on category plus indicator, the higher counts; an identical name scores
+   highest) and pairs are assigned from the highest score down, so an external category is never used twice. A
+   pair needs at least 0.4. Pairs can be set by hand.
 2. **Resolving flows**: an external factor is attached to a Cyclia flow by UUID; without a UUID, by canonical
    name, compartment and subcompartment. Rows that match no flow of the library are *unresolved*, rows that match
-   several flows are *ambiguous*, and rows whose unit differs from the flow's unit are *unit issues*. External
-   files that give one flow two different factors are counted as *external conflicts*.
+   several flows are *ambiguous*. A factor given per another unit is converted when the units are convertible
+   (per g to per kg: divided by 0.001); otherwise the flow is *unit not comparable* and never counted as the same
+   factor. External files that give one flow two different factors are counted as *external conflicts*.
 3. **Comparison**: over every flow that the library or the project's models use and that has a non-zero factor in
    either tool (global factors only), each flow is *same* (relative difference up to 1e-6), *different*,
    *only in Cyclia* or *only in the external tool*.
@@ -378,8 +380,11 @@ compartment, subcompartment, unit, cf (and location). Lines starting with `#` ar
 5. **External results (optional)**: a CSV with model, category, value. The difference to Cyclia is split into the
    part explained by the factors (h_ext − h) and the rest (inventory, linking, allocation or solver differences).
 
-Excel report: Summary, Flow by flow, Effect on models, Unpaired external categories. The validation passes only
-when no relevant flow differs and no category is unpaired.
+Excel report: Summary with the open items, Flow by flow, Effect on models, Unresolved external, Unpaired
+external categories. **The validation passes only when there is no open item**: every category paired, no
+differing factor, no factor in one tool only, no unit that cannot be compared, no unresolved or ambiguous
+external row and no conflicting external factor (before 1.3.6 unresolved rows, ambiguous rows, unit differences
+and conflicts did not prevent a pass).
 
 ### 12.2 EPD programme profiles (step 6)
 
@@ -423,9 +428,15 @@ stage and cost type.
 ### 12.6 AWARE water scarcity (Toolbox > Regional methods)
 
 Water consumption of every process per functional unit, from the engine's scaling vector:
-consumption = Σ water taken from nature − Σ water returned to nature (m³). AWARE result =
-Σ_processes consumption × CF(location of the process, type of use). Type of use: agricultural for processes
-whose name mentions irrigation, otherwise the type chosen for the model (unknown by default). The model's own
+consumption = Σ water taken from nature − Σ water released to fresh water (surface, ground or unspecified water)
+at the process location (m³). Water evaporated to air, discharged to the sea or ocean and released to soil is
+consumption: it is not an identified return to the watershed and gets no credit (WULCA definition; before 1.3.6
+evaporation and releases to soil were wrongly subtracted). The water balance (withdrawn, returned, evaporated, to
+the sea, to soil) is reported. AWARE result = Σ_processes consumption × CF(location of the process, type of use).
+Type of use per process: agricultural for irrigation processes, non-agricultural for every other supply-chain
+process (option: unknown), and the type chosen for the model's own water. When a location has no factor for that
+type, the unknown factor is used and shown (before 1.3.6 the non-agricultural factor was stored as 'non-agri' and
+never found, so the unknown factor was always used). Monthly factors and GIS watershed lookup are not supported. The model's own
 water flows use the model's AWARE location (site or watershed, set in Toolbox > Regional methods), else the
 study geography. Location lookup:
 exact code, then the country of a sub-national code (CN-HB → CN), then the global value (GLO). Completeness
@@ -435,7 +446,11 @@ from the official AWARE tables (Boulay et al. 2018); Cyclia ships only a labelle
 ### 12.7 LANCA land use
 
 Land occupation (m²·a), transformation to and transformation from (m²) of every process, times the LANCA factor
-for the indicator, kind of intervention, land use type and process location (same fallbacks as AWARE).
+for the indicator, kind of intervention, land use type and process location (same fallbacks as AWARE). Factor
+units are validated on import (occupation per m²·a, transformation per m²; per ha·a or per ha converted) and
+inventory amounts are converted to m²·a and m² (an occupation in ha·a is 10,000 m²·a). Soil organic carbon is
+accepted as an indicator. The soil quality index is used as imported (the EF method publishes SQI factors);
+Cyclia does not aggregate LANCA indicators into an SQI itself.
 Indicators: erosion resistance, mechanical filtration, physicochemical filtration, groundwater regeneration,
 biotic production, and the EF soil quality index when its factors are imported. Land flows without a factor
 are listed with their area. Factors must come from the LANCA owners (Bos et al. 2016); demo values only show the
@@ -443,13 +458,16 @@ workflow.
 
 ### 12.8 Social LCA screening (Toolbox > Social LCA)
 
-Activity variable: worker hours per unit of each process's reference product, with a risk level per social
-indicator and stakeholder category (UNEP 2020 Guidelines, ISO 14075:2024: workers, local community, society,
-consumers, value chain actors, children). Worker hours per functional unit = output of each process (s × the
-diagonal of A) × worker hours per unit. Risk hours = hours × factor of the risk level (no risk 0, very low 0.01,
+This is a **risk screening**, not a full social LCA. Activity variable: worker hours per unit of each process's
+reference product, with a risk level per social indicator and stakeholder category (UNEP 2020 Guidelines, ISO 14075:2024: workers, local community, society,
+consumers, value chain actors, children). Worker hours per functional unit = activity level of each process (|s × the diagonal of A|, with s solved for the
+demand alone; avoided products are solved separately, reported separately and neither added nor netted) × worker
+hours per unit. Risk hours = hours × factor of the risk level (no risk 0, very low 0.01,
 low 0.1, medium 1, high 10, very high 100; editable). Each process takes the most specific data row: the longest
-matching name fragment, a row for its location before a row without location. Coverage per indicator is the share
-of the worker hours with data; processes without data are listed. This is a hotspot screening, not a
+matching name fragment, a row for its location before a row without location. Process coverage = processes with data / processes in the supply chain. Worker hours of processes without data
+are unknown, so a worker-hour coverage is only given when the table has a default row (match `*`) that estimates
+them: coverage = hours with data / (hours with data + estimated hours). (Before 1.3.6 coverage was divided by
+the hours with data only and was always 100 %.) This is a hotspot screening, not a
 measurement of social performance. Cyclia ships no social data.
 
 ### 12.9 Dynamic material flow analysis and circularity (Toolbox > Material flows)
@@ -463,14 +481,58 @@ F(a − 0.5), with age 1 taking F(1.5), so nothing retires in the year of entry)
 not counted; over a long enough horizon every inflow retires (tested to 1e-9). Flows within a year, including recycling back
 to production, are solved as x = (I − Tᵀ)⁻¹ u; a loop with no exit raises an error. Every year is checked for
 mass balance (external inflow = change in stocks + flows to sinks). Indicators per year: end-of-life recycling
-rate (recycled output / end-of-life outflow), recycled content (recycled input to production / total input to
-production), and the recirculated share of inflow and of outflow in the spirit of ISO 59020:2024.
+rate (recycled output / end-of-life outflow), recycled content and recirculated inflow share (both: recycled
+input to the production process / total input to the production process; before 1.3.6 the inflow share was
+divided by all external inflows of the system), the outflow share recirculated, and the MCI of that year computed
+from the MFA (F_R = recycled content, C_R = input to recycling / end-of-life outflow, E_C = recycled output /
+input to recycling). In the spirit of ISO 59020:2024, not a complete ISO 59020 assessment.
 
 The **Material Circularity Indicator** (Ellen MacArthur Foundation and Granta Design 2015, technical cycle):
 V = M(1 − F_R − F_U); W₀ = M(1 − C_R − C_U); W_C = M(1 − E_C)C_R; W_F = M(1 − E_F)F_R / E_F;
 W = W₀ + (W_F + W_C)/2; LFI = (V + W) / (2M + (W_F − W_C)/2); F(X) = 0.9 / X with X = (L/L_av)(U/U_av);
 MCI = max(0, 1 − LFI · F(X)).
 A fully linear product gives 0.1, a fully circular one 1.
+
+## 13. Corrections and additions in 1.3.6
+
+**Process identity on import.** SimaPro processes are identified by their process identifier (else the process
+name) together with product and location. Before 1.3.6 the key was product + location, so two routes of the same
+product at one location were merged into one dataset and their exchanges added up. The shared builder of the
+ecoSpold1, SimaPro and ILCD importers now keeps any two processes with the same identity separate and reports them.
+
+**No guessed suppliers.** An input is linked inside an import only when one dataset produces its product (most
+specific match first: product, location and unit; then product and unit; then product). With several producers
+the input is stored as *ambiguous* with the candidates (before 1.3.6 the first producer found was used). openLCA
+JSON-LD inputs use the exchange's defaultProvider, else the only producer, else they are ambiguous.
+
+**No dropped inputs.** An ecoSpold2 intermediate input without activityLinkId is stored as unresolved ("no
+supplier link in the dataset") instead of being left out without a record. It adds nothing to results until the
+user links it, as before; inputs cut off on purpose by the system model must stay unlinked.
+
+**Linking by location.** Missing suppliers are grouped by product, unit and location, and linked per location.
+Automatic linking only links a group with exactly one dataset of the same product at the same location (inputs
+without a location: one dataset, or one global market), and never ambiguous or unlinked-in-dataset groups.
+
+**Database provenance.** Every import records the source file's SHA-256 (for a folder: of the file names and
+contents), the importer version, the import report and the metadata entered (original name, version, system
+model, release date, geography, technology, licence, reference period, data reference), editable under Database
+details. An import is all or nothing: it is removed again if it fails, or if amounts are not finite or links
+point to datasets that do not exist.
+
+**Database check in six statuses**: matrix consistency, technosphere completeness (unresolved inputs by reason),
+elementary-flow coverage, unit consistency (unknown units, flows with one name and compartment in several units,
+datasets without unit), metadata completeness and LCIA compatibility (share of used flows each method family
+characterises). A solvable matrix no longer reads as a complete database.
+
+**Land use coverage.** Every result reports, per land use category, the share of the inventory's land
+occupation and transformation without a factor, and warns above 0.5 %. The ecoinvent benchmark adds a targeted
+test: the gap is regressed on the land flows without a factor, giving the factor ecoinvent appears to use for
+each and the share of the gap they explain. The benchmark verdict names every category with less than 95 % of
+results within 1 %, and notes deviating datasets whose supply chain holds unresolved inputs.
+
+**EPD additional indicators.** HTP-c and HTP-nc match the EF 3.1 names 'carcinogenic' and 'non-carcinogenic', the
+toxicity sub-categories ', inorganics' and ', organics' are never taken for the indicator, and the units of PM,
+IRP, ETP-fw, HTP-c, HTP-nc, SQP and GWP-GHG are checked.
 
 ## References
 

@@ -233,6 +233,9 @@ def epd_checklist(model, result, profile=None):
     exp = {a: u for a, _n, _t, _test, u in INVENTORY}
     bad_units += [f"{a} in {result['results'][k]['unit'] or 'no unit'}" for a, k in inv.items()
                   if not unit_ok(result["results"][k]["unit"], exp[a])]
+    addl = epd_profiles.match_additional(result["results"])
+    bad_units += [f"{a} in {result['results'][k]['unit'] or 'no unit'}" for a, k in addl.items()
+                  if not unit_ok(result["results"][k]["unit"], epd_profiles.ADDITIONAL_UNITS[a])]
     add(not bad_units, "Indicator units as required" + (f" (check: {'; '.join(bad_units)})" if bad_units else ""),
         "EN 15804+A2 Tables 3 to 6")
     nocf = [result["results"][k]["category"] for k in list(core.values()) + list(inv.values())

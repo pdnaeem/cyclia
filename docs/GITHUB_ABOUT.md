@@ -22,8 +22,8 @@ life-cycle-assessment lca lca-software iso-14044 ecoinvent carbon-footprint epd 
 
 Settings > General > Social preview: upload `.github/social-preview.png`.
 
-## Release title for 1.3.5
+## Release title for 1.3.6
 
-Cyclia 1.3.5: factor matching validation, EPD programme layouts, AWARE, LANCA, social LCA and MFA
+Cyclia 1.3.6: database integrity and scientific reliability fixes
 
-Paste the text of `docs/RELEASE_NOTES_v1.3.5.md` as the release description.
+Paste the text of `docs/RELEASE_NOTES_v1.3.6.md` as the release description.

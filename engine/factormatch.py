@@ -22,6 +22,7 @@ import re
 import numpy as np
 
 import calc
+import units
 from canon import canon
 
 SAME_TOL = 1e-6
@@ -95,24 +96,31 @@ def _tokens(s):
     return {t for t in re.findall(r"[a-z0-9]+", (s or "").lower()) if len(t) > 1 and t not in ("and", "the", "of", "to")}
 
 
+def _score(m, e):
+    b = _tokens(e["category"])
+    best = 0.0
+    for a in (_tokens(m["category"]), _tokens(f"{m['category']} {m['indicator']}")):
+        s = len(a & b) / len(a | b) if a | b else 0.0
+        best = max(best, s)
+    if (m["category"] or "").strip().lower() == (e["category"] or "").strip().lower():
+        best = 1.0 + 1e-9  # an identical name always wins
+    return best
+
+
 def pair_categories(methods, ext):
-    """Best external category for every Cyclia category by word overlap (Jaccard); a pair needs at least 0.4."""
-    pairs = []
-    used = set()
-    for m in methods:
-        variants = [_tokens(m["category"]), _tokens(f"{m['category']} {m['indicator']}")]
-        best, score = None, 0.0
-        for j, e in enumerate(ext):
-            b = _tokens(e["category"])
-            for a in variants:
-                s = len(a & b) / len(a | b) if a | b else 0.0
-                if s > score:
-                    best, score = j, s
-        if best is not None and score >= 0.4:
-            pairs.append((m, ext[best], score))
-            used.add(best)
-        else:
-            pairs.append((m, None, score))
+    """One-to-one pairing of Cyclia and external categories by word overlap (Jaccard index, at least 0.4).
+    Pairs are assigned from the highest score down, so an external category is never paired with two Cyclia
+    categories (e.g. 'climate change' with both 'climate change: fossil' and 'climate change: biogenic')."""
+    cand = sorted(((_score(m, e), i, j) for i, m in enumerate(methods) for j, e in enumerate(ext)), reverse=True)
+    got, used, best_seen = {}, set(), {}
+    for sc, i, j in cand:
+        best_seen.setdefault(i, sc)
+        if sc < 0.4 or i in got or j in used:
+            continue
+        got[i] = (j, min(sc, 1.0))
+        used.add(j)
+    pairs = [(m, ext[got[i][0]], got[i][1]) if i in got else (m, None, min(best_seen.get(i, 0.0), 1.0))
+             for i, m in enumerate(methods)]
     return pairs, [e["category"] for j, e in enumerate(ext) if j not in used]
 
 
@@ -191,27 +199,38 @@ def compare(store, method_ids, external, source="", model_ids=None, external_res
     cats, flow_rows = [], []
     for m, e, score in pairs:
         cy = {r["flow_id"]: float(r["value"]) for r in store.q("SELECT flow_id, value FROM cfs WHERE method_id=?", (m["id"],))}
-        ext_cf, unresolved, unit_issue, ambiguous, conflicts = {}, [], [], 0, 0
+        ext_cf, unresolved, unit_issue, ambiguous, conflicts, converted = {}, [], [], 0, 0, 0
+        bad_unit = set()
         if e:
             for row in e["factors"]:
                 if row.get("location") and row["location"].upper() not in ("GLO", "GLOBAL", "WORLD"):
                     continue
                 hits, how = _resolve(row, by_uuid, by_key)
                 if not hits:
-                    unresolved.append(row)
+                    if row["value"]:
+                        unresolved.append(row)
                     continue
                 if len(hits) > 1 and how == "name":
                     ambiguous += 1
                 for h in hits:
+                    v = row["value"]
+                    ru, fu = (row.get("unit") or "").strip(), (h["unit"] or "").strip()
+                    if ru and fu and ru.lower() != fu.lower():
+                        # a factor per external unit: per flow unit it is value / (flow units per external unit)
+                        f = units.factor(ru, fu)
+                        if f:
+                            v = v / f
+                            converted += 1
+                        else:
+                            unit_issue.append((h, ru))
+                            bad_unit.add(h["id"])
                     if h["id"] in ext_cf:
-                        if abs(ext_cf[h["id"]] - row["value"]) > SAME_TOL * max(abs(row["value"]), abs(ext_cf[h["id"]])):
+                        if abs(ext_cf[h["id"]] - v) > SAME_TOL * max(abs(v), abs(ext_cf[h["id"]])):
                             conflicts += 1
                         continue
-                    ext_cf[h["id"]] = row["value"]
-                    if row.get("unit") and h["unit"] and row["unit"].strip().lower() != h["unit"].strip().lower():
-                        unit_issue.append((h, row["unit"]))
+                    ext_cf[h["id"]] = v
         relevant = (set(cy) | set(ext_cf)) & used if used else set(cy) | set(ext_cf)
-        counts = {"same": 0, "different": 0, "only_cyclia": 0, "only_external": 0}
+        counts = {"same": 0, "different": 0, "only_cyclia": 0, "only_external": 0, "unit_mismatch": 0}
         maxrel = 0.0
         for fid in relevant:
             a, b = cy.get(fid, 0.0), ext_cf.get(fid, 0.0) if e else None
@@ -220,7 +239,9 @@ def compare(store, method_ids, external, source="", model_ids=None, external_res
             if a == 0 and b == 0:
                 continue
             scale = max(abs(a), abs(b))
-            if a != 0 and b == 0 and fid not in ext_cf:
+            if fid in bad_unit:
+                st = "unit_mismatch"   # not comparable: never counted as the same factor
+            elif a != 0 and b == 0 and fid not in ext_cf:
                 st = "only_cyclia"
             elif a == 0 and fid not in cy:
                 st = "only_external"
@@ -261,17 +282,34 @@ def compare(store, method_ids, external, source="", model_ids=None, external_res
         cats.append({"method_id": m["id"], "category": m["category"], "indicator": m["indicator"], "family": m["family"],
                      "external_category": e["category"] if e else None, "pairing_score": score, **counts,
                      "unresolved": len(unresolved), "ambiguous": ambiguous, "unit_issues": len(unit_issue),
-                     "external_conflicts": conflicts,
+                     "units_converted": converted, "external_conflicts": conflicts,
+                     "unresolved_examples": [{"name": r["name"], "compartment": "/".join(x for x in (r["comp"], r["sub"]) if x),
+                                              "value": r["value"]} for r in unresolved[:20]],
                      "max_relative_difference": maxrel, "models": effects,
                      "agreement": (counts["same"] / max(1, sum(counts.values()))) if e else None})
     flow_rows.sort(key=lambda r: (-r["max_effect"], -r["relative_difference"]))
-    ok = all(c["external_category"] and c["different"] == 0 and c["only_cyclia"] == 0 and c["only_external"] == 0
-             for c in cats)
+    # PASS only when everything was compared and agrees: no category without a partner, no differing factor, no
+    # factor in one tool only, no external row that matches no flow or several flows, no unit that cannot be
+    # compared, and no external flow with two different factors
+    open_items = []
+    for c in cats:
+        nm = c["category"]
+        if not c["external_category"]:
+            open_items.append(f"{nm}: no external category paired")
+            continue
+        for k, label in (("different", "factors differ"), ("only_cyclia", "factors only in Cyclia"),
+                         ("only_external", "factors only in the external tool"), ("unit_mismatch", "factors with units that cannot be compared"),
+                         ("unresolved", "external factors match no flow of the library"),
+                         ("ambiguous", "external factors match several flows"), ("external_conflicts", "external flows with two different factors")):
+            if c.get(k):
+                open_items.append(f"{nm}: {c[k]} {label}")
+    ok = not open_items and bool(cats)
     return {"source": source, "categories": cats, "flows": flow_rows[:5000], "n_flow_rows": len(flow_rows),
             "unpaired_external": unpaired, "models": [x["name"] for x in inv.values()],
-            "passed": ok,
-            "verdict": ("Every relevant flow has the same factor in Cyclia and in the external tool." if ok else
-                        "Differences found: see the categories and the flow-by-flow list, largest effect on your models first."),
+            "passed": ok, "open_items": open_items,
+            "verdict": ("Passed: every relevant flow was compared and has the same factor in Cyclia and in the external tool."
+                        if ok else f"Not passed: {len(open_items)} open item(s). " + "; ".join(open_items[:4])
+                        + ("; ..." if len(open_items) > 4 else "")),
             "scope": f"Flows compared: every flow used by the library or by the project's models that has a factor in "
                      f"either tool, global factors only. 'Same' means a relative difference up to {SAME_TOL:g}."}
 
@@ -286,17 +324,21 @@ def to_excel(path, res, version=""):
     ws.append(["External source", res["source"]])
     ws.append(["Verdict", res["verdict"]])
     ws.append(["Scope", res["scope"]])
+    for it in res.get("open_items", []):
+        ws.append(["Open item", it])
     ws.append([])
     head = ["Cyclia category", "Indicator", "Method", "External category", "Pairing score", "Same", "Different",
             "Only in Cyclia", "Only external", "External flows not in the library", "Matched to several flows",
-            "Unit differences", "Conflicting external factors", "Largest relative difference", "Agreement"]
+            "Units not comparable", "Units converted", "Conflicting external factors", "Largest relative difference",
+            "Agreement"]
     ws.append(head)
     for c in ws[ws.max_row]:
         c.font = Font(bold=True)
     for c in res["categories"]:
         ws.append([c["category"], c["indicator"], c["family"], c["external_category"] or "(no match)", c["pairing_score"],
                    c["same"], c["different"], c["only_cyclia"], c["only_external"], c["unresolved"], c["ambiguous"],
-                   c["unit_issues"], c["external_conflicts"], c["max_relative_difference"], c["agreement"]])
+                   c["unit_issues"], c.get("units_converted", 0), c["external_conflicts"], c["max_relative_difference"],
+                   c["agreement"]])
     w2 = wb.create_sheet("Flow by flow")
     w2.append(["Category", "External category", "Flow", "Compartment", "Unit", "UUID", "Status", "Cyclia factor",
                "External factor", "Relative difference", "Largest effect on a model"])
@@ -311,6 +353,12 @@ def to_excel(path, res, version=""):
             w3.append([c["category"], x["model"], x["cyclia"], x["with_external_factors"], x["factor_effect_percent"],
                        x.get("external_result"), x.get("total_difference"), x.get("explained_by_factors"),
                        x.get("other_differences")])
+    unres = [(c["category"], u) for c in res["categories"] for u in c.get("unresolved_examples", [])]
+    if unres:
+        w5 = wb.create_sheet("Unresolved external")
+        w5.append(["Category", "External flow (matches no flow of the library)", "Compartment", "Factor"])
+        for cat, u in unres:
+            w5.append([cat, u["name"], u["compartment"], u["value"]])
     if res["unpaired_external"]:
         w4 = wb.create_sheet("Unpaired external")
         w4.append(["External categories without a Cyclia counterpart"])

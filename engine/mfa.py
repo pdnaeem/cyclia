@@ -152,6 +152,9 @@ def run(defn):
         recycled_out = float(sum(F[t, i, j] for i in rec for j in range(n) if j not in rec and not procs[j].get("sink")))
         rc_in = float(sum(F[t, i, prod] for i in rec)) if prod is not None else None
         prod_in = float(F[t, :, prod].sum() + ext[t, prod]) if prod is not None else None
+        # input of the recycling processes from outside the recycling chain (collected end-of-life and scrap)
+        eol_to_rec = float(sum(F[t, i, r] for r in rec for i in range(n) if i not in rec) + sum(ext[t, r] for r in rec)) \
+            if rec else 0.0
         loss = float(sum(F[t, :, k].sum() + ext[t, k] for k in sink))
         tot_in = float(ext[t].sum())
         d_stock = float(sum(level[t, s] - (level[t - 1, s] if t else 0.0) for s in stock))
@@ -160,9 +163,20 @@ def run(defn):
                      "recycled": recycled_out, "losses": loss,
                      "recycling_rate": (recycled_out / eol) if eol > 1e-12 and rec else None,
                      "recycled_content": (rc_in / prod_in) if prod is not None and prod_in and prod_in > 1e-12 else None,
-                     "recirculated_inflow_share": (rc_in / (rc_in + tot_in)) if prod is not None and (rc_in + tot_in) > 1e-12 else None,
+                     # boundary: the production process. Share of its total input that is recirculated (from the
+                     # recycling processes); 1.3.5 divided by all external inflows of the system instead
+                     "recirculated_inflow_share": (rc_in / prod_in) if prod is not None and prod_in and prod_in > 1e-12 else None,
+                     "virgin_inflow_to_production": (prod_in - rc_in) if prod is not None else None,
                      "outflow_recirculated_share": (recycled_out / (recycled_out + loss)) if (recycled_out + loss) > 1e-12 else None,
                      "balance_error": tot_in - d_stock - loss})
+        r_ = rows[-1]
+        # MCI of the material in that year from the MFA itself: F_R = recycled content, C_R = share of the
+        # end-of-life outflow sent to recycling, E_C = share of that recycling input that is recycled
+        fr = r_["recycled_content"]
+        cr = (eol_to_rec / eol) if eol > 1e-12 and rec else None
+        ec = (recycled_out / eol_to_rec) if eol_to_rec > 1e-12 else None
+        r_["mci"] = mci(Fr=min(max(fr, 0.0), 1.0), Cr=min(max(cr, 0.0), 1.0), Ec=min(max(ec, 1e-9), 1.0))["MCI"] \
+            if None not in (fr, cr, ec) else None
     worst = max(abs(r["balance_error"]) / max(1.0, abs(r["external_inflow"])) for r in rows)
     return {"years": years, "rows": rows,
             "processes": [{"id": p["id"], "name": p.get("name", p["id"]), "kind": "stock" if p.get("stock") else
@@ -171,7 +185,11 @@ def run(defn):
             "mass_balance_ok": worst < 1e-9, "max_balance_error": worst,
             "note": "Inflows interpolated linearly between the given years. Stocks retire their inflow by the lifetime "
                     "distribution, starting the year after entry; the stock is zero at the start. Loops within a year "
-                    "are solved exactly. Mass balance: external inflow = change of stocks + flows to sinks, every year."}
+                    "are solved exactly. Mass balance: external inflow = change of stocks + flows to sinks, every year. "
+                    "Recycled content and recirculated inflow share: recycled input / total input of the production "
+                    "process. MCI per year from the MFA: recycled content, share of end-of-life outflow sent to "
+                    "recycling and recycling efficiency; reuse, lifetime and intensity ratios are taken as 1. These "
+                    "are indicators in the spirit of ISO 59020:2024, not a complete ISO 59020 assessment."}
 
 
 def mci(Fr=0.0, Fu=0.0, Cr=0.0, Cu=0.0, Ec=1.0, Ef=1.0, L_ratio=1.0, U_ratio=1.0, M=1.0):

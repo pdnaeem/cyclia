@@ -117,8 +117,10 @@ renderDbs = function () {
       <div class="grow"><b>${esc(d.name)}</b>
         <div class="chips">${d.version ? `<span class="chip">v${esc(d.version)}</span>` : ""}${d.system_model ? `<span class="chip">${esc(d.system_model)}</span>` : ""}
           <span class="chip">${d.n_activities.toLocaleString("en-US")} datasets</span>${d.has_uncertainty ? '<span class="chip">uncertainty</span>' : ""}
+          ${d.licence ? `<span class="chip">${esc(d.licence)}</span>` : ""}${d.source_sha256 ? '<span class="chip" title="Source file fingerprint recorded">fingerprint</span>' : ""}
           ${dbKind(d) === "learn" ? '<span class="chip warn">for learning only</span>' : ""}${d.n_unlinked ? `<span class="chip warn">${d.n_unlinked} without supplier</span>` : ""}</div></div>
       ${d.n_unlinked ? `<button data-link="${d.id}">Link suppliers</button>` : ""}
+      <button class="ghost" data-dbmeta="${d.id}">Details</button>
       <button class="ghost" data-validate="${d.id}">Check</button>
       <button class="icon-btn" data-deldb="${d.id}" title="Remove from the library" aria-label="Remove ${esc(d.name)}">
         <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M5 4.5l.6 8.5h4.8l.6-8.5"/></svg></button></li>`).join("")

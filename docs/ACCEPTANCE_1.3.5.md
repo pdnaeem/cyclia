@@ -1,5 +1,10 @@
 # Cyclia 1.3.5: acceptance criteria and status per feature
 
+> **Superseded in part by 1.3.6.** External audits of 1.3.5 found defects in factor matching (false PASS), AWARE
+> (evaporation, non-agricultural factor), social LCA coverage, MFA circularity, LANCA units and EPD toxicity
+> indicators. They are fixed in 1.3.6; see docs/ACCEPTANCE_1.3.6.md. Demonstration numbers below that changed
+> with these fixes (e.g. the AWARE demo result) are those of 1.3.5.
+
 This file answers the third external audit (of 1.3.4). For each requested feature it gives the code, the tests,
 the demonstration data and the acceptance criteria, and says plainly what is not done. A feature is "Done" only
 when it has its own code, its own tests and a demonstration that can be repeated. Importing numbers through a

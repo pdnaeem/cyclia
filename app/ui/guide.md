@@ -209,9 +209,21 @@ file or folder and press **Import**.
 **Tutorial database.** 33 simplified processes (building materials, food, textiles, plastics, energy, waste
 and wastewater) with simple impact methods. For learning only.
 
-**Link missing suppliers.** Some databases (USLCI, Agribalyse) refer to products from other databases. After
-the import, "Link missing suppliers" lists them; link each product once to a dataset you have. **Check**
-tests the database: solvable matrix, missing suppliers, flows without factors.
+**Link missing suppliers.** After an import, "Link missing suppliers" lists every input without a single
+supplier, with the reason: produced by no dataset of the import (often a product of another database, as in USLCI
+or Agribalyse), produced by several datasets (Cyclia does not guess and shows the candidates), or without a
+supplier link in the dataset (ecoSpold2). Each location is its own row, so electricity for France and for Poland
+get their own suppliers. "Link automatically" only links rows with exactly one supplier at the same location.
+Inputs that the system model cuts off on purpose (recycled content in the ecoinvent cut-off model) must stay
+unlinked.
+
+**Details** records the database's original name, version, system model, release date, geography, technology,
+licence, reference period and citation, next to the source file's SHA-256 fingerprint and the Cyclia version that
+imported it. Enter what you know: it is printed in reports and makes the study reproducible.
+
+**Check** tests the database in six parts: the matrix (can it be solved), the technosphere (inputs without a
+supplier, by reason), elementary-flow coverage, units, metadata and LCIA compatibility. A solvable matrix does
+not mean a complete database: read every line.
 
 ### Adding impact methods
 
@@ -589,15 +601,20 @@ Compare before you claim that one product is better.
   of your own water use (country, region code such as ES-AN, or watershed) and its type of use; it is saved with
   the model. Each result shows
   how much of the water or land was characterised exactly, with a fallback (country, then world), or not at all.
-- **Social LCA**: a screening of social risks along the supply chain: worker hours per functional unit and
+- **Social LCA** (risk screening, not a full social LCA): a screening of social risks along the supply chain: worker hours per functional unit and
   risk hours per stakeholder and indicator, with the processes that cause them. Import your licensed PSILCA or
-  SOCA extract or your own data with the template; Cyclia ships no social data. Coverage shows how much of the
-  worker hours has data.
+  SOCA extract or your own data with the template; Cyclia ships no social data. Process coverage shows how many
+  processes of the supply chain have data; totals are lower bounds. Add a default row (match `*`) to estimate the
+  worker hours of processes without data and get a worker-hour coverage. Avoided products are shown separately.
 - **Material flows**: dynamic material flow analysis (MFA) of a material system over years: processes, in-use stocks with
   lifetimes, sinks and recycling loops, with stocks, flows, losses, recycling rate and recycled content per
   year and a mass-balance check. Start from **Load example** (aluminium in buildings, invented numbers). The
   **Material Circularity Indicator** of the Ellen MacArthur Foundation is calculated for a product from its
   recycled content, collection and efficiencies.
+- **Database explorer**: browse every dataset of the library with its key and UUIDs, inputs and their suppliers,
+  the datasets that use it, inputs without a supplier and why, elementary flows with uncertainty, and data
+  quality. Click a supplier or a user to move along the supply chain. Tick "only datasets with unresolved inputs"
+  to find gaps.
 - **Templates**: your saved templates.
 - **Python, R and other software**: clients to run Cyclia from scripts, and Brightway import.
 - **Teaching**: exercises with automatic checking and an answer key for teachers.

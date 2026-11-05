@@ -6,6 +6,7 @@ linking. Elementary flows without a UUID (ecoSpold1, SimaPro) get a stable key f
 and compartment, so the same flow from two such databases is one flow in the library.
 """
 import csv
+import json
 import hashlib
 import io
 import math
@@ -44,14 +45,25 @@ class _Builder:
         self.acts = []      # (key, name, product, location, unit, production, comment)
         self.tech = []      # (act index, link product key, amount, unc, product, unit, location)
         self.bio = []       # (act index, flow uuid, name, comp, sub, unit, amount, unc)
-        self.by_product = {}
+        self.by_product = {}  # product key -> every activity index that produces it
+        self.keys = {}
+        self.duplicates = []  # processes that came with the same identity as an earlier one: kept separate
         self.skipped = 0
 
     def activity(self, key, name, product, location, unit, production=1.0, comment=""):
+        if key in self.keys:
+            n = 2
+            while f"{key}#{n}" in self.keys:
+                n += 1
+            self.duplicates.append({"key": key, "name": name, "location": location or "", "kept_as": f"{key}#{n}"})
+            key = f"{key}#{n}"
         self.acts.append((key, name, product, location or "", unit or "", production or 1.0, comment or ""))
         i = len(self.acts) - 1
+        self.keys[key] = i
         for k in self._product_keys(product, location, unit):
-            self.by_product.setdefault(k, i)
+            lst = self.by_product.setdefault(k, [])
+            if i not in lst:
+                lst.append(i)
         return i
 
     @staticmethod
@@ -65,32 +77,45 @@ class _Builder:
     def emission(self, ai, uuid, name, comp, sub, unit, amount, unc=(0, None, None, None)):
         self.bio.append((ai, uuid, name, comp, sub, unit, amount, unc))
 
+    def resolve(self, product, unit, loc):
+        """The producer of an input: the most specific product key (product, location, unit; then product and unit;
+        then product) that has producers. One producer: linked. Several: ambiguous, never guessed."""
+        if loc:
+            keys = self._product_keys(product, loc, unit)
+        else:
+            keys = self._product_keys(product, "", unit)[1:]
+        for k in keys:
+            c = self.by_product.get(k)
+            if c:
+                return (c[0], "", []) if len(c) == 1 else (None, "ambiguous", c)
+        return None, "no producer", []
+
     def write(self, progress):
         st, c = self.store, self.store.conn
         try:
             with st.lock:
                 ids = []
                 for key, name, product, loc, unit, prod, comment in self.acts:
-                    cur = c.execute("INSERT OR IGNORE INTO activities(db_id,key,name,product,location,unit,production,comment) "
+                    cur = c.execute("INSERT INTO activities(db_id,key,name,product,location,unit,production,comment) "
                                     "VALUES(?,?,?,?,?,?,?,?)", (self.db_id, key, name, product, loc, unit, prod, comment[:3000]))
-                    ids.append(cur.lastrowid if cur.rowcount else c.execute(
-                        "SELECT id FROM activities WHERE db_id=? AND key=?", (self.db_id, key)).fetchone()[0])
+                    ids.append(cur.lastrowid)
                 progress(70, "Linking supply chains")
                 tech, unlinked = [], []
+                n_amb = 0
                 for ai, link, amount, unc, product, unit, loc in self.tech:
                     target = link if isinstance(link, int) else None
+                    reason, cands = "", []
                     if target is None:
-                        for k in self._product_keys(product, loc, unit):
-                            if k in self.by_product:
-                                target = self.by_product[k]
-                                break
+                        target, reason, cands = self.resolve(product, unit, loc)
                     if target is None:
-                        unlinked.append((self.db_id, ids[ai], product, unit, amount, loc or "", None) + tuple(unc))
+                        n_amb += reason == "ambiguous"
+                        unlinked.append((self.db_id, ids[ai], product, unit, amount, loc or "", None) + tuple(unc)
+                                        + (reason or "no producer", json.dumps([ids[x] for x in cands]) if cands else None))
                     else:
                         tech.append((ids[ai], ids[target], amount) + tuple(unc))
                 c.executemany("INSERT INTO tech(output_id,input_id,amount,utype,p1,p2,p3) VALUES(?,?,?,?,?,?,?)", tech)
-                c.executemany("INSERT INTO unlinked(db_id,output_id,product,unit,amount,location,link_key,utype,p1,p2,p3) "
-                              "VALUES(?,?,?,?,?,?,?,?,?,?,?)", unlinked)
+                c.executemany("INSERT INTO unlinked(db_id,output_id,product,unit,amount,location,link_key,utype,p1,p2,p3,"
+                              "reason,candidates) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", unlinked)
                 bio = []
                 for ai, uuid, name, comp, sub, unit, amount, unc in self.bio:
                     fid = st.add_flow(uuid, name, comp, sub, unit)
@@ -105,11 +130,17 @@ class _Builder:
             raise
         warnings = []
         if unlinked:
-            warnings.append(f"{len(unlinked)} inputs ({len({u[2] for u in unlinked})} products) have no producer in this "
-                            "import. Link them under 'Link missing suppliers'.")
+            warnings.append(f"{len(unlinked)} inputs ({len({u[2] for u in unlinked})} products) have no single producer in "
+                            f"this import ({n_amb} of them because several datasets produce the same product: Cyclia does "
+                            "not guess). Link them under 'Link missing suppliers'.")
+        if self.duplicates:
+            warnings.append(f"{len(self.duplicates)} processes had the same identity as an earlier process (for example "
+                            f"'{self.duplicates[0]['key']}'). They were kept as separate datasets, not merged.")
         if self.skipped:
             warnings.append(f"{self.skipped} exchanges could not be read (non-numeric amounts or formulas) and were skipped.")
-        return {"database": self.name, "activities": len(ids), "warnings": warnings}
+        return {"database": self.name, "activities": len(ids), "warnings": warnings, "unlinked_inputs": len(unlinked),
+                "ambiguous_inputs": n_amb, "duplicates": self.duplicates[:50], "n_duplicates": len(self.duplicates),
+                "skipped_exchanges": self.skipped}
 
 
 # ------------------------------------------------------------------------------------------- ecoSpold1
@@ -257,6 +288,10 @@ def _sp_process(b, block, num):
         if cur is not None:
             sections[cur].append(cells)
     geo = (sections.get("geography") or [[""]])[0][0]
+    # identity of the process: SimaPro's process identifier, else the process name (never product + location alone,
+    # which merged two routes of the same product)
+    ident = ((sections.get("process identifier") or [[""]])[0] or [""])[0] or \
+        ((sections.get("process name") or [[""]])[0] or [""])[0]
     comment = " ".join(x[0] for x in sections.get("comment", []) if x)
     products = sections.get("products") or []
     waste = sections.get("waste treatment") or []
@@ -274,7 +309,8 @@ def _sp_process(b, block, num):
     for prod_name, unit, amt, share, sign in refs:
         if not amt:
             continue
-        ai = b.activity(f"{prod_name}|{geo}", prod_name, prod_name, geo, unit, sign * amt, comment)
+        key = f"{ident}|{prod_name}|{geo}" if ident else f"{prod_name}|{geo}"
+        ai = b.activity(key, prod_name, prod_name, geo, unit, sign * amt, comment)
         for sec, rws in sections.items():
             if sec in SP_TECH:
                 for r in rws:

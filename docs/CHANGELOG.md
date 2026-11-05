@@ -1,5 +1,60 @@
 # Changelog
 
+## 1.3.6 (2026-11-05)
+
+Database integrity and scientific reliability release, after two external audits of 1.3.5 and the user's
+ecoinvent benchmark. Every item has a regression test that fails on 1.3.5 (engine/tests/test_v136.py). Details:
+docs/ACCEPTANCE_1.3.6.md.
+
+Fixed (results could be wrong)
+- SimaPro import merged two processes with the same product and location (two routes became one dataset with
+  added emissions). Processes are now identified by process identifier or name; duplicates are kept separate
+  and reported (also for ecoSpold1 and ILCD).
+- When several datasets of an import produced the same product, the first one was used as supplier. Such inputs
+  are now "ambiguous", with the candidates, for the user to choose (SimaPro, ecoSpold1, ILCD, openLCA JSON-LD).
+- ecoSpold2 inputs without activityLinkId disappeared without a record. They are kept as unresolved inputs.
+- Linking missing suppliers grouped all locations together; one click gave France, Germany and Poland the same
+  supplier. Groups and links are now per location; automatic linking needs exactly one supplier at that location.
+- Factor matching validation could PASS with unresolved external flows, ambiguous matches, wrong units or
+  conflicting factors, and one external category could be paired with several Cyclia categories. PASS now needs
+  no open item; pairing is one to one; convertible units are converted.
+- AWARE subtracted evaporated water (and water to soil) as if returned. Only releases to fresh water are
+  subtracted; evaporation, discharge to the sea and to soil are consumption. The water balance is shown.
+- AWARE never found the non-agricultural factor (stored as 'non-agri', looked up as 'non_agri') and used the
+  unknown factor. Fixed; supply-chain processes are now classified per process (irrigation agricultural, other
+  processes non-agricultural, option unknown).
+- Social LCA coverage was always 100 %. Process coverage is reported; worker-hour coverage only with a default
+  row that estimates the processes without data. Avoided products no longer reduce the hours of shared processes.
+- MFA recirculated inflow share was divided by all external inflows of the system instead of the production
+  process input.
+- LANCA multiplied amounts and factors without unit check (1 ha*a counted as 1 m2*a). Factor units are validated,
+  amounts converted; soil organic carbon accepted.
+- EPD: HTP-c and HTP-nc were not recognised under the EF 3.1 names ('carcinogenic'); toxicity sub-categories
+  could be taken for the indicator. Units of the additional indicators are checked.
+- The ecoinvent benchmark said "Validated" while one category (land use) was up to 14 % off. The verdict now names
+  every category that does not agree.
+
+Added
+- Database check in six statuses: matrix, technosphere completeness, elementary-flow coverage, units, metadata
+  and LCIA compatibility.
+- Database provenance: source file SHA-256, importer version, import report and editable metadata (version,
+  system model, release date, geography, technology, licence, reference period, citation). Imports are all or
+  nothing, with an integrity check after import.
+- Database explorer (Toolbox): identity, suppliers, users, unresolved inputs, elementary flows with uncertainty,
+  data quality; navigation along the supply chain.
+- Land use coverage in every result, with a warning when land flows have no factor; targeted benchmark test of
+  land flows without a factor (implied factors and share of the gap explained).
+- MCI per year computed from the MFA.
+
+Tests
+- 167 automated tests (30 new).
+
+Not done
+- Native PSILCA/SOCA import, AWARE monthly and GIS watershed factors, ILCD+EPD XML, visual MFA builder and MFA-LCA
+  link, a staging database separate from the library, streaming import of very large files, operator approval of
+  the EPD profiles, a published openLCA/Brightway comparison. The cause of the land use difference is narrowed down
+  but not confirmed (see docs/ACCEPTANCE_1.3.6.md).
+
 ## 1.3.5 (2026-11-05)
 
 New features after a third external audit (of the 1.3.4 roadmap). Acceptance criteria, tests and demonstration

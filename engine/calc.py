@@ -679,7 +679,10 @@ def run(store, model_id, method_ids, top=12, mc_iterations=0, sensitivity_pct=10
             uncharacterised.append({"name": n, "context": ctxt, "unit": u, "amount": float(g[i]),
                                     "mapping_issue": mc.flow_cname[i][0] in raw_names})
 
+    land_cov = land_coverage(M, mc, g, flow_label, results)
+
     out = {"model": {k: model[k] for k in ("id", "name", "product", "unit", "amount", "scope")},
+           "land_coverage": land_cov,
            "results": results, "lines": lines, "stages": stages, "sensitivity_pct": pct, "allocation_share": share,
            "nw_set": nw_set if nw else None, "scenario": scenario, "parameters": ctx.params(model_id),
            "parameter_sensitivity": param_sens, "lci": lci, "uncharacterised": uncharacterised,
@@ -1312,13 +1315,18 @@ def tree(store, model_id, method_id, node=None, amount=None, scenario=None, cuto
 
 
 # ============================================================================ validation
+DB_META_REQUIRED = ("version", "system_model", "source", "licence", "release_date", "source_sha256", "importer_version")
+
+
 def validate_database(store, db_id=None, sample=25, seed=3):
-    """Matrix diagnostics: solvability, residuals of random solves, negative scaling, missing suppliers and flows
-    without any characterisation factor."""
+    """Database check in six separate statuses, because a solvable matrix does not mean a complete database:
+    1 matrix consistency, 2 technosphere completeness, 3 elementary-flow coverage, 4 unit consistency,
+    5 metadata completeness, 6 LCIA compatibility. Each status is ok, warning or error with its numbers."""
+    import units as _units
     mc = _cache.get(store)
     out = {"datasets": mc.n, "exchanges": int(len(mc.t_amt)), "elementary_exchanges": int(len(mc.b_amt))}
-    ids = [r["id"] for r in store.q("SELECT id FROM activities" + (" WHERE db_id=?" if db_id else ""),
-                                    (db_id,) if db_id else ())]
+    where, args = (" WHERE db_id=?", (db_id,)) if db_id else ("", ())
+    ids = [r["id"] for r in store.q("SELECT id FROM activities" + where, args)]
     rng = np.random.default_rng(seed)
     pick = list(rng.choice(ids, size=min(sample, len(ids)), replace=False)) if ids else []
     worst, negative = 0.0, 0
@@ -1332,16 +1340,91 @@ def validate_database(store, db_id=None, sample=25, seed=3):
     out["max_relative_residual"] = worst
     out["sampled"] = len(pick)
     out["negative_scaling"] = negative
-    out["zero_production"] = int((mc.diag == 0).sum())
-    out["unlinked_inputs"] = store.one("SELECT COUNT(*) AS n FROM unlinked WHERE linked_to IS NULL" +
-                                       (" AND db_id=?" if db_id else ""), (db_id,) if db_id else ())["n"]
+    idset = {mc.act_index[i] for i in ids if i in mc.act_index}
+    out["zero_production"] = int(sum(1 for j in idset if mc.diag[j] == 0))
+    statuses = []
+
+    def status(key, label, level, message, **numbers):
+        statuses.append({"key": key, "label": label, "level": level, "message": message, **numbers})
+
+    # 1 matrix
+    m_ok = worst < 1e-8 and out["zero_production"] == 0
+    status("matrix", "Matrix consistency", "ok" if m_ok else "error",
+           f"Random solves of {len(pick)} datasets reproduce the demand to within {worst:.1e}; "
+           f"{out['zero_production']} datasets with zero production." if pick else "No datasets.",
+           residual=worst, zero_production=out["zero_production"])
+    # 2 technosphere completeness
+    reasons = store.q("SELECT COALESCE(reason,'no producer') AS reason, COUNT(*) AS n, COUNT(DISTINCT output_id) AS acts "
+                      "FROM unlinked WHERE linked_to IS NULL" + (" AND db_id=?" if db_id else "") + " GROUP BY 1", args)
+    n_unl = sum(r["n"] for r in reasons)
+    out["unlinked_inputs"] = n_unl
+    acts_aff = store.one("SELECT COUNT(DISTINCT output_id) AS n FROM unlinked WHERE linked_to IS NULL"
+                         + (" AND db_id=?" if db_id else ""), args)["n"]
+    share = acts_aff / len(ids) if ids else 0.0
+    status("technosphere", "Technosphere completeness", "ok" if not n_unl else "warning",
+           ("Every input has a supplier." if not n_unl else
+            f"{n_unl} inputs of {acts_aff} datasets ({share * 100:.1f} %) have no single supplier: "
+            + ", ".join(f"{r['n']} {r['reason']}" for r in reasons) + ". They add nothing to results until linked."),
+           unresolved=n_unl, datasets_affected=acts_aff, by_reason={r["reason"]: r["n"] for r in reasons})
+    # 3 elementary-flow coverage
     used = set(mc.b_rows.tolist())
     with_cf = {mc.flow_index[r["flow_id"]] for r in store.q("SELECT DISTINCT flow_id FROM cfs") if r["flow_id"] in mc.flow_index}
     out["flows_used"] = len(used)
     out["flows_without_any_factor"] = len(used - with_cf)
-    ok = worst < 1e-8 and out["zero_production"] == 0
-    out["verdict"] = ("Matrix is consistent: random solves reproduce the demand to within "
-                      f"{worst:.1e}." if ok else "Problems found; see the numbers below.")
+    cov = 1 - out["flows_without_any_factor"] / len(used) if used else 1.0
+    status("flows", "Elementary-flow coverage", "ok" if cov >= 0.9 else "warning",
+           f"{len(used) - out['flows_without_any_factor']} of {len(used)} elementary flows used by the library have a "
+           f"factor in at least one installed category ({cov * 100:.1f} %). Flows without any factor count as zero in "
+           "every category.", coverage=cov)
+    # 4 unit consistency
+    flows = store.q("SELECT id, name, compartment, subcompartment, unit, c_name, c_comp, c_sub FROM flows")
+    unknown_units = sorted({f["unit"] or "(none)" for f in flows if f["id"] in {int(mc.flow_ids[i]) for i in used}
+                            and _units.factor(f["unit"] or "", f["unit"] or "") is None})
+    by_key = {}
+    for f in flows:
+        by_key.setdefault((f["c_name"], f["c_comp"], f["c_sub"]), set()).add((f["unit"] or "").strip().lower())
+    mixed = [k for k, v in by_key.items() if len(v) > 1]
+    no_unit = store.one("SELECT COUNT(*) AS n FROM activities" + (" WHERE db_id=? AND" if db_id else " WHERE")
+                        + " COALESCE(unit,'')=''", args)["n"]
+    u_ok = not unknown_units and not mixed and not no_unit
+    status("units", "Unit consistency", "ok" if u_ok else "warning",
+           ("Units are known and consistent." if u_ok else
+            "; ".join(x for x in (
+                f"units Cyclia does not know: {', '.join(unknown_units[:6])}" if unknown_units else "",
+                f"{len(mixed)} elementary flows exist with different units under the same name and compartment "
+                f"(e.g. {mixed[0][0]}): a factor can only be right for one of them" if mixed else "",
+                f"{no_unit} datasets without a unit" if no_unit else "") if x) + "."),
+           unknown_units=unknown_units[:20], mixed_unit_flows=len(mixed), datasets_without_unit=no_unit)
+    # 5 metadata
+    dbs = store.q("SELECT * FROM databases" + (" WHERE id=?" if db_id else ""), args)
+    missing = {d["name"]: [k for k in DB_META_REQUIRED if not (d.get(k) or "").strip()] for d in dbs}
+    missing = {k: v for k, v in missing.items() if v}
+    status("metadata", "Database metadata", "ok" if not missing else "warning",
+           ("Version, system model, source, licence, release date, source file fingerprint and importer version are "
+            "recorded." if not missing else
+            "Missing for reproducibility: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in list(missing.items())[:5])
+            + ". Enter them under Database details."), missing=missing)
+    # 6 LCIA compatibility
+    fam = store.q("SELECT m.family, COUNT(DISTINCT c.flow_id) AS n FROM methods m LEFT JOIN cfs c ON c.method_id=m.id "
+                  "GROUP BY m.family")
+    fam_cov = []
+    for f in fam:
+        fl = {mc.flow_index[r["flow_id"]] for r in store.q(
+            "SELECT DISTINCT c.flow_id FROM cfs c JOIN methods m ON m.id=c.method_id WHERE m.family=?", (f["family"],))
+            if r["flow_id"] in mc.flow_index}
+        fam_cov.append({"family": f["family"], "flows_with_factor": len(fl & used),
+                        "share_of_used_flows": len(fl & used) / len(used) if used else 0.0})
+    fam_cov.sort(key=lambda x: -x["share_of_used_flows"])
+    status("lcia", "LCIA compatibility", "ok" if fam_cov and fam_cov[0]["flows_with_factor"] else "warning",
+           ("No impact method installed." if not fam_cov else
+            "; ".join(f"{x['family']}: {x['flows_with_factor']} flows ({x['share_of_used_flows'] * 100:.1f} % of the "
+                      "flows used)" for x in fam_cov[:5])), families=fam_cov)
+    out["statuses"] = statuses
+    errors = [x["label"] for x in statuses if x["level"] == "error"]
+    warns = [x["label"] for x in statuses if x["level"] == "warning"]
+    out["verdict"] = ("Errors: " + ", ".join(errors) + "." if errors else
+                      ("The matrix can be solved, but check: " + ", ".join(warns) + "." if warns else
+                       "All six checks passed: matrix, technosphere, flows, units, metadata and LCIA."))
     if negative:
         out["note"] = (f"{negative} of {len(pick)} sampled datasets have negative scaling factors somewhere in their supply "
                        "chain. This is normal with system expansion or waste treatment, but check it if unexpected.")
@@ -1494,6 +1577,39 @@ def compare_scenarios(store, model_id, method_ids, scenario_ids, bg=None):
     return {"scenarios": rows, "methods": methods}
 
 
+def land_coverage(M, mc, g, flow_label, results):
+    """For land use categories: the share of the inventory's land occupation (m2*a) and transformation (m2) that has
+    a factor. The ecoinvent benchmark of 1.3.4 showed Cyclia up to 14 % below ecoinvent's EF 3.1 land use results
+    where flows such as 'Occupation, lake, artificial' or seabed flows had no factor: this makes such gaps visible
+    in every result."""
+    import units as _u
+    out = []
+    land = []
+    for i in np.where(np.abs(g) > 0)[0]:
+        n, ctxt, u = flow_label(i)
+        nl = (n or "").lower()
+        kind = "occupation" if nl.startswith("occupation,") else "transformation" if nl.startswith("transformation,") else None
+        if kind:
+            conv = _u.factor(u, "m2*a" if kind == "occupation" else "m2") or 1.0
+            land.append((i, kind, n, abs(float(g[i])) * conv))
+    if not land:
+        return out
+    for k, r in enumerate(results):
+        t = f"{r['category']} {r['indicator']}".lower()
+        if not (("land use" in t or "soil quality" in t or "land occupation" in t) and "climate" not in t):
+            continue
+        for kind in ("occupation", "transformation"):
+            items = [x for x in land if x[1] == kind]
+            tot = sum(x[3] for x in items)
+            if not tot:
+                continue
+            miss = sorted([x for x in items if M.C[k, x[0]] == 0], key=lambda x: -x[3])
+            out.append({"category": r["category"], "kind": kind, "total": tot,
+                        "share_without_factor": sum(x[3] for x in miss) / tot,
+                        "flows_without_factor": [{"name": x[2], "amount": x[3]} for x in miss[:8]]})
+    return out
+
+
 def checks(store, model_id, method_ids, result=None):
     """Completeness, consistency and data checks (ISO 14044 4.5.3). Levels: error, warning, info."""
     out = []
@@ -1641,6 +1757,12 @@ def checks(store, model_id, method_ids, result=None):
             if r["cfs_matched"] == 0:
                 add("error", "impact", f"'{r['category']}' has no characterisation factor for any flow in your databases, so "
                                        "its result is always zero. Import a matching method or a flow mapping.")
+        for lc in result.get("land_coverage") or []:
+            if lc["share_without_factor"] > 0.005:
+                ex = ", ".join(f["name"] for f in lc["flows_without_factor"][:3])
+                add("warning", "impact", f"{lc['category']}: {lc['share_without_factor'] * 100:.1f} % of the land "
+                                         f"{lc['kind']} in the inventory has no factor (e.g. {ex}), so the result is "
+                                         "probably too low. Check the method file or add the factors from the method's source.")
         mi = [u for u in result.get("uncharacterised", []) if u["mapping_issue"]]
         if mi:
             add("warning", "impact", f"{len(mi)} inventory flow(s) have factors in the selected method under another name or "

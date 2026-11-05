@@ -49,7 +49,7 @@ def import_data(store, text, source="", replace=True, demo=False):
         ind = str(r.get(cols["indicator"]) or "").strip()
         risk = str(r.get(cols["risk"]) or "").strip().lower()
         if not match:
-            rejected.append({"row": n, "reason": "match is empty"})
+            rejected.append({"row": n, "reason": "match is empty (use * for a default row)"})
             continue
         if wh < 0:
             rejected.append({"row": n, "reason": "worker hours cannot be negative"})
@@ -97,6 +97,16 @@ def _assign(acts, data):
 
 
 def assess(store, model_id, factors=None):
+    """Worker hours and risk hours per functional unit.
+
+    Activity level of a process = |s_i x production_i| with s solved for the demand alone; the avoided products
+    (negative demand) are solved separately, their hours are reported separately and are NOT netted against or
+    added to the totals.
+    Coverage: worker hours are only known for processes with data, so the share of the supply chain's worker hours
+    with data cannot be known unless every process has an activity variable. Cyclia therefore reports
+    (1) process coverage: processes with data / processes in the supply chain, and (2) if the table has a default
+    row (match '*'), worker hours of processes without data ESTIMATED with it, and the worker-hour coverage
+    = hours with data / (hours with data + estimated hours). Without a default row no worker-hour coverage is claimed."""
     data = store.q("SELECT * FROM slca_data")
     if not data:
         raise ValueError("No social data in the library. Import a social data table (Toolbox > Social LCA).")
@@ -109,28 +119,43 @@ def assess(store, model_id, factors=None):
     acts_d, flows, fixed = {}, {}, []
     calc.expand(ctx, int(model_id), 1.0, acts_d, flows, fixed, keep=lambda i: not calc.is_module_d(m["scope"], i["stage"]))
     f = calc.demand_vector(mc, acts_d)
-    s = mc.solve(f) if f.any() else np.zeros(mc.n)
-    output = s * mc.diag                       # amount of reference product of each process per functional unit
-    idx = [int(i) for i in np.nonzero(np.abs(output) > 1e-15 * (np.abs(output).max() or 1))[0]]
+    # the demand and the avoided products (negative demand) are solved separately, so a credit never reduces the
+    # worker hours of a process that the product system really uses (e.g. electricity shared by both chains)
+    f_pos, f_neg = np.clip(f, 0, None), np.clip(-f, 0, None)
+    s_pos = mc.solve(f_pos) if f_pos.any() else np.zeros(mc.n)
+    s_neg = mc.solve(f_neg) if f_neg.any() else np.zeros(mc.n)
+    lv_pos, lv_neg = np.abs(s_pos * mc.diag), np.abs(s_neg * mc.diag)
+    tiny = 1e-15 * (max(lv_pos.max(initial=0), lv_neg.max(initial=0)) or 1)
+    idx = [int(i) for i in np.nonzero((lv_pos > tiny) | (lv_neg > tiny))[0]]
     acts = store.q(f"SELECT id, key, name, location FROM activities WHERE id IN ({','.join(str(int(mc.act_ids[i])) for i in idx) or '0'})")
     byid = {a["id"]: a for a in acts}
-    assign = _assign(acts, data)
-    hours_total, hours_cov = 0.0, 0.0
-    ind = {}
-    proc = []
-    no_data = []
+    default = [r for r in data if r["match"].strip() == "*"]
+    assign = _assign(acts, [r for r in data if r["match"].strip() != "*"])
+    hours_data, hours_est, hours_avoided = 0.0, 0.0, 0.0
+    ind, proc, no_data, avoided = {}, [], [], []
+    n_running = n_with_data = 0
     for i in idx:
         aid = int(mc.act_ids[i])
-        a = byid.get(aid)
+        a = byid.get(aid) or {"name": str(aid), "location": ""}
         rows = assign.get(aid)
-        if not rows:
-            no_data.append({"process": a["name"] if a else str(aid), "location": a["location"] if a else "",
-                            "output": float(output[i])})
+        if rows and lv_neg[i] > tiny:
+            ha = float(lv_neg[i] * rows[0]["worker_hours"])
+            hours_avoided += ha
+            avoided.append({"process": a["name"], "location": a["location"], "hours": ha})
+        if lv_pos[i] <= tiny:
             continue
-        wh = rows[0]["worker_hours"]
-        h = float(abs(output[i]) * wh)
-        hours_total += h
-        hours_cov += h
+        if not rows:
+            n_running += 1
+            rec = {"process": a["name"], "location": a["location"], "output": float(lv_pos[i])}
+            if default:
+                rec["estimated_hours"] = float(lv_pos[i] * default[0]["worker_hours"])
+                hours_est += rec["estimated_hours"]
+            no_data.append(rec)
+            continue
+        h = float(lv_pos[i] * rows[0]["worker_hours"])
+        n_running += 1
+        n_with_data += 1
+        hours_data += h
         proc_risk = 0.0
         for r in rows:
             k = (r["stakeholder"], r["indicator"])
@@ -143,21 +168,33 @@ def assess(store, model_id, factors=None):
                                     "risk_hours": rh})
             proc_risk += rh
         proc.append({"process": a["name"], "location": a["location"], "hours": h, "risk_hours": proc_risk})
+    known_total = hours_data + hours_est if default else None
     for x in ind.values():
         x["by_process"].sort(key=lambda y: -y["risk_hours"])
         x["by_process"] = x["by_process"][:10]
-        x["coverage"] = x["hours_with_data"] / hours_total if hours_total else 0.0
+        # share of the (estimated) total worker hours that has data for this indicator; None when it cannot be known
+        x["coverage"] = (x["hours_with_data"] / known_total) if known_total else None
+        x["coverage_of_hours_with_data"] = x["hours_with_data"] / hours_data if hours_data else 0.0
     proc.sort(key=lambda y: -y["risk_hours"])
     no_data.sort(key=lambda y: -abs(y["output"]))
     src = sorted({r["source"] for r in data})
-    return {"worker_hours": hours_total, "indicators": sorted(ind.values(), key=lambda x: (STAKEHOLDERS.index(x["stakeholder"]), x["indicator"])),
+    process_cov = n_with_data / n_running if n_running else 0.0
+    return {"worker_hours": hours_data, "worker_hours_estimated": hours_est if default else None,
+            "worker_hours_avoided": hours_avoided, "avoided_processes": avoided[:20],
+            "coverage_hours": (hours_data / known_total) if known_total else None,
+            "process_coverage": process_cov, "complete": n_with_data == n_running,
+            "indicators": sorted(ind.values(), key=lambda x: (STAKEHOLDERS.index(x["stakeholder"]), x["indicator"])),
             "hotspots": proc[:20], "processes_without_data": no_data[:30], "n_without_data": len(no_data),
-            "n_processes": len(idx), "risk_factors": rf, "sources": src, "demo": any(x.startswith("demo") for x in src),
-            "has_epd_lines": bool(fixed),
-            "note": "Worker hours per functional unit = output of each process x its worker hours per unit. Risk hours = "
-                    "hours x the factor of the risk level (medium-risk-hour equivalents). A screening of social risk "
-                    "hotspots (UNEP 2020, ISO 14075:2024 stakeholder categories), not a measurement of social "
-                    "performance. Processes without data are not counted: see the list and the coverage per indicator."}
+            "n_processes": n_running, "n_with_data": n_with_data, "risk_factors": rf, "sources": src,
+            "demo": any(x.startswith("demo") for x in src), "has_epd_lines": bool(fixed),
+            "label": "Social LCA risk screening (not a full social LCA)",
+            "note": "Worker hours per functional unit = activity level of each process x its worker hours per unit. Risk "
+                    "hours = hours x the factor of the risk level (medium-risk-hour equivalents). Processes without data "
+                    "are not counted, so the totals are lower bounds; process coverage gives the share of processes with "
+                    "data. Worker-hour coverage needs a default row (match '*') to estimate the hours of processes "
+                    "without data. Avoided products (credits) are listed separately and not subtracted. A screening of "
+                    "social risk hotspots (UNEP 2020, ISO 14075:2024 stakeholder categories), not a full social LCA: "
+                    "raw indicator values, reference scales and the PSILCA database format are not supported."}
 
 
 def demo_data(store):

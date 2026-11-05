@@ -186,7 +186,7 @@ def import_jsonld(store, path, name, progress=lambda *a: None):
 def _processes(store, db_id, src, procs, flows, locations, ref_amount, elementary_id, progress):
     c = store.conn
     providers, pending, bio, unlinked = {}, [], [], []
-    co_products = 0
+    co_products = n_ambiguous = 0
     with store.lock:
         loaded = []
         total = len(procs)
@@ -210,7 +210,8 @@ def _processes(store, db_id, src, procs, flows, locations, ref_amount, elementar
             if cur.rowcount == 0:
                 continue
             aid = cur.lastrowid
-            providers.setdefault((ref.get("flow") or {}).get("@id"), aid)
+            lst = providers.setdefault((ref.get("flow") or {}).get("@id"), [])
+            lst.append(aid)
             loaded.append((aid, p["@id"], exs, ref, loc))
             if i % 200 == 0:
                 progress(8 + int(60 * i / max(total, 1)), f"Reading processes {i:,}/{total:,}")
@@ -236,17 +237,29 @@ def _processes(store, db_id, src, procs, flows, locations, ref_amount, elementar
                     continue
                 sign = 1.0 if ftype == "PRODUCT_FLOW" else -1.0
                 eunc = unc if sign > 0 else _negate(unc)
-                prov = keymap.get((e.get("defaultProvider") or {}).get("@id")) or providers.get(fuuid)
+                # provider: the exchange's defaultProvider; else the only process producing the flow. With several
+                # producers and no defaultProvider the input stays unresolved (never the first producer found)
+                dp = (e.get("defaultProvider") or {}).get("@id")
+                prov = keymap.get(dp)
+                cands = providers.get(fuuid) or []
+                reason = ""
+                if prov is None:
+                    if len(cands) == 1:
+                        prov = cands[0]
+                    else:
+                        reason = "ambiguous" if cands else ("supplier not in this import" if dp else "no producer")
                 if prov is None:
                     fl = flows.get(fuuid, {})
+                    n_ambiguous += reason == "ambiguous"
                     unlinked.append((db_id, aid, fl.get("name") or (e.get("flow") or {}).get("name", ""),
-                                     fl.get("ref_unit", ""), sign * amt, loc, fuuid) + eunc)
+                                     fl.get("ref_unit", ""), sign * amt, loc, fuuid) + eunc
+                                    + (reason, json.dumps(cands) if len(cands) > 1 else None))
                     continue
                 pending.append((aid, prov, sign * amt) + eunc)
         c.executemany("INSERT INTO tech(output_id,input_id,amount,utype,p1,p2,p3) VALUES(?,?,?,?,?,?,?)", pending)
         c.executemany("INSERT INTO bio(activity_id,flow_id,amount,utype,p1,p2,p3) VALUES(?,?,?,?,?,?,?)", bio)
-        c.executemany("INSERT INTO unlinked(db_id,output_id,product,unit,amount,location,link_key,utype,p1,p2,p3) "
-                      "VALUES(?,?,?,?,?,?,?,?,?,?,?)", unlinked)
+        c.executemany("INSERT INTO unlinked(db_id,output_id,product,unit,amount,location,link_key,utype,p1,p2,p3,reason,"
+                      "candidates) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", unlinked)
         c.commit()
     progress(85, "Building search index")
     store.finish_database(db_id)
@@ -256,9 +269,12 @@ def _processes(store, db_id, src, procs, flows, locations, ref_amount, elementar
         n_prod = len({u[2] for u in unlinked})
         warnings.append(f"{len(unlinked)} inputs ({n_prod} products) have no supplier in this file, often because they "
                         "point to another database. Link them under 'Link missing suppliers'.")
+    if n_ambiguous:
+        warnings.append(f"{n_ambiguous} inputs have no default provider and several processes in the file produce their "
+                        "product. Cyclia does not pick one: choose the supplier under 'Link missing suppliers'.")
     if co_products:
         warnings.append(f"{co_products} co-product exchanges were ignored; the database should already be allocated.")
-    return {"activities": n_act, "warnings": warnings}
+    return {"activities": n_act, "warnings": warnings, "unlinked_inputs": len(unlinked), "ambiguous_inputs": n_ambiguous}
 
 
 def read_impact_factors(path):

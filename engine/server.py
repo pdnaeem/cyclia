@@ -32,6 +32,7 @@ import mfa  # noqa: E402
 import regional  # noqa: E402
 import slca  # noqa: E402
 import calc  # noqa: E402
+import store as store_mod  # noqa: E402
 import formula as fm  # noqa: E402
 import interop  # noqa: E402
 import inventory_io  # noqa: E402
@@ -47,7 +48,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.3.5"
+VERSION = "1.3.6"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -319,9 +320,80 @@ def db_delete(st, body, q, db_id):
     return {"ok": True}
 
 
-def _import_job(st, label, fn):
+def _fingerprint(path):
+    """SHA-256 of the source file, or of the sorted file names and contents of a folder."""
+    import hashlib
+    h = hashlib.sha256()
+    if not path or not os.path.exists(path):
+        return ""
+    if os.path.isfile(path):
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    for d, dirs, files in sorted(os.walk(path)):
+        dirs.sort()
+        for fn_ in sorted(files):
+            fp = os.path.join(d, fn_)
+            h.update(os.path.relpath(fp, path).replace(os.sep, "/").encode())
+            with open(fp, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+    return h.hexdigest()
+
+
+def _integrity(store, db_id):
+    """Critical problems that make a fresh import unusable (then it is rolled back): non-finite amounts and
+    exchanges that point to datasets that do not exist."""
+    bad = store.one("SELECT COUNT(*) AS n FROM tech t JOIN activities a ON a.id=t.output_id WHERE a.db_id=? AND "
+                    "(t.amount IS NULL OR t.amount != t.amount OR abs(t.amount) > 1e300)", (db_id,))["n"]
+    bad += store.one("SELECT COUNT(*) AS n FROM bio b JOIN activities a ON a.id=b.activity_id WHERE a.db_id=? AND "
+                     "(b.amount IS NULL OR b.amount != b.amount OR abs(b.amount) > 1e300)", (db_id,))["n"]
+    dangling = store.one("SELECT COUNT(*) AS n FROM tech t JOIN activities a ON a.id=t.output_id WHERE a.db_id=? AND "
+                         "t.input_id NOT IN (SELECT id FROM activities)", (db_id,))["n"]
+    return bad, dangling
+
+
+def _import_job(st, label, fn, path=None, body=None):
+    """Run an import, then record the database's provenance (source file fingerprint, importer version, metadata
+    entered by the user, import report) and check its integrity. An import that fails, or whose result has
+    non-finite amounts or dangling links, is removed again: the library keeps either the whole database or nothing."""
     store = st.store
-    return {"job": st.start_job(label, lambda p, c: fn(store, p))}
+    body = body or {}
+
+    def job(p, c):
+        before = {d["id"] for d in store.databases()}
+        res = fn(store, p)
+        new = [d for d in store.databases() if d["id"] not in before]
+        if new and isinstance(res, dict):
+            d = new[0]
+            bad, dangling = _integrity(store, d["id"])
+            if bad or dangling:
+                store.delete_database(d["id"])
+                calc.invalidate()
+                raise ValueError(f"The import was rolled back: {bad} exchanges have no valid number and {dangling} point "
+                                 "to datasets that do not exist.")
+            p(97, "Recording the source fingerprint")
+            meta = {k: str(body.get(k) or "").strip() for k in store_mod.DB_META_COLUMNS
+                    if k not in ("source_path", "source_sha256", "importer_version", "import_report")}
+            meta.update({"source_path": path or "", "source_sha256": _fingerprint(path) if path else "",
+                         "importer_version": f"Cyclia {VERSION}",
+                         "import_report": json.dumps({k: v for k, v in res.items() if k != "database"}, default=str)[:20000]})
+            store.set_database_meta(d["id"], meta, version=body.get("version"), system_model=body.get("system_model"))
+            res["metadata"] = store.one("SELECT * FROM databases WHERE id=?", (d["id"],))
+        return res
+    return {"job": st.start_job(label, job)}
+
+
+@route("PATCH", r"/api/databases/(\d+)")
+def db_meta(st, body, q, db_id):
+    if not st.store.one("SELECT id FROM databases WHERE id=?", (int(db_id),)):
+        raise ApiError("Database not found.", 404)
+    editable = [k for k in store_mod.DB_META_COLUMNS if k not in ("source_sha256", "importer_version", "import_report")]
+    meta = {k: str(body[k]).strip() for k in editable if k in body}
+    st.store.set_database_meta(int(db_id), meta, version=body.get("version"), system_model=body.get("system_model"),
+                               source=body.get("source"))
+    return {"database": st.store.one("SELECT * FROM databases WHERE id=?", (int(db_id),))}
 
 
 @route("POST", "/api/import/tutorial")
@@ -336,35 +408,35 @@ def imp_ecospold(st, body, q):
     if not os.path.isdir(folder):
         raise ApiError("Select the extracted folder, not a file. Extract the .7z download first.")
     return _import_job(st, f"Import {name}", lambda s, p: ecospold2.import_folder(
-        s, folder, name, body.get("version", ""), body.get("system_model", ""), p))
+        s, folder, name, body.get("version", ""), body.get("system_model", ""), p), folder, body)
 
 
 @route("POST", "/api/import/jsonld")
 def imp_jsonld(st, body, q):
     path, name = _need(body, "path", "name")
     path = _check_path(path)
-    return _import_job(st, f"Import {name}", lambda s, p: jsonld.import_jsonld(s, path, name, p))
+    return _import_job(st, f"Import {name}", lambda s, p: jsonld.import_jsonld(s, path, name, p), path, body)
 
 
 @route("POST", "/api/import/ecospold1")
 def imp_es1(st, body, q):
     path, name = _need(body, "path", "name")
     path = _check_path(path)
-    return _import_job(st, f"Import {name}", lambda s, p: other_formats.import_ecospold1(s, path, name, p))
+    return _import_job(st, f"Import {name}", lambda s, p: other_formats.import_ecospold1(s, path, name, p), path, body)
 
 
 @route("POST", "/api/import/simapro")
 def imp_sp(st, body, q):
     path, name = _need(body, "path", "name")
     path = _check_path(path)
-    return _import_job(st, f"Import {name}", lambda s, p: other_formats.import_simapro_csv(s, path, name, p))
+    return _import_job(st, f"Import {name}", lambda s, p: other_formats.import_simapro_csv(s, path, name, p), path, body)
 
 
 @route("POST", "/api/import/ilcd")
 def imp_ilcd(st, body, q):
     path, name = _need(body, "path", "name")
     path = _check_path(path)
-    return _import_job(st, f"Import {name}", lambda s, p: other_formats.import_ilcd(s, path, name, p))
+    return _import_job(st, f"Import {name}", lambda s, p: other_formats.import_ilcd(s, path, name, p), path, body)
 
 
 @route("POST", "/api/import/lcia-xlsx")
@@ -501,14 +573,16 @@ def unlinked(st, body, q, db_id):
 
 @route("POST", r"/api/databases/(\d+)/suggest")
 def unlinked_suggest(st, body, q, db_id):
-    return {"suggestions": linking.suggest(st.store, int(db_id), body.get("product", ""), body.get("unit", ""))}
+    return {"suggestions": linking.suggest(st.store, int(db_id), body.get("product", ""), body.get("unit", ""),
+                                           location=body.get("location"))}
 
 
 @route("POST", r"/api/databases/(\d+)/link")
 def unlinked_link(st, body, q, db_id):
     target = _need(body, "target_id")[0]
     try:
-        r = linking.link(st.store, int(db_id), body.get("product", ""), body.get("unit", ""), int(target), body.get("factor"))
+        r = linking.link(st.store, int(db_id), body.get("product", ""), body.get("unit", ""), int(target), body.get("factor"),
+                         location=body.get("location"))
     except ValueError as e:
         raise ApiError(str(e))
     calc.invalidate()
@@ -517,7 +591,7 @@ def unlinked_link(st, body, q, db_id):
 
 @route("POST", r"/api/databases/(\d+)/unlink")
 def unlinked_unlink(st, body, q, db_id):
-    r = linking.unlink(st.store, int(db_id), body.get("product", ""), body.get("unit", ""))
+    r = linking.unlink(st.store, int(db_id), body.get("product", ""), body.get("unit", ""), location=body.get("location"))
     calc.invalidate()
     return r
 
@@ -585,6 +659,32 @@ def activity(st, body, q, act_id):
         raise ApiError("Not found.", 404)
     a["units"] = units.compatible(a["unit"])
     return {"activity": a}
+
+
+@route("GET", r"/api/explore/(\d+)")
+def explore(st, body, q, act_id):
+    a = st.store.explore(int(act_id))
+    if not a:
+        raise ApiError("Not found.", 404)
+    return {"activity": a}
+
+
+@route("GET", "/api/explore")
+def explore_search(st, body, q):
+    one = lambda k: (q.get(k) or [""])[0] if isinstance(q.get(k), list) else (q.get(k) or "")
+    db = int(one("db")) if one("db") else None
+    text = one("q").strip()
+    if not text:
+        rows = st.store.q("SELECT a.id, a.name, a.product, a.location, a.unit, d.name AS db FROM activities a JOIN databases d "
+                          "ON d.id=a.db_id" + (" WHERE a.db_id=?" if db else "") + " ORDER BY a.name LIMIT 100",
+                          (db,) if db else ())
+    else:
+        rows = st.store.search_activities(text, db, one("location") or None, limit=100)
+    unl = one("unresolved") == "1"
+    if unl:
+        ids = {r["output_id"] for r in st.store.q("SELECT DISTINCT output_id FROM unlinked WHERE linked_to IS NULL")}
+        rows = [r for r in rows if r["id"] in ids]
+    return {"results": rows}
 
 
 @route("POST", r"/api/activity/(\d+)/copy")

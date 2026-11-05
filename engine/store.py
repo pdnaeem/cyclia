@@ -24,7 +24,9 @@ LIB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS lib.lmeta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS lib.databases (
     id INTEGER PRIMARY KEY, name TEXT UNIQUE, source TEXT, version TEXT, system_model TEXT,
-    imported_at TEXT DEFAULT CURRENT_TIMESTAMP, n_activities INTEGER DEFAULT 0, note TEXT);
+    imported_at TEXT DEFAULT CURRENT_TIMESTAMP, n_activities INTEGER DEFAULT 0, note TEXT,
+    original_name TEXT, release_date TEXT, geography TEXT, technology TEXT, licence TEXT, reference_period TEXT,
+    data_reference TEXT, source_path TEXT, source_sha256 TEXT, importer_version TEXT, import_report TEXT);
 CREATE TABLE IF NOT EXISTS lib.activities (
     id INTEGER PRIMARY KEY, db_id INTEGER, key TEXT, name TEXT, product TEXT, location TEXT, unit TEXT,
     production REAL DEFAULT 1.0, comment TEXT, product_uuid TEXT, UNIQUE(db_id, key));
@@ -58,7 +60,7 @@ CREATE TABLE IF NOT EXISTS lib.flow_mapping (id INTEGER PRIMARY KEY, source TEXT
     s_sub TEXT, s_uuid TEXT, t_name TEXT, t_comp TEXT, t_sub TEXT, t_uuid TEXT, factor REAL DEFAULT 1.0);
 CREATE TABLE IF NOT EXISTS lib.unlinked (id INTEGER PRIMARY KEY, db_id INTEGER, output_id INTEGER, product TEXT,
     unit TEXT, amount REAL, location TEXT, link_key TEXT, utype INTEGER DEFAULT 0, p1 REAL, p2 REAL, p3 REAL,
-    linked_to INTEGER);
+    linked_to INTEGER, reason TEXT DEFAULT 'no producer', candidates TEXT);
 CREATE INDEX IF NOT EXISTS lib.idx_unlinked_db ON unlinked(db_id, product);
 CREATE TABLE IF NOT EXISTS lib.templates (id INTEGER PRIMARY KEY, name TEXT UNIQUE, category TEXT, description TEXT,
     spec TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -109,8 +111,12 @@ PROJECT_MIGRATIONS = {
                      ("supplier", "TEXT DEFAULT ''"), ("verified", "INTEGER DEFAULT 0"), ("unit_cost", "REAL"), ("pef", "TEXT"),
                      ("cost_type", "TEXT DEFAULT ''"), ("replace_every", "REAL")],
 }
+DB_META_COLUMNS = ("original_name", "release_date", "geography", "technology", "licence", "reference_period",
+                   "data_reference", "source_path", "source_sha256", "importer_version", "import_report")
 LIB_MIGRATIONS = {"tech": [("src_unlinked", "INTEGER")], "flow_mapping": [("s_uuid", "TEXT")],
-                  "activities": [("product_uuid", "TEXT")]}
+                  "activities": [("product_uuid", "TEXT")],
+                  "unlinked": [("reason", "TEXT DEFAULT 'no producer'"), ("candidates", "TEXT")],
+                  "databases": [(c, "TEXT") for c in DB_META_COLUMNS]}
 LEGACY_DATA_TABLES = ["databases", "activities", "activities_fts", "tech", "flows", "bio", "methods", "cfs", "nw"]
 INPUT_COLUMNS = ["id", "model_id", "kind", "ref_id", "amount", "label", "comment", "pedigree", "position", "stage",
                  "input_amount", "input_unit", "avoided", "ref_db", "ref_key", "formula", "year", "fixed", "data_type",
@@ -360,6 +366,18 @@ class ProjectStore:
         return self.x("INSERT INTO databases(name,source,version,system_model,note) VALUES(?,?,?,?,?)",
                       (name, source, version, system_model, note))
 
+    def set_database_meta(self, db_id, meta, version=None, system_model=None, source=None):
+        cols = {k: v for k, v in (meta or {}).items() if k in DB_META_COLUMNS}
+        for k, v in (("version", version), ("system_model", system_model), ("source", source)):
+            if v not in (None, ""):
+                cols[k] = str(v).strip()
+        if not cols:
+            return
+        with self.lock:
+            self.conn.execute(f"UPDATE databases SET {', '.join(k + '=?' for k in cols)} WHERE id=?",
+                              list(cols.values()) + [int(db_id)])
+            self.conn.commit()
+
     def finish_database(self, db_id):
         with self.lock:
             n = self.conn.execute("SELECT COUNT(*) FROM activities WHERE db_id=?", (db_id,)).fetchone()[0]
@@ -473,6 +491,38 @@ class ProjectStore:
         a["emissions"] = self.q(
             "SELECT b.amount, f.name, f.compartment, f.subcompartment, f.unit FROM bio b "
             "JOIN flows f ON f.id=b.flow_id WHERE b.activity_id=? ORDER BY abs(b.amount) DESC LIMIT 60", (act_id,))
+        return a
+
+    def explore(self, act_id, limit=200):
+        """Everything about one dataset for the database explorer: identity, metadata of its database, inputs with
+        their suppliers and uncertainty, the datasets that use it, inputs without a supplier and why, elementary
+        flows with uncertainty, data quality."""
+        a = self.one("SELECT a.*, d.name AS db, d.version AS db_version, d.system_model, d.source AS db_source "
+                     "FROM activities a JOIN databases d ON d.id=a.db_id WHERE a.id=?", (act_id,))
+        if not a:
+            return None
+        ut = UNCERTAINTY_TYPES
+        a["inputs"] = self.q(
+            "SELECT t.amount, t.utype, t.p1, t.p2, t.p3, t.src_unlinked, i.id, i.name, i.product, i.location, i.unit, "
+            "di.name AS db FROM tech t JOIN activities i ON i.id=t.input_id JOIN databases di ON di.id=i.db_id "
+            "WHERE t.output_id=? AND t.input_id!=? ORDER BY abs(t.amount) DESC LIMIT ?", (act_id, act_id, limit))
+        a["used_by"] = self.q(
+            "SELECT t.amount, o.id, o.name, o.location, o.unit, do.name AS db FROM tech t JOIN activities o ON o.id=t.output_id "
+            "JOIN databases do ON do.id=o.db_id WHERE t.input_id=? AND t.output_id!=? ORDER BY abs(t.amount) DESC LIMIT ?",
+            (act_id, act_id, limit))
+        a["n_used_by"] = self.one("SELECT COUNT(*) AS n FROM tech WHERE input_id=? AND output_id!=?", (act_id, act_id))["n"]
+        a["unresolved"] = self.q("SELECT product, unit, amount, location, reason, candidates, linked_to FROM unlinked "
+                                 "WHERE output_id=? ORDER BY abs(amount) DESC", (act_id,))
+        a["emissions"] = self.q(
+            "SELECT b.amount, b.utype, b.p1, b.p2, b.p3, f.id AS flow_id, f.uuid, f.name, f.compartment, f.subcompartment, "
+            "f.unit, f.cas FROM bio b JOIN flows f ON f.id=b.flow_id WHERE b.activity_id=? ORDER BY abs(b.amount) DESC LIMIT ?",
+            (act_id, limit))
+        for x in a["inputs"] + a["emissions"]:
+            x["uncertainty"] = ut.get(x.pop("utype") or 0, "none")
+        a["n_inputs"] = self.one("SELECT COUNT(*) AS n FROM tech WHERE output_id=? AND input_id!=?", (act_id, act_id))["n"]
+        a["n_emissions"] = self.one("SELECT COUNT(*) AS n FROM bio WHERE activity_id=?", (act_id,))["n"]
+        a["data_quality"] = self.one("SELECT ter, ger, tir, p, completeness, overall, source FROM activity_dq "
+                                     "WHERE activity_id=?", (act_id,))
         return a
 
     def flow(self, flow_id):

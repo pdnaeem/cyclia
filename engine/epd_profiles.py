@@ -201,15 +201,31 @@ UI_FR = {"General information": "Informations générales", "Indicator": "Indica
          "Environmental Product Declaration (EPD)": "Fiche de Déclaration Environnementale et Sanitaire (FDES)"}
 
 # EN 15804+A2 Table 3 additional indicators, and the GWP-GHG indicator of EPD International
+def _sub(t):
+    """EF 3.1 splits toxicity into ', inorganics' and ', organics' sub-categories: those are not the EPD indicator."""
+    return "inorganics" in t or re.search(r"\borganics\b", t) is not None
+
+
+def _cancer(t):
+    return ("cancer" in t or "carcinogenic" in t) and not _noncancer(t)
+
+
+def _noncancer(t):
+    return any(w in t for w in ("non-cancer", "non cancer", "non-carcinogenic", "non carcinogenic", "noncarcinogenic"))
+
+
 ADDITIONAL = [
     ("PM", lambda t: "particulate" in t or "respiratory inorganics" in t),
     ("IRP", lambda t: "ionising radiation" in t or "ionizing radiation" in t),
-    ("ETP-fw", lambda t: "ecotoxicity" in t and "fresh" in t),
-    ("HTP-c", lambda t: "human toxicity" in t and "cancer" in t and "non-cancer" not in t and "non cancer" not in t),
-    ("HTP-nc", lambda t: "human toxicity" in t and ("non-cancer" in t or "non cancer" in t)),
+    ("ETP-fw", lambda t: "ecotoxicity" in t and "fresh" in t and not _sub(t)),
+    ("HTP-c", lambda t: "human toxicity" in t and _cancer(t) and not _sub(t)),
+    ("HTP-nc", lambda t: "human toxicity" in t and _noncancer(t) and not _sub(t)),
     ("SQP", lambda t: ("land use" in t or "soil quality" in t) and "climate" not in t),
     ("GWP-GHG", lambda t: "gwp-ghg" in t or ("climate change" in t and ("ghg" in t or "excluding biogenic" in t))),
 ]
+# expected unit tokens of the additional indicators (EN 15804+A2 Table 4 / Annex C)
+ADDITIONAL_UNITS = {"PM": ("disease incidence",), "IRP": ("u235", "u-235"), "ETP-fw": ("ctue",), "HTP-c": ("ctuh",),
+                    "HTP-nc": ("ctuh",), "SQP": ("dimensionless", "pt"), "GWP-GHG": ("co2",)}
 
 
 def match_additional(results):

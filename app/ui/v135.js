@@ -25,9 +25,11 @@
     $("#fmOut").innerHTML = '<p class="hint">Comparing; progress is shown at the bottom left.</p>';
     watchJob(job, { quiet: true, onDone: (j) => {
       const r = j.result;
-      $("#fmOut").innerHTML = `<p class="${r.passed ? "ok" : "danger"}"><b>${esc(r.verdict)}</b></p><p class="hint">Source: ${esc(r.source)}. ${esc(r.scope)}</p>
-        <div class="table-wrap"><table><thead><tr><th>Cyclia category</th><th>External category</th><th class="num">Same</th><th class="num">Different</th><th class="num">Only Cyclia</th><th class="num">Only external</th><th class="num">External flows not in library</th><th class="num">Largest effect on a model</th></tr></thead><tbody>` +
-        r.categories.map((c) => `<tr><td>${esc(c.category)}</td><td>${c.external_category ? esc(c.external_category) : '<span class="danger">no match</span>'}</td><td class="num">${c.same}</td><td class="num">${c.different}</td><td class="num">${c.only_cyclia}</td><td class="num">${c.only_external}</td><td class="num">${c.unresolved}</td>
+      $("#fmOut").innerHTML = `<p class="${r.passed ? "ok" : "danger"}"><b>${esc(r.passed ? r.verdict : `Not passed: ${(r.open_items || []).length} open item(s).`)}</b></p>
+        ${(r.open_items || []).length ? `<ul class="list">${r.open_items.slice(0, 12).map((x) => `<li>${esc(x)}</li>`).join("")}${r.open_items.length > 12 ? `<li>... ${r.open_items.length - 12} more in the Excel report</li>` : ""}</ul>` : ""}
+        <p class="hint">Source: ${esc(r.source)}. ${esc(r.scope)}</p>
+        <div class="table-wrap"><table><thead><tr><th>Cyclia category</th><th>External category</th><th class="num">Same</th><th class="num">Different</th><th class="num">Only Cyclia</th><th class="num">Only external</th><th class="num">Units not comparable</th><th class="num">External flows not in library</th><th class="num">Several flows matched</th><th class="num">Conflicts</th><th class="num">Largest effect on a model</th></tr></thead><tbody>` +
+        r.categories.map((c) => `<tr><td>${esc(c.category)}</td><td>${c.external_category ? esc(c.external_category) : '<span class="danger">no match</span>'}</td><td class="num">${c.same}</td><td class="num">${c.different}</td><td class="num">${c.only_cyclia}</td><td class="num">${c.only_external}</td><td class="num">${c.unit_mismatch || 0}</td><td class="num">${c.unresolved}</td><td class="num">${c.ambiguous}</td><td class="num">${c.external_conflicts}</td>
           <td class="num">${c.models.length ? Math.max(...c.models.map((m) => Math.abs(m.factor_effect_percent || 0))).toFixed(3) + " %" : "-"}</td></tr>`).join("") + "</tbody></table></div>" +
         (r.flows.length ? `<h3>Largest differences</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th>Flow</th><th>Compartment</th><th>Status</th><th class="num">Cyclia</th><th class="num">External</th></tr></thead><tbody>${r.flows.slice(0, 25).map((f) => `<tr><td>${esc(f.category)}</td><td>${esc(f.flow)}</td><td>${esc(f.compartment)}</td><td>${esc(f.status.replace("_", " "))}</td><td class="num">${fmt(f.cyclia)}</td><td class="num">${fmt(f.external)}</td></tr>`).join("")}</tbody></table></div>` : "");
       $("#btnFmExport").disabled = false;
@@ -132,7 +134,8 @@
     $("#regStatus").innerHTML = ["AWARE", "LANCA"].map((m) => { const x = r.status[m];
       return `<p><b>${m}</b>: ${x.factors ? `${x.factors.toLocaleString()} factors for ${x.locations} locations; source: ${esc(x.source)}` : "no factors imported"}${x.demo ? ' <span class="warn">demo values, not the official method</span>' : ""}</p>`; }).join("");
     const sc = (S.model && S.model.scope) || {};
-    $("#awareLoc").value = sc.aware_location || ""; $("#awareUse").value = sc.aware_use || "unknown";
+    $("#awareLoc").value = sc.aware_location || ""; $("#awareUse").value = (sc.aware_use || "unknown").replace("-", "_");
+    $("#awareBg").value = sc.aware_background_use || "by process";
   }
   $("#btnRegTemplate").addEventListener("click", () => { $("#regTemplate").hidden = false; $("#regTemplate").textContent = (S.regTemplates || {})[$("#regMethod").value] || ""; });
   $("#btnRegImport").addEventListener("click", (e) => guard(e.target, async () => {
@@ -146,9 +149,10 @@
   async function saveRegScope() {
     needModel();
     const sc = S.model.scope || {};
-    if ((sc.aware_location || "") !== $("#awareLoc").value.trim().toUpperCase() || (sc.aware_use || "unknown") !== $("#awareUse").value) {
+    if ((sc.aware_location || "") !== $("#awareLoc").value.trim().toUpperCase() || (sc.aware_use || "unknown") !== $("#awareUse").value
+        || (sc.aware_background_use || "by process") !== $("#awareBg").value) {
       fillScope();
-      await saveModelScope({ aware_location: $("#awareLoc").value.trim().toUpperCase(), aware_use: $("#awareUse").value });
+      await saveModelScope({ aware_location: $("#awareLoc").value.trim().toUpperCase(), aware_use: $("#awareUse").value, aware_background_use: $("#awareBg").value });
     }
   }
   const compl = (c) => `exact ${pct(c.exact)}, country ${pct(c.country)}, global ${pct(c.global)}, <span class="${c.none > 0 ? "danger" : ""}">none ${pct(c.none)}</span>`;
@@ -159,7 +163,8 @@
       <p><b>${fmt(r.total)} ${esc(r.unit)}</b> per functional unit, from ${fmt(r.consumption_m3)} m3 of water consumed.</p>
       ${r.empty ? '<p class="warn">The supply chain of this model has no water taken from or returned to nature, so there is nothing to characterise. The result is 0 and completeness does not apply.</p>' : `<p>Completeness (share of the water consumption): ${compl(r.completeness)}.</p>`}
       ${r.unmatched.length ? `<p class="danger">Locations without a factor: ${r.unmatched.slice(0, 8).map((x) => `${esc(x.location)} (${fmt(x.consumption_m3)} m3)`).join(", ")}.</p>` : ""}
-      <div class="table-wrap"><table><thead><tr><th>Process</th><th>Location</th><th>Use</th><th class="num">Consumption m3</th><th class="num">Factor</th><th>Factor found</th><th class="num">Impact</th></tr></thead><tbody>${r.top.slice(0, 15).map((x) => `<tr><td>${esc(x.process)}</td><td>${esc(x.location)}</td><td>${esc(x.use)}</td><td class="num">${fmt(x.consumption_m3)}</td><td class="num">${fmt(x.factor)}</td><td>${esc(x.how)}</td><td class="num">${fmt(x.impact)}</td></tr>`).join("")}</tbody></table></div>
+      ${r.water_balance_m3 ? `<p class="hint">Water balance per functional unit (m3): withdrawn ${fmt(r.water_balance_m3.withdrawal)}, returned to fresh water ${fmt(r.water_balance_m3.returned)}, evaporated ${fmt(r.water_balance_m3.evaporated)}, to the sea ${fmt(r.water_balance_m3.to_sea)}, to soil ${fmt(r.water_balance_m3.to_soil)}. Only the return to fresh water is subtracted.</p>` : ""}
+      <div class="table-wrap"><table><thead><tr><th>Process</th><th>Location</th><th>Use</th><th class="num">Consumption m3</th><th class="num">Factor</th><th>Factor found</th><th class="num">Impact</th></tr></thead><tbody>${r.top.slice(0, 15).map((x) => `<tr><td>${esc(x.process)}</td><td>${esc(x.location)}</td><td>${esc(x.use)}${x.factor_of_use && x.factor_of_use !== x.use ? ` <span class="warn">(no ${esc(x.use)} factor: unknown used)</span>` : ""}</td><td class="num">${fmt(x.consumption_m3)}</td><td class="num">${fmt(x.factor)}</td><td>${esc(x.how)}</td><td class="num">${fmt(x.impact)}</td></tr>`).join("")}</tbody></table></div>
       <p class="hint">${esc(r.note)}</p>`;
   }));
   $("#btnLanca").addEventListener("click", (e) => guard(e.target, async () => {
@@ -189,8 +194,10 @@
   $("#btnSlca").addEventListener("click", (e) => guard(e.target, async () => {
     needModel();
     const r = await api("POST", "/api/slca/assess", { model_id: S.model.id });
-    $("#slcaOut").innerHTML = `${r.demo ? '<p class="warn">Demo data: the results mean nothing.</p>' : ""}<p><b>${fmt(r.worker_hours)} worker hours</b> per functional unit in the processes with data; ${r.n_without_data} of ${r.n_processes} processes have no social data.</p>
-      <div class="table-wrap"><table><thead><tr><th>Stakeholder</th><th>Indicator</th><th class="num">Risk hours</th><th class="num">Coverage</th><th>Largest contributors</th></tr></thead><tbody>${r.indicators.map((x) => `<tr><td>${esc(x.stakeholder)}</td><td>${esc(x.indicator)}</td><td class="num">${fmt(x.risk_hours)}</td><td class="num">${pct(x.coverage)}</td><td>${x.by_process.slice(0, 3).map((p) => `${esc(p.process)} (${esc(p.risk)})`).join("; ")}</td></tr>`).join("")}</tbody></table></div>
+    $("#slcaOut").innerHTML = `${r.demo ? '<p class="warn">Demo data: the results mean nothing.</p>' : ""}<p class="hint">${esc(r.label || "Social LCA risk screening")}</p><p><b>${fmt(r.worker_hours)} worker hours</b> per functional unit in the processes with data (a lower bound). Process coverage: ${r.n_with_data} of ${r.n_processes} processes (${pct(r.process_coverage)}) have social data${r.complete ? "" : '; <span class="warn">incomplete</span>'}.
+      ${r.coverage_hours != null ? ` Worker-hour coverage ${pct(r.coverage_hours)} (${fmt(r.worker_hours_estimated)} hours of processes without data estimated with the default row).` : " Worker-hour coverage cannot be known without a default row (match *) for processes without data."}
+      ${r.worker_hours_avoided ? ` Avoided products: ${fmt(r.worker_hours_avoided)} worker hours, listed separately and not subtracted.` : ""}</p>
+      <div class="table-wrap"><table><thead><tr><th>Stakeholder</th><th>Indicator</th><th class="num">Risk hours</th><th class="num">Coverage of total hours</th><th>Largest contributors</th></tr></thead><tbody>${r.indicators.map((x) => `<tr><td>${esc(x.stakeholder)}</td><td>${esc(x.indicator)}</td><td class="num">${fmt(x.risk_hours)}</td><td class="num">${x.coverage == null ? "unknown" : pct(x.coverage)}</td><td>${x.by_process.slice(0, 3).map((p) => `${esc(p.process)} (${esc(p.risk)})`).join("; ")}</td></tr>`).join("")}</tbody></table></div>
       ${r.processes_without_data.length ? `<p class="hint">Without data (largest output first): ${r.processes_without_data.slice(0, 8).map((p) => esc(p.process)).join("; ")}.</p>` : ""}
       <p class="hint">${esc(r.note)}</p>`;
   }));
@@ -213,8 +220,8 @@
     const rows = r.rows, step = Math.max(1, Math.round(rows.length / 10));
     $("#mfaOut").innerHTML = `<p class="${r.mass_balance_ok ? "ok" : "danger"}">${r.mass_balance_ok ? "Mass balance closed in every year." : `Mass balance error ${r.max_balance_error.toExponential(1)}.`}</p>` +
       lineChart([{ name: "Stock", values: rows.map((x) => x.stock) }, { name: "External inflow", values: rows.map((x) => x.external_inflow) }, { name: "End-of-life outflow", values: rows.map((x) => x.end_of_life_outflow) }, { name: "Recycled", values: rows.map((x) => x.recycled) }], r.years) +
-      `<div class="table-wrap"><table><thead><tr><th>Year</th><th class="num">Inflow</th><th class="num">Stock</th><th class="num">End of life</th><th class="num">Recycled</th><th class="num">Losses</th><th class="num">Recycling rate</th><th class="num">Recycled content</th></tr></thead><tbody>` +
-      rows.filter((_, i) => i % step === 0 || i === rows.length - 1).map((x) => `<tr><td>${x.year}</td><td class="num">${fmt(x.external_inflow)}</td><td class="num">${fmt(x.stock)}</td><td class="num">${fmt(x.end_of_life_outflow)}</td><td class="num">${fmt(x.recycled)}</td><td class="num">${fmt(x.losses)}</td><td class="num">${pct(x.recycling_rate)}</td><td class="num">${pct(x.recycled_content)}</td></tr>`).join("") +
+      `<div class="table-wrap"><table><thead><tr><th>Year</th><th class="num">Inflow</th><th class="num">Stock</th><th class="num">End of life</th><th class="num">Recycled</th><th class="num">Losses</th><th class="num">Recycling rate</th><th class="num">Recycled content (production input)</th><th class="num">MCI from the MFA</th></tr></thead><tbody>` +
+      rows.filter((_, i) => i % step === 0 || i === rows.length - 1).map((x) => `<tr><td>${x.year}</td><td class="num">${fmt(x.external_inflow)}</td><td class="num">${fmt(x.stock)}</td><td class="num">${fmt(x.end_of_life_outflow)}</td><td class="num">${fmt(x.recycled)}</td><td class="num">${fmt(x.losses)}</td><td class="num">${pct(x.recycling_rate)}</td><td class="num">${pct(x.recycled_content)}</td><td class="num">${x.mci == null ? "-" : x.mci.toFixed(3)}</td></tr>`).join("") +
       `</tbody></table></div><p class="hint">${esc(r.note)}</p>`;
   }));
   $("#btnMci").addEventListener("click", (e) => guard(e.target, async () => {
