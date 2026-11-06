@@ -21,7 +21,7 @@
       <li><button data-step="results"><span class="n">5</span><span><b>Interpretation</b><small>Hotspots, checks, uncertainty</small></span></button></li>
       <li><button data-step="report"><span class="n">6</span><span><b>Report</b><small>Conclusions and exports</small></span></button></li>
     </ol>
-    <div class="tools-nav"><button data-step="tools" id="navTools"><span class="n">T</span><span><b>Toolbox</b><small>Validation, scenarios, chemicals, teaching</small></span></button></div>
+    <div class="tools-nav"><button data-step="tools" id="navTools"><span class="n">T</span><span><b>Toolbox</b><small>Your own data, validation, scenarios, teaching</small></span></button></div>
     <div class="rail-foot">
       <div id="jobBox" class="job" hidden></div>
       <button class="ghost help-btn" id="btnHelp">Help, tutorial and glossary</button>
@@ -74,9 +74,15 @@
           <p class="hint">Shared by all projects on this computer. Import each database once.</p></div>
           <button class="primary" data-addtoggle="dbConnectors">Add a database</button></div>
         <ul class="item-list" id="dbList"></ul>
+        <p class="hint cd-hint">No database has your process? <a href="#" data-gocustom>Create it in Your own data</a> (Toolbox).</p>
         <div id="linkPanel" class="subpanel" hidden></div>
         <div id="validatePanel" class="subpanel" hidden></div>
         <div class="connectors add-panel" id="dbConnectors" hidden><p class="add-title">Choose where your database comes from</p>
+          <details class="connector">
+            <summary><b>Your own data</b><span>Enter your own processes, products, emissions and factors, with or without any other database.</span></summary>
+            <p class="hint">For a factory, a farm, a new material or any process no database has. You describe each process with its inputs and emissions; Cyclia checks the units, keeps the source of every number and never counts an unknown factor as zero. A worked example (bread) shows every step.</p>
+            <div class="row"><button class="primary" data-gocustom>Open Your own data</button><button class="ghost" data-guide="your-own-data-custom-data-entry">How it works</button></div>
+          </details>
           <details class="connector">
             <summary><b>ecoinvent with your licence</b><span>Log in once; Cyclia downloads the release and its impact methods.</span></summary>
             <p class="hint" id="eiMissing" hidden>The ecoinvent download is not available in this installation. Use "ecoinvent folder you already downloaded".</p>
@@ -355,6 +361,7 @@
             <input id="searchLoc" placeholder="Region, e.g. FR" size="8" aria-label="Preferred region">
           </div>
           <p class="hint" id="searchHint"></p>
+          <p class="hint cd-hint">Your process is in no database? <a href="#" data-gocustom>Create it in Your own data</a>, then search for it here.</p>
           <ul class="results" id="searchResults"></ul>
           <form id="epdForm" class="epd" hidden novalidate>
             <p class="hint">Enter declared values from an EPD per declared unit (e.g. A1-A3 of 1 kg insulation). Values are used as they are, without supply chain.</p>
@@ -692,11 +699,11 @@
       <h1>Toolbox</h1>
       <p class="lead">Tools that work across models: checking the software, changing the background database, building toxicity factors, templates, scripting and teaching.</p>
       <div class="tabs" id="toolTabs" role="tablist">
-        <button class="on" data-tt="valid">Validation</button><button data-tt="bg">Background scenarios</button>
+        <button class="on" data-tt="valid">Validation</button><button data-tt="custom">Your own data</button><button data-tt="bg">Background scenarios</button>
         <button data-tt="chem">Chemicals and site factors</button><button data-tt="tpl">Templates</button>
         <button data-tt="code">Python, R and other software</button><button data-tt="teach">Teaching</button>
         <button data-tt="dbs">Database versions</button><button data-tt="dash">Project overview</button><button data-tt="alloc">Allocation</button>
-        <button data-tt="regional">Regional methods</button><button data-tt="social">Social LCA</button><button data-tt="mfa">Material flows</button><button data-tt="explore">Database explorer</button><button data-tt="custom">Custom data</button>
+        <button data-tt="regional">Regional methods</button><button data-tt="social">Social LCA</button><button data-tt="mfa">Material flows</button><button data-tt="explore">Database explorer</button>
       </div>
       <div class="tt" id="tt-valid">
         <div class="block">
@@ -884,65 +891,130 @@
         </div>
       </div>
       <div class="tt" id="tt-custom" hidden>
-        <div class="block">
-          <h2>Custom data</h2>
-          <p class="hint">Build your own product system, from an empty library if you wish: product flows, elementary flows, processes with their inputs, emissions and resources, uncertainty and data quality, and characterisation factors. Every item gets a unique identifier and keeps its source, author and revision. Amounts are converted to the unit of the flow or supplier only within the same dimension. A factor that is not known is never taken as zero: results that contain a custom flow without a factor are marked incomplete.</p>
-          <div class="row"><select id="cdDb" class="grow"></select><button id="btnCdCheck">Check database</button><button id="btnCdExport">Export (JSON)</button></div>
-          <details><summary>New custom database</summary>
+        <div class="block cd-intro">
+          <h2>Your own data</h2>
+          <p>When no database has your process (your factory, your farm, a new material, a recycling step), describe it here. Cyclia turns what you enter into ordinary datasets: you use them in a model like any other dataset, with uncertainty, data quality and the impact methods you choose. You can start from an empty library.</p>
+          <p class="hint">Follow the seven steps. A tick shows what is done; click a step to go to it.</p>
+          <ol class="cd-steps" id="cdSteps"></ol>
+          <div class="row"><button class="primary" id="btnCdExample">Create the worked example (bread)</button><button class="ghost" data-guide="your-own-data-custom-data-entry">Read the step-by-step guide</button></div>
+          <details class="cd-ideas"><summary>Key ideas in plain words</summary>
+            <dl>
+              <dt>Product flow</dt><dd>Something made or used that stays in the economy: steel sheet, electricity, transport, bread waste.</dd>
+              <dt>Elementary flow</dt><dd>Something taken from or released to nature: carbon dioxide to air, water from a river, land occupied. Most already exist in the library; create one only for a substance that does not.</dd>
+              <dt>Process</dt><dd>One activity that makes a product, described for a reference amount, for example "bread baking, per 1 kg of bread".</dd>
+              <dt>Exchange</dt><dd>One line of a process: an input from a supplier, an avoided product, or an emission or resource, with its amount and unit.</dd>
+              <dt>Waste treatment</dt><dd>A process that takes waste in, such as landfill. A process that sends waste there simply lists the amount of waste as an input from it.</dd>
+              <dt>Avoided product</dt><dd>A product your process makes that replaces production elsewhere, such as recovered electricity. It is credited.</dd>
+              <dt>Characterisation factor</dt><dd>How much one unit of a flow contributes to an impact category, for example 1 kg methane = 27 kg CO2-eq.</dd>
+              <dt>Unknown is not zero</dt><dd>If a flow has no factor in a category and you have not said why the category does not apply, Cyclia marks the result "Incomplete" instead of counting the flow as zero.</dd>
+              <dt>Uncertainty and data quality</dt><dd>How sure you are of each amount (a range or pedigree scores) and how well each process represents your case (ratings from 1, very good, to 5, very poor).</dd>
+            </dl>
+          </details>
+        </div>
+        <datalist id="cdUnits"></datalist>
+        <div class="block cd-sec" id="cdSec1">
+          <h3><span class="cd-n">1</span>Choose or create a custom database</h3>
+          <p class="hint">A custom database holds your products and processes. Give it a clear name and say who made it and for which region and period. Example: "Plant A, primary data 2025".</p>
+          <div class="row"><select id="cdDb" class="grow"></select><button id="btnCdExport">Export (JSON)</button></div>
+          <details id="cdNewDbBox"><summary>New custom database</summary>
             <div class="row"><input id="cdNewName" class="grow" placeholder="Name (e.g. Plant A primary data)"><input id="cdNewAuthor" placeholder="Author"></div>
             <div class="row"><input id="cdNewDesc" class="grow" placeholder="Description"><input id="cdNewGeo" placeholder="Geography"><input id="cdNewPeriod" placeholder="Reference period"><input id="cdNewLic" placeholder="Licence"></div>
             <div class="row"><button class="primary" id="btnCdNewDb">Create database</button></div>
           </details>
+          <details id="cdDbParamBox"><summary>Parameters of this database</summary>
+            <p class="hint">Named values that formulas in step 5 can use, for example <code>yield = 0.8</code> or <code>distance = 120</code>. A parameter can itself be a formula of other parameters. Change a value and every line that uses it is recalculated. A process can override a parameter with its own value.</p>
+            <div class="table-wrap"><table id="cdDbParams"></table></div>
+            <div class="row"><button class="ghost" id="btnCdDbParamAdd">Add parameter</button><button class="primary" id="btnCdDbParamSave">Save parameters</button></div>
+          </details>
           <details><summary>Import a custom data file (JSON)</summary>
+            <p class="hint">A file saved with Export (JSON), from this computer or a colleague. Identifiers, sources, exchanges and factors are kept.</p>
             <div class="row"><input id="cdImpPath" class="grow" placeholder="Full path of the .json file"><button data-pick="file" data-target="cdImpPath" data-ext="json">Browse</button><button id="btnCdImport">Import</button></div>
           </details>
-          <div id="cdCheckOut"></div>
         </div>
-        <datalist id="cdUnits"></datalist>
-        <div class="block">
-          <h3>Product flows</h3>
-          <p class="hint">The reference products of your processes and the waste they send to treatment.</p>
-          <div class="row"><input id="cdPName" class="grow" placeholder="Product name"><input id="cdPUnit" list="cdUnits" placeholder="Unit (e.g. kg)" size="8"><input id="cdPCat" placeholder="Category"><input id="cdPSrc" class="grow" placeholder="Source"><button class="primary" id="btnCdProduct">Add product</button></div>
+        <div class="block cd-sec" id="cdSec2">
+          <h3><span class="cd-n">2</span>Product flows</h3>
+          <p class="hint">List what your processes make and the waste they send to treatment, each with the unit you count it in. Example: "bread" in kg, "electricity" in kWh, "bread waste" in kg.</p>
+          <div class="row"><input id="cdPName" class="grow" placeholder="Product name"><input id="cdPUnit" list="cdUnits" placeholder="Unit (e.g. kg)" size="8"><input id="cdPCat" placeholder="Category"><input id="cdPSrc" class="grow" placeholder="Source"><button class="primary" id="btnCdProduct">Add product</button><button class="ghost" id="btnCdPCancel" hidden>Cancel</button></div>
           <div class="table-wrap"><table id="cdProducts"></table></div>
+          <details id="cdUnitBox"><summary>Units of your own</summary>
+            <p class="hint">For a unit Cyclia does not know. Either give its size in a known unit (a "bag" of 25 kg, a "load" of 8 t*km), or create a new kind of quantity that is its own base unit (a "seat", a "meal"), and then units that are multiples of it (a "row" of 20 seats). A unit in use cannot change size, because the amounts entered with it would change meaning.</p>
+            <div class="row"><input id="cdUName" placeholder="Unit name, e.g. bag" size="14"><select id="cdUDim"></select><span class="hint" id="cdUEq">1 unit =</span><input id="cdUFactor" type="number" step="any" placeholder="size" size="8"><span class="hint" id="cdUBase"></span><input id="cdUSrc" class="grow" placeholder="Source or definition"><button class="primary" id="btnCdUnit">Save unit</button></div>
+            <div class="table-wrap"><table id="cdUnitList"></table></div>
+          </details>
         </div>
-        <div class="block">
-          <h3>Elementary flows</h3>
-          <p class="hint">Only for substances or resources that the library does not have: an existing flow keeps the factors of the installed methods. Compartments follow the ecoinvent elementary flow list. Land occupation needs m2*a, land transformation m2.</p>
+        <div class="block cd-sec" id="cdSec3">
+          <h3><span class="cd-n">3</span>Elementary flows <span class="hint">(only if the library does not have them)</span></h3>
+          <p class="hint">Emissions and resources such as carbon dioxide or water usually exist already: you pick them in step 5. Create a flow here only for a substance the library does not have, for example a new solvent. Choose where it goes (air, water, soil) or where it comes from (natural resource). Land occupation needs m2*a, land transformation m2.</p>
           <div class="row"><input id="cdEName" class="grow" placeholder="Flow name"><select id="cdEComp"></select><select id="cdESub"></select><input id="cdEUnit" list="cdUnits" placeholder="Unit" size="7"><input id="cdECas" placeholder="CAS (optional)" size="11"></div>
-          <div class="row"><input id="cdESrc" class="grow" placeholder="Source"><button class="primary" id="btnCdElem">Add elementary flow</button></div>
+          <div class="row"><input id="cdESrc" class="grow" placeholder="Source"><button class="primary" id="btnCdElem">Add elementary flow</button><button class="ghost" id="btnCdECancel" hidden>Cancel</button></div>
           <div class="table-wrap"><table id="cdElems"></table></div>
         </div>
-        <div class="block">
-          <h3>Processes</h3>
+        <div class="block cd-sec" id="cdSec4">
+          <h3><span class="cd-n">4</span>Processes</h3>
+          <p class="hint">A process makes a product, described for a reference amount. Example: "bread baking" makes 1 kg of bread. If it makes several products, list the others under "Co-products and allocation". Choose "waste treatment" for a process that takes waste in, such as landfill. Data quality: rate from 1 (very good) to 5 (very poor) how well the data fit in technology (TeR), geography (GeR) and time (TiR), and how precise they are (P).</p>
           <div class="row"><select id="cdProc" class="grow"></select><button class="ghost" id="btnCdProcNew">New process</button><button class="ghost" id="btnCdProcDel">Delete process</button></div>
-          <div class="row"><input id="cdPrName" class="grow" placeholder="Process name"><select id="cdPrProduct"></select><input id="cdPrAmount" type="number" step="any" value="1" size="6" title="Reference amount"><select id="cdPrType"><option value="production">production</option><option value="treatment">waste treatment</option></select><input id="cdPrLoc" placeholder="Location" value="GLO" size="6"></div>
+          <div class="row"><input id="cdPrName" class="grow" placeholder="Process name"><select id="cdPrProduct" title="Reference product"></select><input id="cdPrAmount" type="number" step="any" value="1" size="6" title="Reference amount"><select id="cdPrType"><option value="production">production</option><option value="treatment">waste treatment</option></select><input id="cdPrLoc" placeholder="Location" value="GLO" size="6" title="Location code, e.g. FR, PK, GLO"></div>
           <div class="row"><input id="cdPrTech" class="grow" placeholder="Technology"><input id="cdPrTime" placeholder="Time period (e.g. 2024-2025)"><select id="cdPrData"><option value="">data type</option><option>primary</option><option>secondary</option><option>estimate</option></select></div>
-          <div class="row"><input id="cdPrSrc" class="grow" placeholder="Source of the data"><span class="hint">Data quality (1 very good to 5 very poor):</span><input id="cdDqTer" type="number" min="1" max="5" placeholder="TeR" size="3"><input id="cdDqGer" type="number" min="1" max="5" placeholder="GeR" size="3"><input id="cdDqTir" type="number" min="1" max="5" placeholder="TiR" size="3"><input id="cdDqP" type="number" min="1" max="5" placeholder="P" size="3"></div>
+          <div class="row"><input id="cdPrSrc" class="grow" placeholder="Source of the data"><span class="hint">Data quality:</span><input id="cdDqTer" type="number" min="1" max="5" placeholder="TeR" size="3"><input id="cdDqGer" type="number" min="1" max="5" placeholder="GeR" size="3"><input id="cdDqTir" type="number" min="1" max="5" placeholder="TiR" size="3"><input id="cdDqP" type="number" min="1" max="5" placeholder="P" size="3"></div>
+          <details id="cdCoBox"><summary>Co-products and allocation <span class="hint" id="cdCoSummary"></span></summary>
+            <p class="hint">When the process makes more than one product (cheese and whey, sawn wood and sawdust), list the other products here and choose how its inputs and emissions are shared. Mass and energy use the amounts (in kg or MJ; give kg or MJ per unit when the unit is not a mass or energy unit), economic uses the price per unit, manual takes your shares (they must add up to 1). Cyclia then makes one dataset per product. ISO 14044 prefers avoiding allocation, for example by system expansion with an avoided product; use allocation when that is not possible and say why in the source.</p>
+            <div id="cdCoRows"></div>
+            <div class="row"><button class="ghost" id="btnCdCoAdd">Add a co-product</button><select id="cdAlMethod"><option value="">allocation method</option><option value="mass">mass</option><option value="energy">energy</option><option value="economic">economic</option><option value="manual">manual shares</option></select><input id="cdAlSrc" class="grow" placeholder="Source of prices or properties, and why allocation is used"></div>
+            <div id="cdAlValues"></div>
+          </details>
+          <details id="cdPrParamBox"><summary>Parameters of this process</summary>
+            <p class="hint">Values only this process uses, or that override a database parameter of the same name. Example: <code>dough = 0.65</code>, <code>flour_in = dough / (1 - loss)</code>.</p>
+            <div class="table-wrap"><table id="cdPrParams"></table></div>
+            <div class="row"><button class="ghost" id="btnCdPrParamAdd">Add parameter</button><span class="hint">Saved with the process.</span></div>
+          </details>
           <div class="row"><input id="cdPrComment" class="grow" placeholder="Comment"><button class="primary" id="btnCdProc">Save process</button></div>
-          <h3>Inputs, avoided products, emissions and resources</h3>
-          <div class="table-wrap"><table id="cdExchanges"></table></div>
-          <div class="row"><select id="cdXKind"><option value="technosphere">input from a supplier</option><option value="avoided">avoided product</option><option value="elementary">emission or resource</option></select>
-            <select id="cdXSupSrc"><option value="custom">custom process</option><option value="library">library dataset</option></select>
-            <select id="cdXTarget" class="grow"></select></div>
-          <div class="row" id="cdXSearchRow"><input id="cdXSearch" class="grow" placeholder="Search the library"><button id="btnCdXSearch">Search</button></div>
-          <div class="row"><input id="cdXAmount" type="number" step="any" placeholder="Amount" size="8"><input id="cdXUnit" list="cdUnits" placeholder="Unit" size="7"><span class="hint" id="cdXRefUnit"></span>
-            <select id="cdXUnc"><option value="none">no uncertainty</option><option value="pedigree">pedigree matrix</option><option value="lognormal">lognormal</option><option value="normal">normal</option><option value="triangular">triangular</option><option value="uniform">uniform</option></select>
-            <span id="cdXUncFields"></span></div>
-          <div class="row"><input id="cdXSrc" class="grow" placeholder="Source"><input id="cdXComment" class="grow" placeholder="Comment"><button class="primary" id="btnCdX">Add</button></div>
         </div>
-        <div class="block">
-          <h3>Characterisation factors</h3>
-          <p class="hint">For each custom flow and impact category, give the factor with its source, or record why the category does not apply. Factors of installed methods for library flows stay as the method defines them; a custom method can give factors to any flow.</p>
+        <div class="block cd-sec" id="cdSec5">
+          <h3><span class="cd-n">5</span>Inputs, waste, credits, emissions and resources</h3>
+          <p class="hint" id="cdXFor">Choose or save a process in step 4 first.</p>
+          <p class="hint">Enter each line per reference amount of the process, in the unit you measured: Cyclia converts within the same kind of unit (650 g to 0.65 kg, 1.08 MJ to 0.3 kWh) and refuses the rest. For waste, choose the treatment process as supplier and enter the amount of waste. Uncertainty: give a range, or the five pedigree scores (1 good to 5 poor) if you only know how reliable the data are.</p>
+          <div class="table-wrap"><table id="cdExchanges"></table></div>
+          <div class="subpanel">
+            <div class="row"><b id="cdXMode">Add a line</b></div>
+            <div class="row"><select id="cdXKind"><option value="technosphere">input from a supplier</option><option value="avoided">avoided product (credit)</option><option value="elementary">emission or resource</option></select>
+              <select id="cdXSupSrc"><option value="custom">from my processes</option><option value="library">from the library</option></select>
+              <select id="cdXTarget" class="grow"></select></div>
+            <div class="row" id="cdXSearchRow"><input id="cdXSearch" class="grow" placeholder="Search the library"><button id="btnCdXSearch">Search</button></div>
+            <div class="row"><input id="cdXAmount" placeholder="Amount or formula" size="16" title="A number, or a formula of parameters such as dough / (1 - loss)"><input id="cdXUnit" list="cdUnits" placeholder="Unit" size="7"><span class="hint" id="cdXRefUnit"></span>
+              <select id="cdXUnc"><option value="none">no uncertainty</option><option value="pedigree">pedigree scores</option><option value="lognormal">lognormal</option><option value="normal">normal</option><option value="triangular">triangular</option><option value="uniform">uniform</option></select>
+              <span id="cdXUncFields"></span></div>
+            <div class="row"><input id="cdXSrc" class="grow" placeholder="Source"><input id="cdXComment" class="grow" placeholder="Comment"><button class="primary" id="btnCdX">Add</button><button class="ghost" id="btnCdXCancel" hidden>Cancel</button></div>
+          </div>
+        </div>
+        <div class="block cd-sec" id="cdDiagramBlock">
+          <h3>Supply chain diagram</h3>
+          <p class="hint">Your processes and the library datasets they use. Drag a box to arrange the diagram. Click a box to open the process. To add an input, press <b>Connect</b>, click the supplier, then the process that uses it, and enter the amount. Click an arrow to edit that line.</p>
+          <div class="row"><button id="btnCdConnect">Connect</button><span class="hint grow" id="cdConnectHint"></span><button class="ghost" id="btnCdAutoLayout">Arrange automatically</button></div>
+          <div class="cd-canvas-wrap"><svg id="cdCanvas" class="cd-canvas" role="img" aria-label="Supply chain diagram of the custom database"></svg></div>
+        </div>
+        <div class="block cd-sec" id="cdSec6">
+          <h3><span class="cd-n">6</span>Characterisation factors</h3>
+          <p class="hint">For each flow you created, and for each impact category you use, give the factor with its source, or choose "does not apply" and say why. Example: 1 kg of non-fossil methane = 27.0 kg CO2-eq (IPCC AR6); flour dust in climate change: does not apply, not a greenhouse gas. A factor of 0 with its source is a known value. Factors that installed methods give to library flows are not changed here.</p>
           <details><summary>New custom method or impact category</summary>
+            <p class="hint">For an indicator that no installed method has. Say what happens to flows that get no factor: "unknown" marks results incomplete until each flow is decided; "no effect" is for a method whose factor list is complete, as in published methods (give the reason).</p>
             <div class="row"><input id="cdMFam" placeholder="Method name"><input id="cdMCat" placeholder="Impact category"><input id="cdMInd" placeholder="Indicator (optional)"><input id="cdMUnit" placeholder="Unit (e.g. kg CO2-eq)" size="12"></div>
-            <div class="row"><input id="cdMSrc" class="grow" placeholder="Source (publication or standard)"><button class="primary" id="btnCdMethod">Create</button></div>
+            <div class="row"><input id="cdMSrc" class="grow" placeholder="Source (publication or standard)"></div>
+            <div class="row"><select id="cdMScope"><option value="unknown">Flows without a factor: unknown</option><option value="zero">Flows without a factor: no effect</option></select><input id="cdMReason" class="grow" placeholder="Reason, for 'no effect'"><button class="primary" id="btnCdMethod">Create</button></div>
           </details>
           <div class="row"><select id="cdFMethod" class="grow"></select><select id="cdFFlow" class="grow"></select></div>
+          <div class="row" id="cdMScopeRow" hidden><span class="hint">This custom method:</span><select id="cdMScopeEdit"><option value="unknown">flows without a factor are unknown</option><option value="zero">flows without a factor have no effect</option></select><input id="cdMReasonEdit" class="grow" placeholder="Reason, for 'no effect'"><button id="btnCdMScope">Save</button><button class="ghost" id="btnCdMDel">Delete method</button></div>
           <div class="row" id="cdFSearchRow" hidden><input id="cdFSearch" class="grow" placeholder="Search library flows (custom method)"><button id="btnCdFSearch">Search</button></div>
           <div class="row"><select id="cdFStatus"><option value="value">factor</option><option value="not_applicable">does not apply</option></select><input id="cdFValue" type="number" step="any" placeholder="Factor" size="9"><span class="hint">per</span><input id="cdFUnit" list="cdUnits" placeholder="unit of the flow" size="8">
-            <input id="cdFSrc" class="grow" placeholder="Source of the factor or reason"><button class="primary" id="btnCdFactor">Save factor</button></div>
-          <div class="row"><span class="hint grow">Status of every custom flow in the impact categories selected in step 4 and in the custom methods.</span><button id="btnCdFTable">Show factor status</button></div>
+            <input id="cdFSrc" class="grow" placeholder="Source of the factor"><button class="primary" id="btnCdFactor">Save factor</button></div>
+          <div class="row"><span class="hint grow">Status of your flows in the impact categories chosen in step 4 and in your custom methods.</span><button id="btnCdFTable">Show factor status</button></div>
           <div class="table-wrap"><table id="cdFactors"></table></div>
+        </div>
+        <div class="block cd-sec" id="cdSec7">
+          <h3><span class="cd-n">7</span>Check and use</h3>
+          <p class="hint">The check lists errors to correct (an input without a supplier, a process that cannot be calculated) and what is still missing (sources, data quality, factor decisions). Then add your process to the open model; set its amount in step 3.</p>
+          <div class="row"><button class="primary" id="btnCdCheck">Check database</button><button id="btnCdUse">Add the selected process to the open model</button><button class="ghost" id="btnCdHist">Change history of the selected process</button></div>
+          <div id="cdCheckOut"></div>
+          <div id="cdHistOut"></div>
         </div>
       </div>
       <div class="tt" id="tt-alloc" hidden>
@@ -1083,7 +1155,7 @@
       <div class="w-choices">
         <button data-start="learn"><b>Learn with a first study</b><span>Creates the project "My first LCA" with the free tutorial database (33 simplified processes from buildings, food, textiles, plastics and energy, with impact methods) and guides you through the six steps. About 20 minutes.</span></button>
         <button data-start="demo"><b>Explore the full demo</b><span>Seven ready-made models that show every feature: scenarios, EPD modules, uncertainty, toxicity and more. Nothing to type.</span></button>
-        <button data-start="own"><b>Start my own study</b><span>An empty project. Then connect ecoinvent with your licence, or import openLCA, SimaPro or ILCD data.</span></button>
+        <button data-start="own"><b>Start my own study</b><span>An empty project. Then connect ecoinvent with your licence, import openLCA, SimaPro or ILCD data, or enter your own processes and flows.</span></button>
       </div>
       <div class="row"><button class="ghost" data-wback>Back</button><span class="grow"></span><button class="ghost" data-wskip>Skip, I will look around</button></div>
     </div>
@@ -1111,6 +1183,6 @@
 <script src="v135.js"></script>
 <script src="v136.js"></script>
 <script src="v137.js"></script>
-<script src="v160.js"></script>
+<script src="custom-data.js"></script>
 </body>
 </html>

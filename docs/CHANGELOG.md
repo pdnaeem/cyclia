@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.6.1 (2026-11-06)
+
+Corrections from the review of 1.6.0, editing, and guidance. Details: docs/quality/ACCEPTANCE_1.6.1.md.
+
+- **Custom methods: missing factors were taken as zero for library flows.** A library flow (for example methane)
+  in the inventory without a factor in a custom method was neither counted nor reported. Such a flow is now an
+  unknown factor: the result is marked incomplete and the flow is listed, until a factor or a "does not apply"
+  decision is recorded. A custom method can instead state, with the reason, that flows without a factor have no
+  effect, as published methods do.
+- **A factor of zero recorded with its source was reported as missing.** Whether a factor is known now depends on
+  the recorded factor or the method's own factor list, not on its value. Zero factors of installed methods count as
+  known too.
+- **Editing.** Products, elementary flows, lines of a process and factors can be edited in the interface.
+  Renaming a product updates the datasets that make it. Editing an elementary flow matches its factors again in
+  every method. Library flows cannot be edited.
+- **Provenance per line.** Each line of a process records its author and revision. A change history lists every
+  creation, change and deletion with time and author.
+- **Placement and guidance.** "Your own data" is the second Toolbox tab and is reached from step 1 (Add a
+  database) and step 3 (Inventory). The tab shows the seven steps with their status, explains each one in plain
+  words with an example, and creates a worked example (bread, 0.437 kg CO2-eq per kg, with IPCC AR6 factors). New
+  user guide chapter and glossary entries. A selected process can be added to the open model with one click.
+- Custom methods can be deleted. The user guide opens at the right section the first time it is opened from a
+  link.
+- **Parameters and formulas in your own data.** Database and process parameters (values or formulas of other
+  parameters), and amounts written as formulas. A change re-evaluates every formula; a change that breaks a
+  formula or makes an amount negative is refused and nothing changes.
+- **Processes with several products.** Co-products with mass, energy, economic or manual allocation; one dataset
+  per product, each with its share of every exchange and its uncertainty. Other processes can use each co-product.
+- **Units of your own.** Units in a known kind of quantity (a sack of 50 kg) or a new kind of quantity (a seat,
+  with a row of 20 seats); a unit in use cannot change its size. Units, parameters and co-products are part of
+  the JSON export.
+- **Supply chain diagram.** Drag processes to arrange them, connect a supplier to a process to add an input, click
+  an arrow to edit its line. In a model's flow diagram, clicking a box opens its line in the inventory table.
+
 ## 1.6.0 (2026-11-06)
 
 Custom data entry. Details, tests and limits: docs/quality/ACCEPTANCE_1.6.0.md.

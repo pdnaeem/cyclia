@@ -27,11 +27,17 @@ CREATE TABLE IF NOT EXISTS lib.custom_items (uuid TEXT PRIMARY KEY, kind TEXT, d
 CREATE INDEX IF NOT EXISTS lib.idx_custom_kind ON custom_items(kind, db_id);
 CREATE TABLE IF NOT EXISTS lib.custom_exchanges (id INTEGER PRIMARY KEY, process_uuid TEXT, kind TEXT,
     target TEXT, amount REAL, unit TEXT, amount_ref REAL, avoided INTEGER DEFAULT 0, utype INTEGER DEFAULT 0,
-    p1 REAL, p2 REAL, p3 REAL, pedigree TEXT, uncertainty TEXT, source TEXT, comment TEXT, modified TEXT);
+    p1 REAL, p2 REAL, p3 REAL, pedigree TEXT, uncertainty TEXT, source TEXT, comment TEXT, modified TEXT,
+    author TEXT, created TEXT, revision INTEGER DEFAULT 1, formula TEXT, unit_factor REAL);
 CREATE INDEX IF NOT EXISTS lib.idx_custom_ex ON custom_exchanges(process_uuid);
 CREATE TABLE IF NOT EXISTS lib.custom_factors (method_id INTEGER, flow_uuid TEXT, status TEXT, value REAL,
     value_entered REAL, unit_entered TEXT, source TEXT, comment TEXT, author TEXT, modified TEXT,
     PRIMARY KEY(method_id, flow_uuid));
+CREATE TABLE IF NOT EXISTS lib.custom_history (id INTEGER PRIMARY KEY, item TEXT, kind TEXT, action TEXT,
+    author TEXT, time TEXT, data TEXT);
+CREATE INDEX IF NOT EXISTS lib.idx_custom_hist ON custom_history(item);
+CREATE TABLE IF NOT EXISTS lib.custom_units (name TEXT PRIMARY KEY, dimension TEXT, factor REAL, description TEXT,
+    source TEXT, author TEXT, created TEXT);
 """
 
 LIB_SCHEMA = """
@@ -133,6 +139,8 @@ LIB_MIGRATIONS = {"tech": [("src_unlinked", "INTEGER")], "flow_mapping": [("s_uu
                   "activities": [("product_uuid", "TEXT")],
                   "unlinked": [("reason", "TEXT DEFAULT 'no producer'"), ("candidates", "TEXT")],
                   "databases": [(c, "TEXT") for c in DB_META_COLUMNS],
+                  "custom_exchanges": [("author", "TEXT"), ("created", "TEXT"), ("revision", "INTEGER DEFAULT 1"),
+                                       ("formula", "TEXT"), ("unit_factor", "REAL")],
                   "slca_data": [("raw_value", "TEXT"), ("raw_unit", "TEXT"), ("quality", "TEXT"), ("activity_unit", "TEXT")]}
 LEGACY_DATA_TABLES = ["databases", "activities", "activities_fts", "tech", "flows", "bio", "methods", "cfs", "nw"]
 INPUT_COLUMNS = ["id", "model_id", "kind", "ref_id", "amount", "label", "comment", "pedigree", "position", "stage",
@@ -182,6 +190,8 @@ class ProjectStore:
                             c.execute(f"ALTER TABLE lib.{table} ADD COLUMN {col} {decl}")
             c.executescript(LIB_SCHEMA)
             c.executescript(CUSTOM_SCHEMA)
+            import units as _units
+            _units.set_custom(c.execute("SELECT name, dimension, factor FROM lib.custom_units").fetchall())
             c.executescript(PROJECT_SCHEMA)
             c.commit()
             if "activities" in main_tables:

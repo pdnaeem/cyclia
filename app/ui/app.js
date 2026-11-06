@@ -936,17 +936,24 @@ function renderDiagram() {
     groups[n].forEach((i, r) => {
       const y = top + r * (boxH + gap);
       const credit = i.avoided;
-      svg += `<rect x="${x}" y="${y}" width="${colW}" height="${boxH}" rx="4" fill="var(--panel)" stroke="${i.missing ? "var(--danger)" : credit ? "var(--neg)" : "var(--rule)"}"/>
-        <text x="${x + 8}" y="${y + 19}" font-size="11" fill="var(--ink)">${esc(((i.label || i.target.name) + "").slice(0, 30))}</text>
+      svg += `<g data-line="${i.id}" style="cursor:pointer"><title>Click to edit this line</title><rect x="${x}" y="${y}" width="${colW}" height="${boxH}" rx="4" fill="var(--panel)" stroke="${i.missing ? "var(--danger)" : credit ? "var(--neg)" : "var(--rule)"}"/>
+        <text x="${x + 8}" y="${y + 19}" font-size="11" fill="var(--ink)">${esc(((i.label || i.target.name) + "").slice(0, 30))}</text></g>
         <path d="M${x + colW} ${y + boxH / 2} C ${W - 200} ${y + boxH / 2}, ${W - 230} ${prodY + 30}, ${W - 190} ${prodY + 30}" fill="none" stroke="${credit ? "var(--neg)" : "var(--spruce)"}" stroke-width="1" opacity=".45" ${credit ? 'stroke-dasharray="4 3"' : ""}/>`;
     });
   });
   svg += `<rect x="${W - 190}" y="${prodY}" width="185" height="60" rx="6" fill="var(--spruce)"/>
     <text x="${W - 180}" y="${prodY + 25}" font-size="12" font-weight="600" fill="var(--panel)">${esc(m.name.slice(0, 26))}</text>
     <text x="${W - 180}" y="${prodY + 44}" font-size="11" fill="var(--panel)">${esc(`${fmt(m.amount)} ${m.unit}`)}</text></svg>
-    <p class="hint">Dashed blue lines are credits (avoided products). Red boxes point to missing datasets.</p>`;
+    <p class="hint">Dashed blue lines are credits (avoided products). Red boxes point to missing datasets. Click a box to edit its line.</p>`;
   $("#diagram").innerHTML = svg;
 }
+$("#diagram").addEventListener("click", (e) => {
+  const g = e.target.closest("[data-line]"); if (!g) return;
+  const row = $(`#invRows tr[data-id="${g.dataset.line}"]`); if (!row) return;
+  row.scrollIntoView({ behavior: "smooth", block: "center" });
+  row.classList.add("flash"); setTimeout(() => row.classList.remove("flash"), 1600);
+  const f = $("input, select", row); if (f) f.focus();
+});
 
 async function exportTo(path, defaultName, ext, body = {}) {
   if (desktop) { const p = await desktop.saveFile(defaultName, ext); if (!p) return null; body.path = p; }

@@ -86,9 +86,11 @@ The status of every feature, including what is not validated yet, is listed in
   split per EN 15804+A2, or any method from a CSV table
 - Staged imports with an integrity report and rollback; process identity and named suppliers kept
 - Database explorer with filters, database check, version comparison and model migration
-- Custom data entry: your own databases, product and elementary flows, processes, exchanges and characterisation
-  factors, with unique identifiers, provenance, unit validation, uncertainty and data quality. A flow without a
-  known factor is reported as an incomplete result, never counted as zero
+- **Your own data**: describe processes no database has (your factory, farm or new material) with their inputs,
+  waste, credits, emissions, uncertainty, data quality and characterisation factors, parameters and formulas,
+  co-products with allocation, units of your own, and a supply chain diagram you draw by connecting boxes. Unique identifiers, sources
+  and change history for every item, unit checks, a worked example, and a step-by-step guide. A flow without a
+  known factor marks the result incomplete; it is never counted as zero
 
 **Modelling**
 - Parameters, formulas and scenarios; allocation by mass, economic value, energy or physical relation; system
@@ -145,6 +147,9 @@ Yes. Cyclia is free and open-source software under the MIT licence, for academic
 Only for ecoinvent data. Cyclia also reads free databases (USLCI, Agribalyse, ELCD and others in openLCA
 JSON-LD, ILCD or SimaPro CSV format) and includes a tutorial database for learning.
 
+**Can I enter my own data when no database has my process?**
+Yes. In Toolbox > Your own data you describe your own processes, products, emissions and characterisation factors, even with an empty library, and use them like any other dataset. Cyclia checks units, keeps the source and history of every item, and marks a result incomplete when a factor is unknown instead of counting it as zero. A worked example and a step-by-step guide show how. See the [user guide](docs/USER_GUIDE.md#your-own-data-custom-data-entry).
+
 **Do I need to know Python?**
 No. Everything works through the interface. Python and R clients are available for scripted work.
 
@@ -170,7 +175,7 @@ and to check for updates.
 
 If Cyclia helps your research, please cite it:
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.6.0)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.6.1)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [CITATION.cff](CITATION.cff). In the app,

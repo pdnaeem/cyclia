@@ -17,11 +17,12 @@ section.
 8. [Step 4: Impact assessment](#step-4-impact-assessment)
 9. [Step 5: Interpretation](#step-5-interpretation)
 10. [Step 6: Report](#step-6-report)
-11. [Toolbox](#toolbox)
-12. [Recipes by sector](#recipes-by-sector)
-13. [Publishing with Cyclia](#publishing-with-cyclia)
-14. [Troubleshooting](#troubleshooting)
-15. [Limitations](#limitations)
+11. [Your own data (custom data entry)](#your-own-data-custom-data-entry)
+12. [Toolbox](#toolbox)
+13. [Recipes by sector](#recipes-by-sector)
+14. [Publishing with Cyclia](#publishing-with-cyclia)
+15. [Troubleshooting](#troubleshooting)
+16. [Limitations](#limitations)
 
 ---
 
@@ -579,6 +580,216 @@ Compare before you claim that one product is better.
 
 ---
 
+## Your own data (custom data entry)
+
+Databases such as ecoinvent describe thousands of common processes. Your own process is often not among them:
+your factory, your farm, a new material, a pilot plant, a recycling step. **Your own data** (Toolbox > Your own
+data) lets you describe such processes yourself. Cyclia then treats them like any other dataset: you add them to a
+model, calculate impacts, run Monte Carlo, write reports and EPDs. You can work with an empty library or combine
+your processes with installed databases, for example your own baking process with ecoinvent's electricity.
+
+You do not need to know any programming or database format. You fill in tables, step by step, and Cyclia checks
+every entry.
+
+### What Cyclia does for you
+- **Gives every item an identity.** Each product, flow, process and method gets a unique identifier (UUID), the
+  source you give, the author, the date of creation and change, and a revision number. Every change is kept in a
+  change history.
+- **Checks units.** You enter amounts in the unit you measured. Cyclia converts within the same kind of unit (650
+  g becomes 0.65 kg, 1.08 MJ becomes 0.3 kWh) and refuses an amount that cannot be converted (kg for electricity).
+- **Avoids duplicates.** If you try to create an emission that the library already has, Cyclia tells you to use
+  the existing one, because that one already has its factors in the installed impact methods.
+- **Never counts an unknown factor as zero.** If a flow has no characterisation factor in an impact category and
+  you have not said why the category does not apply, the result of that category is marked **Incomplete** and the
+  flow is listed. Nothing is hidden.
+
+### Words used here
+| Word | Meaning | Example |
+|---|---|---|
+| Product flow | Something made or used that stays in the economy | bread (kg), electricity (kWh), bread waste (kg) |
+| Elementary flow | Something taken from or released to nature | carbon dioxide to air, water from a river |
+| Process | One activity that makes one product, for a reference amount | bread baking, per 1 kg of bread |
+| Exchange (line) | One input, credit, emission or resource of a process | 0.65 kg wheat flour per kg of bread |
+| Waste treatment | A process that takes waste in | landfill of bread waste, per 1 kg of waste |
+| Avoided product | A product your process makes that replaces production elsewhere | electricity recovered from waste heat |
+| Characterisation factor | How much one unit of a flow adds to an impact category | 1 kg non-fossil methane = 27.0 kg CO2-eq |
+
+### Start with the worked example
+Press **Create the worked example (bread)** at the top of Your own data. Cyclia creates a small custom database
+that shows every step:
+
+- product flows: bread, wheat flour, electricity, bread waste;
+- four processes: wheat flour from the mill, electricity from the local grid, landfill of bread waste (a waste
+  treatment), and bread baking;
+- bread baking uses 650 g of flour, 1.08 MJ of electricity (shown as 0.3 kWh) and sends 0.05 kg of waste to
+  landfill, and releases 1 g of flour dust;
+- an impact category "Example: climate change" with IPCC AR6 factors (carbon dioxide 1, non-fossil methane 27.0)
+  and the decision that climate change does not apply to flour dust.
+
+Per kg of bread the result is 0.65 x 0.4 + 0.3 x 0.5 + 0.05 x 0.02 x 27 = **0.437 kg CO2-eq**. The values are
+illustrative and labelled so: use the example to learn, not to publish. Look through steps 1 to 7 with it, then
+create your own database. If other impact methods are installed, flour dust shows as "unknown" in their
+categories: that is step 6 at work, a decision still to make.
+
+### The seven steps
+The top of Your own data shows seven steps with a tick for each one that is done. Click a step to go to it.
+
+### 1. Create a custom database
+Give it a clear name ("Plant A, primary data 2025"), the author, the region and the period the data describe.
+One database can hold many processes. **Export (JSON)** saves the whole database in one file, to archive it or to
+send it to a colleague, who loads it with **Import**.
+
+**Parameters of this database** are named values that amounts can use, such as `loss = 0.2` or
+`distance = 120`. A parameter can be a formula of others (`dough_wet = dough * 1.1`). Change a value, save, and
+every amount that uses it is recalculated. A change that would make an amount negative, or a formula that cannot
+be calculated (an unknown name, a parameter that depends on itself), is refused with a message, and nothing is
+changed.
+
+### 2. Product flows
+List what your processes make, and the waste they send to treatment, each with the unit you count it in: bread in
+kg, electricity in kWh, transport in t*km, a machine in unit. Use **Edit** to correct a name or category later;
+the datasets that make the product are updated. The unit of a product that a process already makes cannot be
+changed: create a new product instead.
+
+**Units of your own.** If Cyclia does not know your unit, define it under "Units of your own":
+
+- in a known kind of quantity, with its size: a "sack" of 50 kg (mass), a "load" of 8 t*km (transport);
+- or as a **new kind of quantity**, which is its own base unit: a "seat", a "meal", a "patient day". Then define
+  multiples of it if you need them: a "row" of 20 seats.
+
+Amounts in your units are converted like any other: 2 sacks of flour become 100 kg. A unit in use cannot change
+its size, because the amounts entered with it would change meaning; create a new one instead.
+
+### 3. Elementary flows (only if needed)
+Most emissions and resources (carbon dioxide, methane, water, land occupation) are already in the library. You
+choose them directly in step 5. Create a flow here only for a substance the library does not have, for example a
+new solvent:
+
+- **Compartment** says where it goes or comes from: air, water, soil, or natural resource.
+- **Subcompartment** gives more detail, such as "urban air close to ground" or "surface water". Choose
+  "unspecified" if you do not know.
+- **Unit**: kg for substances, m3 for water, m2*a for land occupation, m2 for land transformation, kBq for
+  radioactivity.
+- **CAS number** if the substance has one. Cyclia checks its check digit.
+
+### 4. Processes
+Describe one activity:
+
+- **Name** and **reference product** (from step 2), with the **reference amount**: all lines of step 5 are for
+  this amount. Usually 1.
+- **Production** or **waste treatment**. A waste treatment process takes waste in, such as landfill or
+  incineration; its reference product is the waste.
+- **Location** (a code such as FR, PK or GLO for global), **technology**, **time period** and **data type**
+  (primary when you measured it, secondary from literature or a database, estimate otherwise).
+- **Source** of the data: a measurement campaign, a report, an invoice, a paper.
+- **Data quality**: four ratings from 1 (very good) to 5 (very poor) for technology (TeR), geography (GeR), time
+  (TiR) and precision (P), as in the EU PEF method.
+- **Parameters of this process** (optional): values only this process uses, or that replace a database parameter
+  of the same name for this process.
+
+**Co-products and allocation.** Some processes make more than one product: cheese and whey, flour and bran, sawn
+wood and sawdust. List the other products under "Co-products and allocation", with their amounts, and choose how
+the inputs and emissions are shared:
+
+| Method | Share of each product | Example |
+|---|---|---|
+| mass | its mass (kg) | 1 kg flour and 0.25 kg bran: 80 % and 20 % |
+| energy | its energy content (MJ) | electricity and heat from one plant |
+| economic | its amount x price | flour at 0.40 and bran at 0.16 per kg: 90.9 % and 9.1 % |
+| manual | your shares, adding up to 1 | from a published study |
+
+For mass and energy, Cyclia uses the unit when it is a mass or energy unit; otherwise give the kg or MJ per unit.
+Cyclia then makes one dataset per product, each carrying its share of every line. Other processes, and your
+models, can use each product separately. ISO 14044 asks to avoid allocation where possible, for example by
+system expansion (an avoided product in step 5); use allocation when that is not possible, and give the source of
+the prices or properties and your reason.
+
+### 5. Inputs, waste, credits, emissions and resources
+Add the lines of the selected process, per reference amount:
+
+- **Input from a supplier**: from one of your processes, or from a dataset of the library (search it, for example
+  "electricity France").
+- **Waste to treatment**: choose the treatment process as supplier and enter the amount of waste. Cyclia handles
+  the sign.
+- **Avoided product (credit)**: a product your process makes that replaces production elsewhere.
+- **Emission or resource**: search the library ("carbon dioxide", "water") or choose one of your own flows.
+
+Enter the **amount** in the unit you measured; the reference unit of the supplier or flow is shown next to it.
+Instead of a number you can write a **formula** of parameters, such as `dough / (1 - loss)` or `distance * 0.025`.
+The table shows both the formula and its current value. Formulas use + - * / and ^ (power), brackets, and
+functions such as min, max, sqrt, exp and log.
+Then give the **uncertainty** if you know it:
+
+- a **range**: normal (standard deviation), triangular (minimum, most likely, maximum) or uniform (minimum,
+  maximum);
+- **lognormal** with its geometric standard deviation (1.5 means the true value is within a factor 1.5, roughly
+  two times in three);
+- or the five **pedigree scores** (reliability, completeness, time, geography, technology, from 1 to 5) when you
+  only know how reliable the data are. Cyclia turns them into a lognormal range.
+
+Give the **source** of each line. **Edit** changes a line and counts its revision; **Remove** deletes it. A line
+with a formula takes lognormal, normal or pedigree uncertainty, not a triangular or uniform range, because a
+fixed range would not follow the formula when a parameter changes.
+
+### The supply chain diagram
+Below step 5, the diagram draws your processes and the library datasets they use, with an arrow for every input
+(orange for waste sent to treatment, dashed blue for avoided products):
+
+- **drag** a box to arrange the diagram; the position is kept;
+- **click** a box to open that process in steps 4 and 5;
+- to add an input, press **Connect**, click the supplier, then the process that uses it, and type the amount;
+- **click an arrow** to edit that line;
+- **Arrange automatically** places suppliers to the left of the processes that use them.
+
+In step 3 of a model (Inventory), clicking a box of the model's flow diagram opens its line in the table.
+
+### 6. Characterisation factors
+Impact methods do not know the flows you created in step 3. For each of them, and each impact category you use,
+choose one of two answers:
+
+- **factor**: the value and its source, per kg or another unit of the same kind (a factor per g is converted to
+  per kg). A factor of 0 with its source is a valid answer, for example for a gas with no warming effect.
+- **does not apply**: the reason, for example "flour dust is not a greenhouse gas".
+
+**Show factor status** lists every flow and category and marks each open decision; **Decide** fills the form for
+it.
+
+You can also create **your own method** or impact category for an indicator no installed method has. Say what
+happens to flows that get no factor in it:
+
+- **unknown** (the default): results are incomplete until each flow in the inventory is decided;
+- **no effect**: your list of factors is complete, as in published methods; give the reason.
+
+Factors that installed methods give to library flows are not changed here. In your own method you can give a
+factor to any flow.
+
+### 7. Check and use
+**Check database** lists errors to correct (an input whose supplier was removed, a process that cannot be
+calculated) and what is still missing (sources, data quality, factor decisions). **Add the selected process to the
+open model** puts it in the inventory of the model you have open; set its amount there, in step 3. Your processes
+are also found by the normal search of step 3. **Change history** lists every change of the selected process and
+its lines, with time and author.
+
+### What the results show
+In step 5 (Interpretation), a category whose inventory contains a flow without a known factor shows
+**Incomplete: n flow(s) without a known factor**. The Inventory tab lists those flows with their amounts, and the
+checks report an error. The Word report and the Excel workbook say the same. The EPD check does not pass until
+every factor is decided. Give the factors or record why the category does not apply, and calculate again.
+
+### Questions
+- **Can I use my processes together with ecoinvent?** Yes. Inputs can come from any installed dataset, and your
+  processes appear in the normal search.
+- **Can I change data later?** Yes. Every product, flow, process, line and factor can be edited; dataset
+  identifiers stay the same, so your models stay linked. Every change is recorded.
+- **Why can I not change the unit of a product?** Processes already use it; a different unit would change every
+  amount. Create a new product.
+- **A library database I used was removed.** The inputs from it become "inputs without a supplier" and the check
+  lists them. Choose a new supplier.
+- **Can I make one process with several products?** Yes: add co-products in step 4 and choose the allocation.
+  Or model the extra product as an avoided product (system expansion).
+- **Do parameters vary in Monte Carlo?** Parameters of your own data are fixed values. Give the uncertainty on
+  each line (step 5). Model parameters (step 2) can have their own distributions.
+
 ## Toolbox
 
 - **Validation**: the validation suite runs 35 small product systems with exact known answers and saves a
@@ -644,37 +855,8 @@ Compare before you claim that one product is better.
 
 ---
 
-### Custom data
-Toolbox > **Custom data** builds a product system from your own data, from an empty library if needed.
-
-1. **Create a custom database** with its name, author, geography and reference period.
-2. **Product flows**: the reference products of your processes and the waste they send to treatment, each with a
-   unit.
-3. **Elementary flows**: only for substances or resources the library does not have. Choose the compartment and
-   subcompartment from the list; give the CAS number if there is one. For land use, occupation flows need m2*a and
-   transformation flows m2. If the library already has the flow, Cyclia says so: use that one, it keeps the
-   factors of the installed methods.
-4. **Processes**: name, reference product and amount, production or waste treatment, location, technology, time
-   period, data type, source and the four data quality ratings (TeR, GeR, TiR, P from 1 to 5). Save the process.
-5. **Exchanges** of the selected process: inputs from one of your processes or from a library dataset (search
-   it), avoided products, and emissions or resources. Enter the amount in the unit you measured: 3.6 MJ for an
-   input in kWh or 10 g for an emission in kg is converted; an incompatible unit is refused. For waste, choose the
-   treatment process as supplier and enter the amount treated. Add the uncertainty (lognormal with its GSD,
-   normal, triangular, uniform, or the five pedigree scores) and the source.
-6. **Characterisation factors**: for each of your flows and each impact category you use, give the factor and
-   its source (per kg, per g or another unit of the same dimension), or choose "does not apply" with the reason.
-   **Show factor status** lists every open decision. You can also create your own method or impact category and
-   give factors to any flow.
-7. **Check database** lists errors (inputs without a supplier, a process that cannot be calculated) and what is
-   missing (sources, data quality, factor decisions).
-8. Use your processes in a model like any other dataset (step 3, search).
-
-When a custom flow has no factor in a category, the result of that category is marked **Incomplete** and the flow
-is listed in step 5 (Inventory), in the report and in the Excel workbook. Its contribution is unknown and is not
-counted as zero.
-
-**Export (JSON)** saves the custom database with all identifiers, sources, exchanges and factors; **Import** reads
-it into another project or library. Library datasets used as suppliers must be installed there too.
+### Your own data
+Processes, flows and factors that no database has. See [Your own data](#your-own-data-custom-data-entry).
 
 ## Recipes by sector
 

@@ -725,11 +725,64 @@ factors with the flow's UUID and matched like the factors of an imported method.
 library flows are not changed; a custom method can give factors to any flow.
 
 ### 17.5 Unknown factors
-An installed method characterises the flows it lists. A custom flow is new to it, so a missing factor means that
-the factor is unknown, not that it is zero. For each custom flow and impact category the user gives a factor with
-its source or records, with the reason, that the category does not apply. A category whose inventory contains a
-custom flow with neither is reported as incomplete: the total excludes the unknown contribution, the flows and
-their amounts are listed, the checks report an error, and the EPD check does not pass.
+A factor is **known** for a flow and a category when the method has a factor for the flow (whatever its value,
+zero included), when a factor was recorded in Cyclia with its source (zero included), or when it was recorded,
+with the reason, that the category does not apply to the flow. Known-ness never depends on the numerical value.
+
+A factor is **unknown**, and never taken as zero, in two cases:
+- a custom flow without a known factor, in any method: an installed method characterises the flows it lists, and a
+  new flow is not among them;
+- any flow without a known factor in a custom method whose scope is "unknown" (the default). The author of a
+  custom method can instead state, with the reason, that flows without a factor have no effect ("no effect"
+  scope), which is how published methods are defined; custom flows remain unknown even then.
+
+A category whose inventory contains an unknown factor is reported as incomplete: the total excludes the unknown
+contribution, the flows and their amounts are listed, the checks report an error, and the EPD check does not
+pass. (Corrected in 1.6.1: in 1.6.0 library flows in a custom method and recorded zero factors were not handled
+this way.)
+
+### 17.7 Editing and history
+Products, elementary flows, processes, lines and factors can be edited. A product rename rewrites the datasets
+that make it. An edited elementary flow loses its matched factors and is matched again in every method that could
+characterise it (by its old or new name, or by its UUID). Every creation, change and deletion is recorded with its
+time, author and content in a change history; lines of a process carry their own author and revision.
+
+### 17.8 Parameters and formulas
+A custom database and each of its processes can have named parameters (a value or a formula of other
+parameters). The parameters of a process are those of its database, overridden by its own of the same name; they
+are resolved in dependency order, and a parameter that depends on itself is refused. An amount can be a formula of
+these parameters, evaluated by the same restricted evaluator as model formulas (arithmetic, comparisons and a
+fixed list of functions; no other code runs). The stored amount in the reference unit is
+amount_ref = value(formula) x f(unit -> reference unit). Every change of a parameter, a formula or a process
+re-evaluates all formulas of the database in one transaction; when a formula fails or gives a negative or
+non-finite value, the whole change is refused and the previous state is kept. A line with a formula takes
+lognormal, normal or pedigree uncertainty, but not a triangular or uniform range, whose absolute bounds would not
+follow the formula. Parameters of custom data are deterministic: Monte Carlo samples the uncertainty of each line.
+
+### 17.9 Multi-output processes and allocation
+A process can have co-products besides its reference product (not a waste treatment, whose recovered products
+are modelled as avoided products). For outputs i with amounts a_i, the allocation share is
+
+f_i = a_i x v_i / sum_j (a_j x v_j),
+
+with v_i the mass per unit (kg; from the unit when it is a mass unit), the energy per unit (MJ; from the unit when
+it is an energy unit) or the price per unit, or f_i given directly (manual shares, which must add up to 1). Each
+output becomes one dataset with reference amount a_i and every exchange of the process multiplied by f_i
+(normal standard deviations and triangular or uniform bounds scaled by f_i; lognormal unchanged). The allocated
+datasets together carry exactly the exchanges of the process, so nothing is lost or counted twice. Other processes
+and models can use each output separately. ISO 14044 4.3.4.2 prefers avoiding allocation by subdivision or
+system expansion; the source and reason of an allocation are recorded with the process.
+
+### 17.10 User-defined units
+A user-defined unit belongs to a known dimension, with its factor to the base unit (a sack of 50 kg: mass,
+factor 50), or it is the base unit of a new dimension (a seat), possibly with multiples (a row of 20 seats).
+Conversion follows section 17.2: only within one dimension. A unit in use cannot change its factor or dimension,
+because the stored amounts that were converted with it would no longer match their entries.
+
+### 17.11 Supply chain diagram
+The diagram shows custom processes and the library datasets they use, with one arrow per technosphere line. It
+reads and writes the same data as the tables: connecting two boxes creates a line, clicking an arrow edits it.
+Positions are stored with the process but are not data and do not create a revision.
 
 ### 17.6 Database check
 Integrity (finite amounts and parameters, valid links), inputs without a supplier, a unit demand of every process

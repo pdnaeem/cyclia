@@ -54,7 +54,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.6.0"
+VERSION = "1.6.1"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -2392,11 +2392,15 @@ def custom_overview(st, body, q):
     store = st.store
     custom_data.ensure_schema(store)
     return {"databases": custom_data.databases(store), "compartments": custom_data.COMPARTMENTS,
-            "units": [u for v in units._ORDER.values() for u in v],
+            "units": [u for v in units._ORDER.values() for u in v] + [r["name"] for r in store.q(
+                "SELECT name FROM custom_units ORDER BY name")],
             "uncertainty": list(custom_data.UNCERTAINTY) + ["pedigree"],
-            "methods": [dict(m) for m in store.q("SELECT m.id, m.family, m.category, m.indicator, m.unit FROM methods m "
-                                                 "JOIN custom_items i ON i.ref_id=m.id AND i.kind='method' ORDER BY "
-                                                 "m.family, m.category")],
+            "methods": [{**dict(m), "unlisted": sc[0], "unlisted_reason": sc[1]}
+                        for m in store.q("SELECT m.id, m.family, m.category, m.indicator, m.unit FROM methods m "
+                                         "JOIN custom_items i ON i.ref_id=m.id AND i.kind='method' ORDER BY "
+                                         "m.family, m.category")
+                        for sc in [custom_data.method_scopes(store).get(m["id"], ("unknown", ""))]],
+            "example_name": custom_data.EXAMPLE_NAME,
             "elementary_flows": custom_data.elementary_flows(store)}
 
 
@@ -2469,7 +2473,68 @@ def custom_delete(st, body, q):
 @route("POST", "/api/custom/method")
 def custom_method(st, body, q):
     return {"method_id": _cd(custom_data.create_method, st.store, body.get("family"), body.get("category"),
-                             body.get("indicator"), body.get("unit"), body.get("source"), body.get("author") or "")}
+                             body.get("indicator"), body.get("unit"), body.get("source"), body.get("author") or "",
+                             body.get("unlisted") or "unknown", body.get("unlisted_reason") or "")}
+
+
+@route("GET", "/api/custom/units")
+def custom_units(st, body, q):
+    return custom_data.units_list(st.store)
+
+
+@route("POST", "/api/custom/units")
+def custom_unit_save(st, body, q):
+    return {"name": _cd(custom_data.save_unit, st.store, body)}
+
+
+@route("POST", "/api/custom/units/delete")
+def custom_unit_delete(st, body, q):
+    (name,) = _need(body, "name")
+    _cd(custom_data.delete_unit, st.store, name)
+    return {"ok": True}
+
+
+@route("POST", r"/api/custom/(\d+)/parameters")
+def custom_db_params(st, body, q, db_id):
+    _cd_free(st)
+    _cd(custom_data.set_database_parameters, st.store, int(db_id), body.get("parameters") or [], body.get("author") or "")
+    return {"parameters": custom_data._db_params(st.store, int(db_id))}
+
+
+@route("POST", "/api/custom/layout")
+def custom_layout(st, body, q):
+    uid, x, y = _need(body, "uuid", "x", "y")
+    _cd(custom_data.save_layout, st.store, uid, x, y)
+    return {"ok": True}
+
+
+@route("POST", "/api/custom/method/scope")
+def custom_method_scope(st, body, q):
+    (mid,) = _need(body, "method_id")
+    _cd(custom_data.set_method_scope, st.store, mid, body.get("unlisted"), body.get("unlisted_reason") or "",
+        body.get("author") or "")
+    return {"ok": True}
+
+
+@route("POST", "/api/custom/method/delete")
+def custom_method_delete(st, body, q):
+    (mid,) = _need(body, "method_id")
+    _cd(custom_data.delete_method, st.store, mid)
+    return {"ok": True}
+
+
+@route("GET", "/api/custom/history")
+def custom_history(st, body, q):
+    item = (q.get("item") or [""])[0]
+    if not item:
+        raise ApiError("Missing field: item")
+    return {"history": custom_data.history(st.store, item)}
+
+
+@route("POST", "/api/custom/example")
+def custom_example(st, body, q):
+    _cd_free(st)
+    return _cd(custom_data.example, st.store)
 
 
 @route("POST", "/api/custom/factor")

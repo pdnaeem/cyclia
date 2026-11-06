@@ -1864,9 +1864,12 @@ def checks(store, model_id, method_ids, result=None):
             gp = r.get("factor_gaps")
             if gp:
                 ex = ", ".join(f["name"] for f in gp["flows"][:3])
-                add("error", "impact", f"{r['category']}: the result is incomplete. {gp['n']} custom flow(s) in the "
-                                       f"inventory have no factor in this category (e.g. {ex}). Give the factor with its "
-                                       "source, or record that the category does not apply, in Toolbox > Custom data.")
+                add("error", "impact", f"{r['category']}: the result is incomplete. {gp['n']} flow(s) in the inventory "
+                                       f"have no known factor in this category (e.g. {ex}); their contribution is not "
+                                       "included. In Toolbox > Custom data, give each factor with its source or record "
+                                       "that the category does not apply"
+                                       + (", or state in the method that flows without a factor have no effect."
+                                          if gp.get("custom_method") else "."))
         mi = [u for u in result.get("uncharacterised", []) if u["mapping_issue"]]
         if mi:
             add("warning", "impact", f"{len(mi)} inventory flow(s) have factors in the selected method under another name or "

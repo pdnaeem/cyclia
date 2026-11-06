@@ -29,7 +29,7 @@ release are in the [changelog](CHANGELOG.md).
 | Database integrity | Staging import, integrity report, rollback, non-finite values rejected, explicit providers kept, per-database check |
 | Factor matching | Flow-by-flow comparison with openLCA, Brightway or CSV factor sets, with the effect on results |
 | EPD module consistency | The module table must match the LCA result before an EPD is written |
-| Custom data entry (1.6.0) | Own databases, flows, processes, exchanges and factors with identifiers, provenance and unit validation; unknown factors of custom flows are reported, never taken as zero |
+| Custom data entry (1.6.0, 1.6.1) | Own databases, flows, processes, exchanges and factors with identifiers, provenance, change history and unit validation; editing; parameters and formulas; co-products with allocation; user-defined units; supply chain diagram; unknown factors (custom flows, and every flow in a custom method unless its scope is declared complete) are reported, never taken as zero |
 
 ## Stage P0: scientific correctness and reliability
 
@@ -54,7 +54,7 @@ factor packages); the tools for them are in the app.
 | Allocation manager | Allocation overview (done) | Side-by-side results for mass, economic, energy and system expansion, with the calculation shown |
 | EPD programme profiles | Profiles (drafts) | Requirements checked against the current programme documents (EPD International GPI, IBU PCR Part A, INIES); reviewed by the operators where they agree |
 | Life cycle costing | LCC (done) | Residual value, price escalation per cost type, ISO 15686-5 categories, cost uncertainty |
-| Process graph editor | Flow diagram (done) | Inventory edited from the diagram, for foreground, background, co-products and avoided products |
+| Process graph editor | Custom process diagram (done in 1.6.1) | Model inventories edited by drawing as well, with co-products and avoided products, like the custom process diagram |
 | Reports and provenance | Report centre (done) | Every report states method versions, database versions, validation status, assumptions and limits, with a recursive provenance annex |
 
 ## Stage P2: advanced environmental and sustainability assessment

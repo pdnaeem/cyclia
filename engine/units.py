@@ -55,6 +55,35 @@ _ORDER = {
 }
 
 
+# user-defined units (Cyclia 1.6.1), loaded from the library: {normalised name: (dimension, factor to base)}
+_CUSTOM = {}
+_CUSTOM_DISPLAY = {}
+
+
+def set_custom(rows):
+    """rows: iterable of (name, dimension, factor). Replaces the user-defined units."""
+    _CUSTOM.clear()
+    _CUSTOM_DISPLAY.clear()
+    for name, dim, f in rows:
+        _CUSTOM[norm(name)] = (dim, float(f))
+        _CUSTOM_DISPLAY.setdefault(dim, []).append(name)
+
+
+def builtin(u):
+    return norm(u) in _UNITS
+
+
+def dimensions():
+    """Built-in dimensions with their base unit, then dimensions created by the user."""
+    base = {"mass": "kg", "energy": "MJ", "volume": "m3", "area": "m2", "length": "m", "transport": "t*km",
+            "ptransport": "person*km", "vtransport": "vkm", "time": "h", "landocc": "m2*a", "voltransport": "m3*km",
+            "count": "unit", "radioactivity": "kBq"}
+    for name, (dim, f) in _CUSTOM.items():
+        if dim.startswith("custom:") and dim not in base:
+            base[dim] = dim[7:]
+    return base
+
+
 def norm(u):
     u = (u or "").strip().lower().replace("·", "*").replace(" x ", "*").replace("²", "2").replace("³", "3")
     u = re.sub(r"\s*\*\s*", "*", u)
@@ -63,7 +92,8 @@ def norm(u):
 
 
 def info(u):
-    return _UNITS.get(norm(u))
+    n = norm(u)
+    return _UNITS.get(n) or _CUSTOM.get(n)
 
 
 def factor(from_unit, to_unit):
@@ -81,5 +111,5 @@ def compatible(u):
     i = info(u)
     if not i:
         return [u]
-    out = [u] + [x for x in _ORDER.get(i[0], []) if norm(x) != norm(u)]
+    out = [u] + [x for x in _ORDER.get(i[0], []) + _CUSTOM_DISPLAY.get(i[0], []) if norm(x) != norm(u)]
     return out

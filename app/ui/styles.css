@@ -981,3 +981,36 @@ button.link { background: none; border: 0; padding: 0; color: var(--spruce, #2f6
 table.mfa-edit input { width: 100%; min-width: 60px; }
 table.mfa-edit select { width: 100%; min-width: 110px; }
 #mfaLinks .results { max-height: 180px; overflow: auto; }
+
+/* Your own data (custom data entry) */
+.cd-intro p { max-width: 78ch; }
+.cd-steps { list-style: none; margin: 12px 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; }
+.cd-step button { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; padding: 8px 10px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); color: var(--ink); cursor: pointer; font: inherit; }
+.cd-step button:hover { border-color: var(--rule-strong); }
+.cd-step small { display: block; color: var(--ink-faint); font-size: 11px; }
+.cd-n { flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--sunken); color: var(--ink-soft); font-weight: 600; font-size: 12px; margin-right: 8px; }
+.cd-step .cd-n { margin-right: 0; }
+.cd-step.done button { border-color: var(--spruce); background: var(--spruce-weak); }
+.cd-step.done .cd-n { background: var(--spruce); color: var(--panel); }
+.cd-sec h3 { display: flex; align-items: center; margin-top: 0; }
+.cd-ideas dl { display: grid; grid-template-columns: minmax(140px, max-content) 1fr; gap: 6px 16px; margin: 10px 0 0; }
+.cd-ideas dt { font-weight: 600; }
+.cd-ideas dd { margin: 0; color: var(--ink-soft); }
+.cd-hint { margin-top: 6px; }
+@media (max-width: 640px) { .cd-ideas dl { grid-template-columns: 1fr; } .cd-ideas dd { margin-bottom: 6px; } }
+tr.flash td { background: var(--ochre-weak); transition: background .3s; }
+.cd-canvas-wrap { overflow: auto; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--sunken); }
+.cd-canvas { display: block; min-width: 760px; width: 100%; height: 420px; touch-action: none; user-select: none; }
+.cd-canvas .cd-node rect { fill: var(--panel); stroke: var(--rule-strong); }
+.cd-canvas .cd-node.lib rect { fill: var(--sunken); stroke-dasharray: 4 3; }
+.cd-canvas .cd-node.sel rect { stroke: var(--spruce); stroke-width: 2; }
+.cd-canvas .cd-node.src rect { stroke: var(--ochre); stroke-width: 2; }
+.cd-canvas .cd-node text { fill: var(--ink); font-size: 12px; pointer-events: none; }
+.cd-canvas .cd-node .sub { fill: var(--ink-soft); font-size: 10px; }
+.cd-canvas .cd-edge { fill: none; stroke: var(--ink-soft); stroke-width: 1.6; cursor: pointer; }
+.cd-canvas .cd-edge.credit { stroke: var(--neg); stroke-dasharray: 5 3; }
+.cd-canvas .cd-edge.waste { stroke: var(--ochre); }
+.cd-canvas .cd-edge:hover { stroke-width: 3.5; }
+.cd-canvas .cd-elab { fill: var(--ink-soft); font-size: 10px; pointer-events: none; }
+.cd-co-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+#btnCdConnect.on { background: var(--ochre-weak); border-color: var(--ochre); }

@@ -7,6 +7,7 @@ Hand calculation of the reference system (per 1 kg of steel sheet):
 Climate change with CO2 = 1 and solvent X = 0.005 per g (= 5 per kg):
 2 + 1 x 0.5 + 0.2 x 1 + 0.01 x 5 - 0.1 x 0.5 = 2.70 kg CO2-eq.
 """
+import json
 import math
 import os
 import shutil
@@ -348,6 +349,407 @@ class TestBackup(Base):
         finally:
             ws2.close_all()
             calc.invalidate()
+
+
+class TestReview161(Base):
+    """Defects reported in the review of 1.6.0 and the additions of 1.6.1."""
+
+    def lib_methane(self):
+        """A library flow, as an installed database would bring it."""
+        with self.st.lock:
+            self.st.add_flow("lib-ch4", "Methane, fossil", "air", "unspecified", "kg", "74-82-8")
+            self.st.conn.commit()
+
+    def test_library_flow_in_custom_method_is_unknown_not_zero(self):
+        self.lib_methane()
+        self.build()
+        cd.save_exchange(self.st, self.steel, {"kind": "elementary", "flow": "lib-ch4", "amount": 1, "unit": "kg"})
+        r = self.calc(self.steel)
+        gp = r["results"][0]["factor_gaps"]
+        self.assertEqual([f["name"] for f in gp["flows"]], ["Methane, fossil"])
+        self.assertTrue(gp["custom_method"])
+        self.assertAlmostEqual(r["results"][0]["total"], 2.70, places=12)   # methane not counted, and flagged
+        msgs = [f["message"] for f in cd.check(self.st, self.db)["findings"]]
+        self.assertTrue(any("Methane, fossil" in m and "Custom method" in m for m in msgs), msgs)
+        # giving the factor completes the result
+        cd.save_factor(self.st, self.mid, "lib-ch4", "value", 29.8, "kg", source="IPCC AR6, table 7.15")
+        r = self.calc(self.steel)
+        self.assertNotIn("factor_gaps", r["results"][0])
+        self.assertAlmostEqual(r["results"][0]["total"], 2.70 + 29.8, places=10)
+
+    def test_method_scope_no_effect_needs_a_reason(self):
+        self.lib_methane()
+        self.build()
+        cd.save_exchange(self.st, self.steel, {"kind": "elementary", "flow": "lib-ch4", "amount": 1, "unit": "kg"})
+        with self.assertRaises(CustomDataError):
+            cd.set_method_scope(self.st, self.mid, "zero", "")
+        cd.set_method_scope(self.st, self.mid, "zero", "The method lists every greenhouse gas it covers.")
+        r = self.calc(self.steel)
+        self.assertNotIn("factor_gaps", r["results"][0])
+        # custom flows stay unknown even then
+        new = cd.save_elementary(self.st, {"name": "Gas Z", "compartment": "air", "subcompartment": "unspecified",
+                                           "unit": "kg"})
+        cd.save_exchange(self.st, self.steel, {"kind": "elementary", "flow": new, "amount": 1, "unit": "kg"})
+        self.assertEqual(self.calc(self.steel)["results"][0]["factor_gaps"]["flows"][0]["name"], "Gas Z")
+        with self.assertRaises(CustomDataError):
+            cd.set_method_scope(self.st, 999999, "zero", "x")
+
+    def test_recorded_zero_factor_is_known(self):
+        self.build()
+        new = cd.save_elementary(self.st, {"name": "Argon (example)", "compartment": "air",
+                                           "subcompartment": "unspecified", "unit": "kg"})
+        cd.save_exchange(self.st, self.steel, {"kind": "elementary", "flow": new, "amount": 1, "unit": "kg"})
+        self.assertIn("factor_gaps", self.calc(self.steel)["results"][0])
+        cd.save_factor(self.st, self.mid, new, "value", 0.0, "kg", source="IPCC AR6: no radiative forcing")
+        r = self.calc(self.steel)
+        self.assertNotIn("factor_gaps", r["results"][0])
+        rows = [x for x in cd.factor_table(self.st, [self.mid]) if x["flow_uuid"] == new]
+        self.assertEqual((rows[0]["status"], rows[0]["value"]), ("value", 0.0))
+        self.assertFalse(any("Argon" in f["message"] for f in cd.check(self.st, self.db)["findings"]))
+
+    def test_installed_method_zero_factor_is_known(self):
+        self.build()
+        mid = self.st.get_or_create_method("Installed", "climate change", "GWP100", "kg CO2-eq", "test")
+        lcia.store_raw(self.st, mid, [("Carbon dioxide, fossil", "air", "unspecified", "", None, 1.0),
+                                      ("Solvent X", "air", "urban air close to ground", "", None, 0.0)])
+        lcia.rematch(self.st, [mid])
+        self.assertNotIn("factor_gaps", self.calc(self.steel, [mid])["results"][0])
+
+    def test_product_rename_updates_the_dataset(self):
+        self.build()
+        cd.save_product(self.st, self.db, {"uuid": self.p_steel, "name": "cold-rolled steel sheet", "unit": "kg"})
+        a = self.st.one("SELECT product FROM activities WHERE id=?", (self.ref(self.steel),))
+        self.assertEqual(a["product"], "cold-rolled steel sheet")
+
+    def test_elementary_flow_edit_rematches_factors(self):
+        self.build()
+        mid = self.st.get_or_create_method("Installed", "climate change", "GWP100", "kg CO2-eq", "test")
+        lcia.store_raw(self.st, mid, [("Solvent X", "air", "urban air close to ground", "", None, 3.0)])
+        lcia.rematch(self.st, [mid])
+        r = self.calc(self.steel, [mid])
+        self.assertAlmostEqual(r["results"][0]["total"], 0.01 * 3.0, places=12)
+        cd.save_elementary(self.st, {"uuid": self.solv, "name": "Solvent X", "compartment": "water",
+                                     "subcompartment": "surface water", "unit": "kg"})
+        r = self.calc(self.steel, [mid])
+        self.assertEqual(r["results"][0]["total"], 0.0)          # the air factor no longer applies
+        self.assertIn("factor_gaps", r["results"][0])           # and the water factor is unknown
+        self.lib_methane()
+        with self.assertRaises(CustomDataError):                # library flows are not edited here
+            cd.save_elementary(self.st, {"uuid": "lib-ch4", "name": "Methane", "compartment": "air",
+                                         "subcompartment": "unspecified", "unit": "kg"})
+
+    def test_exchange_edit_keeps_id_and_counts_revisions(self):
+        self.build()
+        ex = cd.contents(self.st, self.db)
+        e = [x for p in ex["processes"] if p["uuid"] == self.steel for x in p["exchanges"]
+             if x["kind"] == "elementary" and x["amount"] == 2.0][0]
+        cd.save_exchange(self.st, self.steel, {"id": e["id"], "kind": "elementary", "flow": self.co2, "amount": 3,
+                                               "unit": "kg", "author": "reviewer", "source": "remeasured"})
+        e2 = [x for p in cd.contents(self.st, self.db)["processes"] if p["uuid"] == self.steel
+              for x in p["exchanges"] if x["id"] == e["id"]][0]
+        self.assertEqual((e2["amount"], e2["revision"], e2["author"]), (3.0, 2, "reviewer"))
+        self.assertAlmostEqual(self.calc(self.steel)["results"][0]["total"], 3.70, places=12)
+        h = cd.history(self.st, self.steel)
+        self.assertEqual(h[0]["action"], "exchange changed")
+        self.assertEqual(h[0]["author"], "reviewer")
+        self.assertTrue(any(x["action"] == "created" for x in h))
+
+    def test_worked_example(self):
+        r = cd.example(self.st)
+        p = self.st.one("SELECT ref_id FROM custom_items WHERE uuid=?", (r["process"],))["ref_id"]
+        m = self.st.save_model({"name": "m", "product": "bread", "unit": "kg", "amount": 1,
+                                "scope": {"goal": "g", "boundary": "cradle-to-gate"}})
+        self.st.add_input(m, "activity", p, 1.0)
+        calc.invalidate()
+        res = calc.run(self.st, m, [r["method_id"]])["results"][0]
+        self.assertAlmostEqual(res["total"], 0.437, places=12)
+        self.assertNotIn("factor_gaps", res)
+        self.assertTrue(cd.check(self.st, r["db_id"])["complete"])
+        with self.assertRaises(CustomDataError):
+            cd.example(self.st)
+
+    def test_custom_method_delete_and_scope_round_trip(self):
+        self.build()
+        cd.set_method_scope(self.st, self.mid, "zero", "complete list")
+        doc = cd.export_json(self.st, self.db)
+        self.assertEqual(doc["methods"][0]["unlisted"], "zero")
+        m2 = cd.create_method(self.st, "Tmp", "x", "x", "u", "src")
+        cd.delete_method(self.st, m2)
+        self.assertIsNone(self.st.one("SELECT 1 AS x FROM methods WHERE id=?", (m2,)))
+        with self.assertRaises(CustomDataError):
+            cd.delete_method(self.st, 999999)
+
+
+class TestParametersAndFormulas(Base):
+    def setup_bakery(self):
+        st = self.st
+        self.db = cd.create_database(st, "Bakery", author="t")
+        self.p_bread = cd.save_product(st, self.db, {"name": "bread", "unit": "kg"})
+        self.p_flour = cd.save_product(st, self.db, {"name": "flour", "unit": "kg"})
+        self.co2 = cd.save_elementary(st, {"name": "Carbon dioxide, fossil", "compartment": "air",
+                                           "subcompartment": "unspecified", "unit": "kg"})
+        self.flour = cd.save_process(st, self.db, {"name": "flour", "product": self.p_flour, "amount": 1})
+        cd.save_exchange(st, self.flour, {"kind": "elementary", "flow": self.co2, "amount": 0.4, "unit": "kg"})
+        cd.set_database_parameters(st, self.db, [{"name": "loss", "value": 0.2}])
+        self.bread = cd.save_process(st, self.db, {"name": "bread", "product": self.p_bread, "amount": 1,
+                                                   "parameters": [{"name": "dough", "value": 0.65},
+                                                                  {"name": "flour_in", "formula": "dough / (1 - loss)"}]})
+        self.ex = cd.save_exchange(st, self.bread, {"kind": "technosphere", "supplier": self.flour,
+                                                    "formula": "flour_in * 1000", "unit": "g",
+                                                    "uncertainty": "lognormal", "gsd": 1.1})
+        self.mid = cd.create_method(st, "M", "climate change", "GWP", "kg CO2-eq", "src")
+        cd.save_factor(st, self.mid, self.co2, "value", 1.0, "kg", source="src")
+
+    def test_formula_with_database_and_process_parameters(self):
+        self.setup_bakery()
+        # 0.65 / 0.8 = 0.8125 kg flour, x 0.4 kg CO2
+        self.assertAlmostEqual(self.calc(self.bread)["results"][0]["total"], 0.8125 * 0.4, places=12)
+        e = self.st.one("SELECT amount, amount_ref, unit_factor FROM custom_exchanges WHERE id=?", (self.ex,))
+        self.assertAlmostEqual(e["amount"], 812.5)
+        self.assertAlmostEqual(e["amount_ref"], 0.8125)
+
+    def test_changing_a_parameter_recalculates(self):
+        self.setup_bakery()
+        cd.set_database_parameters(self.st, self.db, [{"name": "loss", "value": 0.35}])
+        self.assertAlmostEqual(self.calc(self.bread)["results"][0]["total"], 0.65 / 0.65 * 0.4, places=12)
+
+    def test_process_parameter_overrides_database_parameter(self):
+        self.setup_bakery()
+        cd.save_process(self.st, self.db, {"uuid": self.bread, "name": "bread", "product": self.p_bread, "amount": 1,
+                                           "parameters": [{"name": "dough", "value": 0.65}, {"name": "loss", "value": 0.5},
+                                                          {"name": "flour_in", "formula": "dough / (1 - loss)"}]})
+        self.assertAlmostEqual(self.calc(self.bread)["results"][0]["total"], 1.3 * 0.4, places=12)
+
+    def test_bad_parameters_are_refused_and_nothing_changes(self):
+        self.setup_bakery()
+        bad = [[{"name": "loss", "value": 1.5}],                     # flour_in negative
+               [{"name": "loss", "formula": "loss + 1"}],            # depends on itself
+               [{"name": "loss", "formula": "1 +"}],                 # does not parse
+               [{"name": "2x", "value": 1}],                         # invalid name
+               [{"name": "loss", "value": 0.1}, {"name": "loss", "value": 0.2}]]
+        for b in bad:
+            with self.subTest(b=b), self.assertRaises(CustomDataError):
+                cd.set_database_parameters(self.st, self.db, b)
+        self.assertEqual(cd._db_params(self.st, self.db)[0]["value"], 0.2)
+        self.assertAlmostEqual(self.calc(self.bread)["results"][0]["total"], 0.8125 * 0.4, places=12)
+        with self.assertRaises(CustomDataError):            # a process edit that breaks a formula is refused too
+            cd.save_process(self.st, self.db, {"uuid": self.bread, "name": "bread", "product": self.p_bread,
+                                               "amount": 1, "parameters": [{"name": "dough", "value": 0.65}]})
+        self.assertAlmostEqual(self.calc(self.bread)["results"][0]["total"], 0.8125 * 0.4, places=12)
+
+    def test_formula_rules(self):
+        self.setup_bakery()
+        with self.assertRaises(CustomDataError):
+            cd.save_exchange(self.st, self.bread, {"kind": "elementary", "flow": self.co2, "formula": "dough * 2",
+                                                   "unit": "kg", "uncertainty": "triangular", "min": 1, "mode": 1.3,
+                                                   "max": 2})
+        with self.assertRaises(CustomDataError):
+            cd.save_exchange(self.st, self.bread, {"kind": "elementary", "flow": self.co2, "formula": "unknown_p",
+                                                   "unit": "kg"})
+        with self.assertRaises(CustomDataError):
+            cd.save_exchange(self.st, self.bread, {"kind": "elementary", "flow": self.co2, "formula": "0 - dough",
+                                                   "unit": "kg"})
+        cd.save_exchange(self.st, self.bread, {"kind": "elementary", "flow": self.co2, "formula": "dough * 0",
+                                               "unit": "kg"})                   # zero is allowed (a switch)
+        self.assertAlmostEqual(self.calc(self.bread)["results"][0]["total"], 0.8125 * 0.4, places=12)
+
+
+class TestCoproducts(Base):
+    """A dairy makes 1 kg cheese (price 3) and 2 kg whey (price 0.5) and emits 10 kg CO2.
+    Economic: cheese 3 / (3 + 1) = 75 % -> 7.5 kg CO2 per kg; whey 2.5 for 2 kg -> 1.25 per kg.
+    Mass: 1 / 3 and 2 / 3 -> 3.333 kg CO2 per kg of each. Both conserve the 10 kg."""
+
+    def setup_dairy(self, method="economic", values=None):
+        st = self.st
+        self.db = cd.create_database(st, "Dairy")
+        self.cheese = cd.save_product(st, self.db, {"name": "cheese", "unit": "kg"})
+        self.whey = cd.save_product(st, self.db, {"name": "whey", "unit": "kg"})
+        self.co2 = cd.save_elementary(st, {"name": "Carbon dioxide, fossil", "compartment": "air",
+                                           "subcompartment": "unspecified", "unit": "kg"})
+        self.proc = cd.save_process(st, self.db, {
+            "name": "cheese making", "product": self.cheese, "amount": 1,
+            "coproducts": [{"product": self.whey, "amount": 2}],
+            "allocation": {"method": method, "values": values if values is not None else {self.cheese: 3, self.whey: 0.5}}})
+        cd.save_exchange(st, self.proc, {"kind": "elementary", "flow": self.co2, "amount": 10, "unit": "kg",
+                                         "uncertainty": "normal", "sd": 1})
+        self.mid = cd.create_method(st, "M", "climate change", "GWP", "kg CO2-eq", "src")
+        cd.save_factor(st, self.mid, self.co2, "value", 1.0, "kg", source="src")
+
+    def whey_ref(self):
+        return json.loads(self.st.one("SELECT data FROM custom_items WHERE uuid=?", (self.proc,))["data"])[
+            "coproduct_refs"][self.whey]
+
+    def per_kg(self, ref):
+        m = self.st.save_model({"name": "m", "product": "p", "unit": "kg", "amount": 1,
+                                "scope": {"goal": "g", "boundary": "cradle-to-gate"}})
+        self.st.add_input(m, "activity", ref, 1.0)
+        calc.invalidate()
+        return calc.run(self.st, m, [self.mid])["results"][0]["total"]
+
+    def test_economic_allocation(self):
+        self.setup_dairy()
+        self.assertAlmostEqual(self.per_kg(self.ref(self.proc)), 7.5, places=12)
+        self.assertAlmostEqual(self.per_kg(self.whey_ref()), 1.25, places=12)
+        b = self.st.one("SELECT amount, p1 FROM bio WHERE activity_id=?", (self.whey_ref(),))
+        self.assertAlmostEqual(b["amount"], 2.5)
+        self.assertAlmostEqual(b["p1"], 0.25)                     # standard deviation scaled with the share
+        tot = sum(r["amount"] for r in self.st.q("SELECT amount FROM bio WHERE activity_id IN (?,?)",
+                                                   (self.ref(self.proc), self.whey_ref())))
+        self.assertAlmostEqual(tot, 10.0)                        # nothing lost, nothing counted twice
+
+    def test_mass_allocation_from_units(self):
+        self.setup_dairy("mass", {})
+        self.assertAlmostEqual(self.per_kg(self.ref(self.proc)), 10 / 3, places=12)
+        self.assertAlmostEqual(self.per_kg(self.whey_ref()), 10 / 3, places=12)
+
+    def test_manual_shares_must_add_up_to_one(self):
+        with self.assertRaises(CustomDataError):
+            self.setup_dairy("manual", {})
+        self.tearDown(); self.setUp()
+        with self.assertRaises(CustomDataError):
+            self.setup_dairy("manual", {"x": 1})
+        self.tearDown(); self.setUp()
+        self.st2 = None
+        st = self.st
+        db = cd.create_database(st, "D")
+        a = cd.save_product(st, db, {"name": "a", "unit": "kg"})
+        b = cd.save_product(st, db, {"name": "b", "unit": "kg"})
+        with self.assertRaises(CustomDataError):
+            cd.save_process(st, db, {"name": "p", "product": a, "amount": 1, "coproducts": [{"product": b, "amount": 1}],
+                                     "allocation": {"method": "manual", "values": {a: 0.5, b: 0.6}}})
+        self.assertIsNone(st.one("SELECT 1 AS x FROM custom_items WHERE kind='process'"))   # nothing left behind
+        cd.save_process(st, db, {"name": "p", "product": a, "amount": 1, "coproducts": [{"product": b, "amount": 1}],
+                                 "allocation": {"method": "manual", "values": {a: 0.4, b: 0.6}}})
+
+    def test_consuming_a_coproduct(self):
+        self.setup_dairy()
+        feed = cd.save_product(self.st, self.db, {"name": "pig feed", "unit": "kg"})
+        pf = cd.save_process(self.st, self.db, {"name": "feed mixing", "product": feed, "amount": 1})
+        cd.save_exchange(self.st, pf, {"kind": "technosphere", "supplier": f"{self.proc}/{self.whey}", "amount": 500,
+                                       "unit": "g"})
+        self.assertAlmostEqual(self.per_kg(self.ref(pf)), 0.5 * 1.25, places=12)
+        with self.assertRaises(CustomDataError):                # the whey is used: it cannot be removed
+            cd.save_process(self.st, self.db, {"uuid": self.proc, "name": "cheese making", "product": self.cheese,
+                                               "amount": 1})
+        with self.assertRaises(CustomDataError):
+            cd.delete_item(self.st, self.proc)
+
+    def test_removing_a_coproduct_removes_its_dataset(self):
+        self.setup_dairy()
+        ref = self.whey_ref()
+        cd.save_process(self.st, self.db, {"uuid": self.proc, "name": "cheese making", "product": self.cheese,
+                                           "amount": 1})
+        self.assertIsNone(self.st.one("SELECT 1 AS x FROM activities WHERE id=?", (ref,)))
+        self.assertAlmostEqual(self.per_kg(self.ref(self.proc)), 10.0, places=12)
+
+    def test_rules(self):
+        self.setup_dairy()
+        with self.assertRaises(CustomDataError):                # no allocation method
+            cd.save_process(self.st, self.db, {"uuid": self.proc, "name": "x", "product": self.cheese, "amount": 1,
+                                               "coproducts": [{"product": self.whey, "amount": 2}]})
+        with self.assertRaises(CustomDataError):                # treatment with co-products
+            cd.save_process(self.st, self.db, {"name": "y", "product": self.cheese, "amount": 1, "type": "treatment",
+                                               "coproducts": [{"product": self.whey, "amount": 2}],
+                                               "allocation": {"method": "mass"}})
+        with self.assertRaises(CustomDataError):                # the same product twice
+            cd.save_process(self.st, self.db, {"name": "z", "product": self.cheese, "amount": 1,
+                                               "coproducts": [{"product": self.cheese, "amount": 2}],
+                                               "allocation": {"method": "mass"}})
+        e = cd.save_product(self.st, self.db, {"name": "heat", "unit": "MJ"})
+        with self.assertRaises(CustomDataError):                # mass allocation needs kg per MJ of heat
+            cd.save_process(self.st, self.db, {"name": "w", "product": self.cheese, "amount": 1,
+                                               "coproducts": [{"product": e, "amount": 2}],
+                                               "allocation": {"method": "mass"}})
+
+
+class TestUnits(Base):
+    def test_unit_in_a_known_dimension(self):
+        self.build()
+        cd.save_unit(self.st, {"name": "bag", "dimension": "mass", "factor": 25, "source": "supplier sheet"})
+        cd.save_exchange(self.st, self.steel, {"kind": "elementary", "flow": self.co2, "amount": 0.004, "unit": "bag"})
+        self.assertAlmostEqual(self.calc(self.steel)["results"][0]["total"], 2.70 + 0.1, places=12)
+        with self.assertRaises(CustomDataError):                # in use: its size cannot change
+            cd.save_unit(self.st, {"name": "bag", "dimension": "mass", "factor": 20})
+        with self.assertRaises(CustomDataError):
+            cd.delete_unit(self.st, "bag")
+        with self.assertRaises(CustomDataError):
+            cd.save_unit(self.st, {"name": "kg", "dimension": "mass", "factor": 1})
+        with self.assertRaises(CustomDataError):
+            cd.save_unit(self.st, {"name": "box", "dimension": "mass", "factor": -1})
+
+    def test_new_kind_of_quantity(self):
+        self.build()
+        cd.save_unit(self.st, {"name": "seat", "dimension": "new"})
+        cd.save_unit(self.st, {"name": "row", "dimension": "custom:seat", "factor": 20})
+        seats = cd.save_product(self.st, self.db, {"name": "cinema seat", "unit": "seat"})
+        hall = cd.save_product(self.st, self.db, {"name": "cinema hall", "unit": "unit"})
+        ps = cd.save_process(self.st, self.db, {"name": "seat making", "product": seats, "amount": 1})
+        cd.save_exchange(self.st, ps, {"kind": "elementary", "flow": self.co2, "amount": 5, "unit": "kg"})
+        ph = cd.save_process(self.st, self.db, {"name": "hall fitting", "product": hall, "amount": 1})
+        cd.save_exchange(self.st, ph, {"kind": "technosphere", "supplier": ps, "amount": 10, "unit": "row"})
+        self.assertAlmostEqual(self.calc(ph)["results"][0]["total"], 200 * 5, places=9)
+        with self.assertRaises(CustomDataError):
+            cd.save_exchange(self.st, ph, {"kind": "technosphere", "supplier": ps, "amount": 1, "unit": "kg"})
+        with self.assertRaises(CustomDataError):
+            cd.delete_unit(self.st, "seat")                     # used, and 'row' is defined from it
+
+    def test_units_survive_a_restart(self):
+        cd.save_unit(self.st, {"name": "bag", "dimension": "mass", "factor": 25})
+        self.ws.close_all()
+        import units
+        units.set_custom([])
+        self.ws = Workspace(self.dir)
+        self.st = self.ws.open("T")
+        self.assertEqual(units.factor("bag", "kg"), 25.0)
+
+
+class TestRoundTripAll(Base):
+    def test_everything_survives_export_and_import_into_an_empty_library(self):
+        st = self.st
+        cd.save_unit(st, {"name": "bag", "dimension": "mass", "factor": 25})
+        db = cd.create_database(st, "Full")
+        cd.set_database_parameters(st, db, [{"name": "k", "value": 2}])
+        a = cd.save_product(st, db, {"name": "a", "unit": "kg"})
+        b = cd.save_product(st, db, {"name": "b", "unit": "bag"})
+        co2 = cd.save_elementary(st, {"name": "Gas Q", "compartment": "air", "subcompartment": "unspecified",
+                                      "unit": "kg"})
+        p = cd.save_process(st, db, {"name": "p", "product": a, "amount": 1, "coproducts": [{"product": b, "amount": 1}],
+                                     "allocation": {"method": "mass"}, "parameters": [{"name": "m", "formula": "k * 3"}]})
+        cd.save_exchange(st, p, {"kind": "elementary", "flow": co2, "formula": "m", "unit": "kg"})
+        user = cd.save_product(st, db, {"name": "c", "unit": "kg"})
+        pu = cd.save_process(st, db, {"name": "user", "product": user, "amount": 1})
+        cd.save_exchange(st, pu, {"kind": "technosphere", "supplier": f"{p}/{b}", "amount": 2, "unit": "bag"})
+        mid = cd.create_method(st, "M", "x", "x", "u", "src")
+        cd.save_factor(st, mid, co2, "value", 1, "kg", source="s")
+        # 6 kg gas, mass shares 1 : 25 -> b gets 25/26; 2 bags of b -> 2 x 6 x 25/26
+        expect = 2 * 6 * 25 / 26
+        self.assertAlmostEqual(self.calc(pu, [mid])["results"][0]["total"], expect, places=12)
+        doc = json.loads(json.dumps(cd.export_json(st, db)))
+        ws2 = Workspace(tempfile.mkdtemp())
+        try:
+            import units
+            units.set_custom([])
+            st2 = ws2.create("U")
+            calc.invalidate()
+            db2 = cd.import_json(st2, doc)
+            ref = st2.one("SELECT ref_id FROM custom_items WHERE kind='process' AND db_id=? AND name='user'", (db2,))["ref_id"]
+            m2 = st2.method_by_key("M", "x", "x")["id"]
+            mm = st2.save_model({"name": "m", "product": "p", "unit": "kg", "amount": 1,
+                                 "scope": {"goal": "g", "boundary": "cradle-to-gate"}})
+            st2.add_input(mm, "activity", ref, 1.0)
+            calc.invalidate()
+            self.assertAlmostEqual(calc.run(st2, mm, [m2])["results"][0]["total"], expect, places=12)
+        finally:
+            ws2.close_all()
+            calc.invalidate()
+
+    def test_layout_is_not_a_revision(self):
+        self.build()
+        r0 = self.st.one("SELECT revision FROM custom_items WHERE uuid=?", (self.steel,))["revision"]
+        cd.save_layout(self.st, self.steel, 120, 40)
+        it = self.st.one("SELECT revision, data FROM custom_items WHERE uuid=?", (self.steel,))
+        self.assertEqual(it["revision"], r0)
+        self.assertEqual(json.loads(it["data"])["layout"], [120.0, 40.0])
 
 
 if __name__ == "__main__":

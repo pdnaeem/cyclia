@@ -14,7 +14,7 @@ const hasErrors = () => S.result && S.result.checks.some((c) => c.level === "err
 const COACH = {
   setup: {
     iso: "Preparation",
-    what: "Every LCA needs three things before you start: a project that stores your work, a background database that says how materials and energy are produced, and an impact method that turns emissions into impacts such as climate change.",
+    what: "Every LCA needs three things before you start: a project that stores your work, a background database that says how materials and energy are produced, and an impact method that turns emissions into impacts such as climate change. If no database has your process, you can enter your own data in Toolbox > Your own data.",
     example: "A thesis comparing cotton and polyester T-shirts: project \"T-shirt study\", database ecoinvent 3.11 cut-off, method EF 3.1.",
     tasks: [
       ["Create or open a project", (st) => !!st.project, "#newProjectName", "Press New project, type a name and press Create. Projects are saved automatically."],
@@ -49,7 +49,8 @@ const COACH = {
       ["Resolve lines without a dataset", () => !!(S.model && S.model.inputs.length && !S.model.inputs.some((i) => i.missing)), "#invRows", "A line marked missing has no link to a database. Click Replace on it."],
       ["Rate the data quality of your main lines", () => !!(S.model && S.model.inputs.some((i) => (i.pedigree || []).join() !== "3,3,3,3,3")), "#invRows", "The pedigree scores feed the uncertainty analysis."],
     ],
-    mistakes: ["Amounts per kg of product while the functional unit is per m2.",
+    mistakes: ["Forcing a dataset that does not fit your process. If none fits, describe the process yourself in Toolbox > Your own data.",
+      "Amounts per kg of product while the functional unit is per m2.",
       "Leaving out transport or end of life without saying so in the scope.",
       "Taking a dataset from another region when a local one exists."],
   },
@@ -96,7 +97,7 @@ const COACH = {
   },
   tools: {
     iso: "Advanced",
-    what: "Extra tools for advanced work: validation against ecoinvent, future background scenarios, your own chemicals and toxicity factors, model templates, Python and R access, and teaching material.",
+    what: "Extra tools: your own data (processes, flows and factors that no database has), validation against ecoinvent and Brightway, future background scenarios, your own chemicals and toxicity factors, model templates, Python and R access, and teaching material.",
     tasks: [],
   },
 };

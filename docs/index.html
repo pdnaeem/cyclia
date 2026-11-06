@@ -31,7 +31,7 @@
   "applicationCategory": "ScientificApplication",
   "applicationSubCategory": "Life cycle assessment",
   "operatingSystem": "Windows, macOS, Linux",
-  "softwareVersion": "1.6.0",
+  "softwareVersion": "1.6.1",
   "license": "https://opensource.org/licenses/MIT",
   "isAccessibleForFree": true,
   "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
@@ -53,6 +53,7 @@
   "mainEntity": [
     {"@type": "Question", "name": "Is Cyclia free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Cyclia is free and open-source software under the MIT licence, for academic and commercial use."}},
     {"@type": "Question", "name": "Do I need an ecoinvent licence?", "acceptedAnswer": {"@type": "Answer", "text": "Only for ecoinvent data. Cyclia also reads free databases such as USLCI, Agribalyse and ELCD in openLCA JSON-LD, ILCD or SimaPro CSV format, and includes a tutorial database."}},
+    {"@type": "Question", "name": "Can I enter my own data when no database has my process?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. In Toolbox > Your own data you describe your own processes, products, emissions and characterisation factors, even with an empty library, and use them like any other dataset. Cyclia checks units, keeps the source and history of every item, and marks a result incomplete when a factor is unknown instead of counting it as zero. A worked example and a step-by-step guide show how."}},
     {"@type": "Question", "name": "Do I need to know programming?", "acceptedAnswer": {"@type": "Answer", "text": "No. Everything works through the interface. Python and R clients are available for scripted work."}},
     {"@type": "Question", "name": "How accurate are Cyclia's results?", "acceptedAnswer": {"@type": "Answer", "text": "Compared with ecoinvent's published LCIA results (EF 3.1, cut-off), 100 % of 2,500 results agree within 0.1 %, with a median deviation of 3.9e-07 %."}},
     {"@type": "Question", "name": "Which standards does Cyclia follow?", "acceptedAnswer": {"@type": "Answer", "text": "ISO 14040/14044, ISO 14071, ISO/TS 14074, ISO 14067, ISO 14025:2026, EN 15804+A2 and the EU PEF method (EF 3.1)."}},
@@ -188,7 +189,7 @@ footer a { color: var(--muted); }
           <li>Staged imports with integrity report and rollback; named suppliers kept, ambiguous ones never guessed</li>
           <li>Streaming of large imports</li>
           <li>Database explorer, per-database check, version comparison and model migration</li>
-          <li>Custom data entry: own processes, product and elementary flows and factors, with identifiers, provenance and unit checks; unknown factors are reported, never counted as zero</li>
+          <li>Your own data: processes, flows and factors that no database has, with parameters and formulas, co-products and allocation, units of your own, a supply chain diagram, identifiers, sources, change history, a worked example and a step-by-step guide; unknown factors are reported, never counted as zero</li>
         </ul></div>
         <div class="card"><h3>Impact assessment</h3><ul>
           <li>EF 3.1 with normalisation and weighting, ReCiPe 2016, CML-IA, IPCC 2021 (EN 15804+A2 split), any CSV method</li>
@@ -249,6 +250,7 @@ footer a { color: var(--muted); }
       <h2>Frequently asked questions</h2>
       <details><summary>Is Cyclia free?</summary><p>Yes. Cyclia is free and open-source software under the MIT licence, for academic and commercial use.</p></details>
       <details><summary>Do I need an ecoinvent licence?</summary><p>Only for ecoinvent data. Cyclia also reads free databases such as USLCI, Agribalyse and ELCD in openLCA JSON-LD, ILCD or SimaPro CSV format, and includes a tutorial database.</p></details>
+      <details><summary>Can I enter my own data when no database has my process?</summary><p>Yes. In Toolbox > Your own data you describe your own processes, products, emissions and characterisation factors, even with an empty library, and use them like any other dataset. Cyclia checks units, keeps the source and history of every item, and marks a result incomplete when a factor is unknown instead of counting it as zero. A worked example and a step-by-step guide show how.</p></details>
       <details><summary>Do I need to know programming?</summary><p>No. Everything works through the interface. Python and R clients are available for scripted work.</p></details>
       <details><summary>How accurate are Cyclia's results?</summary><p>Compared with ecoinvent's published LCIA results (EF 3.1, cut-off), 100 % of 2,500 results agree within 0.1 %, with a median deviation of 3.9e-07 %.</p></details>
       <details><summary>Which standards does Cyclia follow?</summary><p>ISO 14040/14044, ISO 14071, ISO/TS 14074, ISO 14067, ISO 14025:2026, EN 15804+A2 and the EU PEF method (EF 3.1).</p></details>
@@ -259,7 +261,7 @@ footer a { color: var(--muted); }
   <section id="cite">
     <div class="wrap">
       <h2>Cite Cyclia</h2>
-      <blockquote>Rehman, N. U. (2026). <i>Cyclia: open-source life cycle assessment software for researchers</i> (version 1.6.0) [Computer software]. <a href="https://doi.org/10.5281/zenodo.23853747">https://doi.org/10.5281/zenodo.23853747</a></blockquote>
+      <blockquote>Rehman, N. U. (2026). <i>Cyclia: open-source life cycle assessment software for researchers</i> (version 1.6.1) [Computer software]. <a href="https://doi.org/10.5281/zenodo.23853747">https://doi.org/10.5281/zenodo.23853747</a></blockquote>
     </div>
   </section>
 </main>

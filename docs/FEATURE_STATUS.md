@@ -1,6 +1,6 @@
 # Cyclia feature status
 
-Status of Cyclia 1.6.0, checked against the source code, the automated tests and the validation records. A feature
+Status of Cyclia 1.6.1, checked against the source code, the automated tests and the validation records. A feature
 counts as **validated** only when its calculation is compared with independent reference results. Interface
 elements alone do not count.
 
@@ -48,8 +48,13 @@ elements alone do not count.
 | Database explorer | Implemented | Filters, paging, unresolved-only view, export of selected datasets |
 | Database check per database | Implemented | Six-part check: integrity, units, flow coverage, LCIA compatibility, matrix, metadata |
 | Database version comparison and model migration | Implemented | Preview and undo |
-| Custom data entry (own databases, product and elementary flows, processes, exchanges, factors) | Implemented | Complete product system from an empty library; UUID, source, author and revision per item; unit validation and conversion within one dimension; ecoinvent compartments; CAS check digit; uncertainty and pedigree; custom methods; JSON export and import. Hand-calculated supply chain with waste treatment, avoided product and unit conversions reproduced exactly (22 tests) |
-| Unknown factors of custom flows | Implemented | Never taken as zero: the category is marked incomplete in results, report, workbook and checks until a factor or a "does not apply" decision with reason is recorded |
+| Custom data entry (own databases, product and elementary flows, processes, exchanges, factors) | Implemented | Complete product system from an empty library; UUID, source, author and revision per item; unit validation and conversion within one dimension; ecoinvent compartments; CAS check digit; uncertainty and pedigree; custom methods; JSON export and import. Hand-calculated supply chain with waste treatment, avoided product and unit conversions reproduced exactly, worked example (47 tests) |
+| Unknown factors | Implemented | Never taken as zero: a custom flow without a known factor, or any flow without one in a custom method (unless its scope says, with the reason, that such flows have no effect), marks the category incomplete in results, report, workbook and checks. Known means a factor exists or was recorded, zero included, or the category was recorded as not applying |
+| Editing and change history of custom data | Implemented | Products, flows, lines and factors editable; renames update datasets; flow edits rematch factors; every change logged with time and author |
+| Parameters and formulas in custom processes | Implemented | Database and process parameters, formulas in amounts; every change re-evaluated in one transaction and refused as a whole if a formula fails or turns negative; hand-calculated tests |
+| Multi-output custom processes | Validated | Mass, energy, economic and manual allocation, one dataset per output with scaled exchanges and uncertainty; hand calculation (economic 75/25 %, mass 1/3, 2/3) and conservation of the process's exchanges tested |
+| User-defined units | Implemented | Units in known dimensions or new dimensions with multiples; size locked once in use; kept through restart and export |
+| Supply chain diagram for custom data | Implemented | Drag to arrange, connect to add an input, click an arrow to edit; model flow diagram opens the clicked line |
 | Duplicate dataset detection, comparison dashboard, supplier graph | Planned | |
 | Export to Brightway and openLCA; Python and R clients | Implemented | Brightway round-trip and openLCA JSON-LD export tests |
 
@@ -61,7 +66,7 @@ elements alone do not count.
 | Allocation: mass, economic, energy, physical, manual; system expansion; avoided products | Implemented | Allocation overview per project; a side-by-side comparison of allocation choices is planned |
 | Circular Footprint Formula (PEF) | Validated | Hand-calculated reference test |
 | EN 15804+A2 modules A to D | Validated | Module reconciliation checked before an EPD is written |
-| Flow diagram | Partial | Arrangeable diagram of the model; inventories are edited in tables, not by drawing |
+| Flow diagram | Partial | Arrangeable diagram of the model, a click opens the line; custom processes are connected and edited in their own diagram; model inventories are still edited in tables |
 | Background scenarios (prospective, consequential) | Implemented | premise and Activity Browser scenario files |
 
 ## Uncertainty and sensitivity

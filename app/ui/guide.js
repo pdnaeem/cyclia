@@ -80,6 +80,7 @@ async function loadGuide() {
 }
 
 window.openGuide = async function (anchor) {
+  $("#guideDoc").dataset.ready = "1";   // this call loads the guide; no second call that scrolls back to the top
   openHelp("manual");
   await loadGuide();
   const el = anchor && document.getElementById("g-" + anchor);

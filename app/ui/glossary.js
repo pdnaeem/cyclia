@@ -48,4 +48,13 @@ window.GLOSSARY = {
   "PEF": "Product Environmental Footprint, the EU method (Recommendation 2021/2279). It uses the EF impact categories, normalisation and weighting, and reports the most relevant categories, stages, processes and flows: those that together reach 80 % of the result.",
   "reproducibility bundle": "A zip with the project file, the calculation settings, fingerprints of the databases and methods, and the results. Anyone with the same databases can recalculate and see whether every number is identical.",
   "validation suite": "Small product systems with exact known answers that Cyclia solves and compares, to show the software calculates correctly on your computer.",
+  "custom data": "Your own processes, flows and factors, entered in Toolbox > Custom data when no database has them, for example your factory, your farm or a new material. They work like any other dataset.",
+  "product flow": "Something a process makes or uses and that stays in the economy: steel sheet, electricity, transport, bread waste. Each process has one product flow as its reference product.",
+  "process": "One activity that turns inputs into a product, such as baking bread or rolling steel. It is described for a reference amount of its product, for example per 1 kg of bread.",
+  "exchange": "One line of a process: an input from a supplier, an avoided product, or an emission or resource. Each exchange has an amount, a unit, an uncertainty and a source.",
+  "waste treatment process": "A process whose reference product is waste it takes in, such as landfill or incineration. Send waste to it by entering the amount of waste as an input; Cyclia handles the sign.",
+  "unknown factor": "A flow without a characterisation factor in an impact category and without a recorded reason why the category does not apply. Cyclia does not count it as zero: the result is marked incomplete until you decide.",
+  "co-product": "A second product of the same process, such as whey from cheese making or bran from milling. Cyclia shares the inputs and emissions between the products by mass, energy, price or your own shares (allocation) and makes one dataset per product.",
+  "formula": "An amount written with parameters instead of a number, such as dough / (1 - loss). When a parameter changes, every amount that uses it is recalculated.",
+  "UUID": "A unique identifier, such as 1223d51e-32c7-4e4a-a435-d1f078ed6415, that Cyclia gives to every product, flow, process and method you create, so that it can be traced in exports and reports.",
 };

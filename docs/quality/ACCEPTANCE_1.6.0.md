@@ -1,7 +1,8 @@
 # Cyclia 1.6.0: custom data entry
 
-This record describes the custom data entry, how it was tested and what its limits are. All 249 automated tests
-pass. Without Brightway installed, the four Brightway tests are skipped.
+This record describes the custom data entry, how it was tested and what its limits are. With Brightway installed,
+all 249 automated tests pass; without it, 245 pass and the four Brightway tests are skipped. Corrections to this
+release are recorded in [ACCEPTANCE_1.6.1.md](ACCEPTANCE_1.6.1.md).
 
 ## Requirements and how they are met
 

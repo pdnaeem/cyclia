@@ -786,7 +786,7 @@ const TOUR = [
   ["Screening toxicity factors for your own chemicals", "tools", () => showToolTab("chem")],
   ["Python and R clients, Brightway import", "tools", () => showToolTab("code")],
   ["Teaching mode with exercises and answer key", "tools", () => showToolTab("teach")],
-  ["Custom data: your own processes, flows and characterisation factors", "tools", () => showToolTab("custom")],
+  ["Your own data: processes, flows and characterisation factors that no database has", "tools", () => showToolTab("custom")],
 ];
 function renderTour() {
   $("#tourList").innerHTML = TOUR.map(([t, step, , note], i) => `<li><button class="ghost" data-tour="${i}">${esc(t)}</button>${note ? `<span class="hint"> ${esc(note)}</span>` : ""}</li>`).join("");
