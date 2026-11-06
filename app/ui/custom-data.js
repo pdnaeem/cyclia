@@ -395,6 +395,7 @@
 
   // ------------------------------------------------------------------ supply chain diagram
   const NW = 190, NH = 50;
+  const cut = (t, n) => (t.length > n ? t.slice(0, n - 1).trimEnd() + "…" : t);
   function graph() {
     const procs = C.data ? C.data.processes : [];
     const nodes = {}, edges = [];
@@ -451,7 +452,7 @@
     Object.values(g.nodes).forEach((n) => {
       const cls = `cd-node ${n.custom ? "" : "lib"} ${n.id === C.proc ? "sel" : ""} ${C.connect === n.id ? "src" : ""}`;
       out += `<g class="${cls}" data-node="${esc(n.id)}" transform="translate(${n.x},${n.y})" style="cursor:${C.connect ? "crosshair" : "grab"}"><title>${esc(n.label)}</title><rect width="${NW}" height="${NH}" rx="8"/>
-        <text x="10" y="17">${esc(n.label.slice(0, 27))}</text><text class="sub" x="10" y="31">${esc(n.sub.slice(0, 34))}</text><text class="sub" x="10" y="43">${esc((n.sub2 || "").slice(0, 34))}</text></g>`;
+        <text x="10" y="17">${esc(cut(n.label, 27))}</text><text class="sub" x="10" y="31">${esc(cut(n.sub, 34))}</text><text class="sub" x="10" y="43">${esc(cut(n.sub2 || "", 34))}</text></g>`;
     });
     svg.innerHTML = out;
     const xs = Object.values(g.nodes).map((n) => n.x), ys = Object.values(g.nodes).map((n) => n.y);

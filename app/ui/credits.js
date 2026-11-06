@@ -29,7 +29,7 @@ window.CREDITS = {
   "paypal": "https://paypal.me/pdnaeem",
   "revolut": "https://revolut.me/pdnaeem",
   "support_note": "Cyclia is free and has no funding behind it. If it saves you time in your thesis or research, a small contribution helps keep it maintained and validated.",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "initials": "NR",
   "cite_name": "Rehman, N. U."
 };

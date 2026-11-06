@@ -1,6 +1,6 @@
 # Cyclia feature status
 
-Status of Cyclia 1.6.1, checked against the source code, the automated tests and the validation records. A feature
+Status of Cyclia 1.6.2, checked against the source code, the automated tests and the validation records. A feature
 counts as **validated** only when its calculation is compared with independent reference results. Interface
 elements alone do not count.
 

@@ -175,7 +175,7 @@ and to check for updates.
 
 If Cyclia helps your research, please cite it:
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.6.1)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.6.2)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [CITATION.cff](CITATION.cff). In the app,

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.2 (2026-11-06)
+
+Display corrections. Details: docs/quality/ACCEPTANCE_1.6.2.md.
+
+- **Steadier screen.** The sticky header at the top of each step used a background blur. On some graphics drivers
+  Chromium re-composited it every few seconds, which looked like a faint blink; the header is now opaque. The
+  welcome overlay no longer uses a blur either.
+- **Narrow windows.** At the smallest window width (1000 px) the inventory and the background scenario editor
+  were wider than the window (a hidden table label and a wide rule table); both now stay inside it.
+- In the supply chain diagram, long names end with an ellipsis instead of being cut mid-word.
+
 ## 1.6.1 (2026-11-06)
 
 Corrections from the review of 1.6.0, editing, and guidance. Details: docs/quality/ACCEPTANCE_1.6.1.md.

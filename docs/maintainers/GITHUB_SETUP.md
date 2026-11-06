@@ -35,8 +35,8 @@ Settings > General > Social preview: upload `.github/social-preview.png`.
 
 Settings > General > Features: tick **Discussions**. The app's user guide and `SUPPORT.md` link to it.
 
-## Release title for 1.6.1
+## Release title for 1.6.2
 
-Cyclia 1.6.1: your own data, with editing, change history, a worked example and no hidden zero factors
+Cyclia 1.6.2: steadier screen and narrow-window fixes
 
-Paste the text of `docs/releases/RELEASE_NOTES_v1.6.1.md` as the release description.
+Paste the text of `docs/releases/RELEASE_NOTES_v1.6.2.md` as the release description.
