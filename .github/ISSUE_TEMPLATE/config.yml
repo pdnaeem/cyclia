@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Questions and how-to
+  - name: Question or idea
     url: https://github.com/pdnaeem/cyclia/discussions
-    about: Ask how to model something, share studies and teaching material
-  - name: Private support
-    url: mailto:support@niellosoft.com
-    about: For anything you cannot share publicly
+    about: Ask how to model something, share teaching material or suggest an idea.
+  - name: Security problem
+    url: https://github.com/pdnaeem/cyclia/blob/main/SECURITY.md
+    about: Please report security problems privately, not as an issue.

@@ -212,8 +212,8 @@ def run(store, method_ids, sample=200, seed=5, model_ids=None, progress=lambda *
             "solver": S.kind, "tolerance": _Solver.TOLERANCE,
             "verdict": (f"Agreement: {n_d} datasets and {n_m} models give the same results with the independent calculation "
                         f"(largest relative difference {worst:.1e})." if ok else
-                        f"Differences found: the largest relative difference is {worst:.1e}. Please send the result to "
-                        "support@niellosoft.com."),
+                        f"Differences found: the largest relative difference is {worst:.1e}. The two calculations "
+                        "should agree; export this report and contact support@niellosoft.com."),
             "scope": "Checks matrix assembly, signs, solver and nesting. Factor matching is checked by the ecoinvent benchmark. "
                      f"Agreement means a relative difference below {_Solver.TOLERANCE:g}; smaller differences are round-off of "
                      "the matrix condition."

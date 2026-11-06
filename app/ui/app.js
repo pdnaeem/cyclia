@@ -191,7 +191,7 @@ $("#dbList").addEventListener("click", (e) => {
     p.innerHTML = `<div class="row"><h3 class="grow">Database details: ${esc(d.name)}</h3><button class="ghost" data-close>Close</button></div>
       <p class="hint">Recorded for reproducibility and printed in reports. The fingerprint, importer version and import report are set by Cyclia.</p>
       <form id="dbMetaForm" class="form-grid">${F.map(([k, l]) => `<label>${l}<input name="${k}" value="${esc(d[k] || "")}"></label>`).join("")}</form>
-      <table><tbody><tr><td>Imported</td><td>${esc(d.imported_at || "")}</td></tr><tr><td>Importer</td><td>${esc(d.importer_version || "(before 1.3.6)")}</td></tr>
+      <table><tbody><tr><td>Imported</td><td>${esc(d.imported_at || "")}</td></tr><tr><td>Importer</td><td>${esc(d.importer_version || "not recorded")}</td></tr>
       <tr><td>Source file</td><td>${esc(d.source_path || "")}</td></tr><tr><td>SHA-256</td><td><code>${esc(d.source_sha256 || "not recorded")}</code></td></tr></tbody></table>
       <div class="row"><button class="primary" data-savemeta="${d.id}">Save details</button></div>`;
   });

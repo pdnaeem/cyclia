@@ -79,7 +79,7 @@
         <div class="connectors add-panel" id="dbConnectors" hidden><p class="add-title">Choose where your database comes from</p>
           <details class="connector">
             <summary><b>ecoinvent with your licence</b><span>Log in once; Cyclia downloads the release and its impact methods.</span></summary>
-            <p class="hint" id="eiMissing" hidden>The ecoinvent connector is not installed in this engine. Use "ecoinvent folder you already downloaded".</p>
+            <p class="hint" id="eiMissing" hidden>The ecoinvent download is not available in this installation. Use "ecoinvent folder you already downloaded".</p>
             <div class="form-grid">
               <label>ecoinvent username<input id="eiUser" autocomplete="username"></label>
               <label>Password<input id="eiPass" type="password" autocomplete="current-password"></label>
@@ -646,7 +646,7 @@
           <form id="epdInfo" class="form-grid" novalidate>
             <label>Manufacturer<input name="manufacturer"></label><label>Production site<input name="site"></label>
             <label>Programme operator<input name="programme"></label><label>Declaration number<input name="number"></label>
-            <label>Product category rules (PCR)<input name="pcr"></label><label>PCR version<input name="pcr_version" placeholder="1.3.4"></label><label>Reference service life<input name="rsl" placeholder="50 years"></label>
+            <label>Product category rules (PCR)<input name="pcr"></label><label>PCR version<input name="pcr_version" placeholder="e.g. 2.0"></label><label>Reference service life<input name="rsl" placeholder="50 years"></label>
             <label>Date of issue<input name="issued" type="date"></label><label>Valid until<input name="valid_until" type="date"></label>
             <label>Verification<input name="verification" placeholder="Independent external verification"></label><label>Verifier<input name="verifier"></label>
             <label>Intended audience<select name="audience"><option value="B2B">Business to business (B2B)</option><option value="B2C">Business to consumer (B2C): third-party verification required</option></select></label><label>Months of specific data behind the LCA<input name="specific_months" type="number" min="0" step="1" placeholder="12"></label>
@@ -954,7 +954,7 @@
       <div class="tt" id="tt-teach" hidden>
         <div class="block">
           <div class="row head-row"><h2 class="grow">Exercises</h2><label class="inline"><input type="checkbox" id="teacherMode"> Teacher view (show answers)</label><button id="btnAnswerKey">Answer key (Word)</button></div>
-          <p class="hint">Exercises on the demo database. Answers are calculated by the engine from the installed data, so the key always matches. Students type their result and check it.</p>
+          <p class="hint">Exercises on the demo database. Answers are calculated by Cyclia from the installed data, so the key always matches. Students type their result and check it.</p>
           <div id="teachOut"></div>
         </div>
       </div>

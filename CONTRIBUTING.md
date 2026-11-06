@@ -16,7 +16,8 @@ ecoinvent data or other licensed databases.
 3. Run the tests before and after your change: `python -m unittest discover -s engine/tests`.
 4. A change to a calculation needs a test with a hand-calculated or published reference value, and, where it
    applies, a case in the validation suite (`engine/trust.py`).
-5. Describe the scientific basis of a new method in `docs/METHODS.md` with references.
+5. Describe the scientific basis of a new method in `docs/METHODS.md` with references, and update its row in
+   `docs/FEATURE_STATUS.md`.
 6. Open a pull request that explains the change and how it was checked.
 
 ## Style
@@ -27,5 +28,5 @@ software specialists.
 
 ## Conduct
 
-Be respectful and constructive. Criticise ideas and code, not people. Maintainers may remove contributions
-or comments that are abusive.
+Please follow the [code of conduct](CODE_OF_CONDUCT.md). Security problems are reported privately; see
+[SECURITY.md](SECURITY.md).

@@ -1,157 +1,135 @@
 <p align="center">
-  <img src="app/ui/icon.png" alt="Cyclia logo" width="88">
+  <img src="app/ui/icon.png" alt="Cyclia LCA software logo" width="88">
 </p>
 
-<h1 align="center">Cyclia: free, open-source life cycle assessment (LCA) software</h1>
+<h1 align="center">Cyclia: free, open-source LCA software</h1>
 
 <p align="center">
-  Desktop LCA software for students, researchers and consultants. Follows ISO 14040/14044 step by step,
-  explains every result, writes ISO, EPD (ISO 14025:2026, EN 15804+A2) and carbon footprint reports, needs no
-  programming, and works with your own ecoinvent licence.
+  <b>Life cycle assessment for students, researchers and consultants, without programming.</b><br>
+  ISO 14040/14044 workflow · ecoinvent with your own licence · EPD per EN 15804+A2 · ISO 14067 carbon footprint ·
+  Monte Carlo uncertainty · life cycle costing
 </p>
 
 <p align="center">
   <a href="https://github.com/pdnaeem/cyclia/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/pdnaeem/cyclia?label=download&color=23574a"></a>
   <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-23574a"></a>
   <img alt="Windows, macOS, Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-5a6964">
+  <a href="docs/VALIDATION_ECOINVENT.md"><img alt="Validated against ecoinvent" src="https://img.shields.io/badge/ecoinvent%20benchmark-100%25%20within%200.1%25-23574a"></a>
   <a href="https://doi.org/10.5281/zenodo.23853747"><img alt="DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.23853747.svg"></a>
-  <a href="CITATION.cff"><img alt="Cite Cyclia" src="https://img.shields.io/badge/cite-CITATION.cff-b5821b"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/pdnaeem/cyclia/releases/latest"><b>Download for Windows, macOS or Linux</b></a>
+  <a href="https://github.com/pdnaeem/cyclia/releases/latest"><b>Download</b></a>
   &nbsp;·&nbsp; <a href="docs/USER_GUIDE.md">User guide</a>
-  &nbsp;·&nbsp; <a href="docs/METHODS.md">Methods and validation</a>
-  &nbsp;·&nbsp; <a href="docs/ROADMAP.md">Roadmap</a>
+  &nbsp;·&nbsp; <a href="docs/METHODS.md">Methods</a>
+  &nbsp;·&nbsp; <a href="docs/VALIDATION_ECOINVENT.md">Validation</a>
+  &nbsp;·&nbsp; <a href="docs/FEATURE_STATUS.md">Feature status</a>
   &nbsp;·&nbsp; <a href="#cite-cyclia">Cite</a>
 </p>
 
-![Cyclia showing LCA results per functional unit with guidance for the interpretation step](docs/images/results.png)
+![Cyclia LCA software showing impact assessment results per functional unit with guidance for interpretation](docs/images/results.png)
+
+## Contents
+
+- [What is Cyclia?](#what-is-cyclia)
+- [Validated results](#validated-results)
+- [Features](#features)
+- [Download and install](#download-and-install)
+- [Frequently asked questions](#frequently-asked-questions)
+- [Cite Cyclia](#cite-cyclia)
+- [Documentation](#documentation)
+- [Contributing and support](#contributing-and-support)
 
 ## What is Cyclia?
 
-Cyclia is a free desktop application for **life cycle assessment (LCA)**: measuring the environmental
-impact of a product, material, building or service from raw material extraction to end of life. It is
-made for people who need a credible, publishable LCA but are not programmers: master's and PhD students,
-researchers, lecturers and small consultancies.
+Cyclia is a free desktop application for **life cycle assessment (LCA)**. It calculates the environmental impact
+of a product, material, building or service, from raw material extraction to end of life.
 
-It walks you through the six stages of an ISO 14040/14044 study (goal and scope, life cycle inventory,
-life cycle impact assessment, interpretation and reporting), explains each step in plain language, and
-writes a structured Word report with a methods paragraph you can paste into a thesis or journal article.
+Cyclia is made for people who need a credible, publishable LCA and do not program: master's and PhD students,
+researchers, lecturers, architects, engineers and small consultancies.
 
-Cyclia ships with no database. You bring your own licence for **ecoinvent** or use free databases such as
-USLCI, Agribalyse or ELCD. Your data stays on your computer.
+- **Guided study.** Cyclia leads you through an ISO 14040/14044 study: goal and scope, inventory, impact
+  assessment, interpretation and reporting. Each step explains what to do and checks your work.
+- **Ready reports.** It writes a structured Word report with a methods paragraph you can use in a thesis or a
+  journal article.
+- **Your own data.** Cyclia ships with no database. Use your **ecoinvent** licence, or free databases such as
+  USLCI, Agribalyse or ELCD. Projects and data stay on your computer.
+
+## Validated results
+
+Cyclia checks its own calculations against independent references:
+
+| Check | Result |
+|---|---|
+| Comparison with ecoinvent's published LCIA results (EF 3.1, cut-off, 100 datasets, 25 categories) | **100 % of 2,500 results within 0.1 %**, median deviation 3.9e-07 % ([report](docs/VALIDATION_ECOINVENT.md)) |
+| Validation suite of 35 product systems with exact known answers | Run it in the app (Toolbox > Validation) and attach the report to your study |
+| Independent second calculation (rebuilt matrices, different solver) | Built in ([cross validation](docs/CROSS_VALIDATION.md)) |
+| Characterisation factors compared with openLCA, Brightway or CSV factor sets | Flow by flow, with the effect of every difference |
+| Automated tests of the calculation engine | 203 tests, run on Windows, macOS and Linux before every release |
+
+The status of every feature, including what is not validated yet, is listed in
+[docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md).
 
 ## Features
 
-**A guided LCA workflow**
+**Guided LCA workflow**
 - Six steps in ISO 14044 order, each with an explanation, an example, common mistakes and a checklist
-  that ticks itself
-- A welcome screen with three ways to start: a guided first study, a full demo, or your own project
-- Plain-language glossary, guided tutorial and a feature tour
+- Three ways to start: a guided first study, a complete demo, or your own project
+- Glossary, tutorial and feature tour in plain language
 
-**Databases and impact methods**
-- ecoinvent: download with your own licence inside the app, or import a release you already have
-- openLCA JSON-LD, SimaPro CSV, ILCD (Ökobaudat, EF datasets, with their data quality ratings), ecoSpold1 and
-  ecoSpold2
-- EF 3.1 (Environmental Footprint) with official JRC normalisation and weighting, ReCiPe 2016, CML-IA,
-  IPCC 2021 GWP100 split per EN 15804+A2, or any method from a CSV table
-- Flow mapping between databases and methods with different flow names
-- Import that never guesses: process identity kept, ambiguous suppliers left for you to choose, linking per
-  location, SHA-256 fingerprint and metadata of every database, a six-part database check and a database explorer
+**Databases and impact assessment methods**
+- ecoinvent download with your own licence, or import of a release you already have
+- openLCA JSON-LD, SimaPro CSV, ILCD (ÖKOBAUDAT, EF datasets), ecoSpold1 and ecoSpold2
+- EF 3.1 (Environmental Footprint) with JRC normalisation and weighting, ReCiPe 2016, CML-IA, IPCC 2021 GWP100
+  split per EN 15804+A2, or any method from a CSV table
+- Staged imports with an integrity report and rollback; process identity and named suppliers kept
+- Database explorer with filters, database check, version comparison and model migration
 
 **Modelling**
-- Parameters, formulas and scenarios; co-product allocation; system expansion and avoided products
+- Parameters, formulas and scenarios; allocation by mass, economic value, energy or physical relation; system
+  expansion and avoided products
 - Circular Footprint Formula (EU PEF) for recycled content, recycling and energy recovery
-- Primary, secondary or estimated data per line, with reference, year, supplier and verification
-- Life cycle costing (LCC) with discounting, cost types and replacements over a study period, next to the
-  environmental results
-- EN 15804+A2 modules A to D with module D reported separately; biogenic carbon; dynamic GWP
-- Background scenarios for prospective and consequential LCA, including premise and Activity Browser
-  scenario files
+- EN 15804+A2 modules A to D, biogenic carbon, dynamic GWP
+- Background scenarios for prospective and consequential LCA (premise and Activity Browser files)
 - Inventory from tables in papers and reports (PDF, Word, Excel or pasted text)
-- Model templates for buildings, packaging, food and energy
-- Marginal supplier guidance for consequential LCA: constrained suppliers excluded, a consequential
-  scenario created from your choices
+- Templates for buildings, packaging, food and energy
 
 **Interpretation**
-- Contribution analysis by input, process and elementary flow; supply chain tree and Sankey diagram
-- Sensitivity analysis, Monte Carlo uncertainty with the pedigree matrix, and Sobol indices
-- Parameter sweeps, optimisation and Pareto fronts
-- Impacts by location on a world map
-- AWARE water scarcity and LANCA land use per process location, with completeness (import the official
-  factors)
-- Social LCA screening: worker hours and risk hours per stakeholder along the supply chain (import PSILCA,
-  SOCA or your own data)
-- Dynamic material flow analysis with stocks, lifetimes and recycling loops, and the Material Circularity
-  Indicator
-- Toxicity: screening characterisation factors for your own chemicals (multimedia fate model with
-  USEtox-style exposure and effect), import of official factors by CAS number, and a coverage report
-- Automatic ISO 14044 completeness, consistency and sensitivity checks
-- Key findings in plain language, burden-shifting alerts, and a data quality rating per result (PEF form)
-  with the share of primary data
-- Hierarchical Monte Carlo and Sobol analysis through every nested model, Spearman-correlated parameters and a
-  convergence check; water withdrawal and consumption
-- A comparison gate that checks functional equivalence before alternatives are compared
-- Database version comparison (e.g. ecoinvent 3.10 vs 3.11) and one-click move of a model to a new version
+- Contribution analysis by input, process, elementary flow and life cycle stage; supply chain tree and Sankey
+  diagram
+- Monte Carlo uncertainty with the pedigree matrix and correlated parameters, Sobol sensitivity indices and a
+  convergence check, through every nested model
+- Key findings in plain language, burden-shifting alerts, and data quality per result (pedigree indicator and
+  PEF DQR, kept apart)
+- Water scarcity (AWARE) and land use (LANCA) per process location with imported official factors
+- Life cycle costing with discounting and replacements, next to the environmental results
+- Material flow analysis with stocks, lifetimes and the Material Circularity Indicator
+- Social LCA screening of worker hours and risk hours with PSILCA, SOCA or your own data
 
 **Reports and standards**
-- Report centre that shows what each report still needs
-- ISO 14044-structured Word report, two-page executive summary, Excel results workbook, journal figures
-  (300 dpi PNG and SVG), review and verification status
-- ILCD+EPD export (machine-readable EPD for ÖKOBAUDAT and the InData network), validated against the official schemas
-- EPD per ISO 14025:2026 and EN 15804+A2 with checklist and programme layouts (EPD International, IBU, INIES
-  FDES drafts, or your own profile), PEF most relevant results, ISO 14067 carbon footprint report,
-  GHG Protocol workbook, critical review checklist
-- Export to Brightway and openLCA; Python and R clients for scripted work
-- Reproducibility bundles with database and method fingerprints
+- ISO 14044 Word report, executive summary, Excel workbook, figures for journals (300 dpi PNG and SVG)
+- EPD per ISO 14025:2026 and EN 15804+A2 with layouts for EPD International, IBU and INIES (labelled as drafts
+  until verified), and ILCD+EPD XML for ÖKOBAUDAT and the InData network
+- ISO 14067 carbon footprint report, GHG Protocol workbook, PEF most relevant results, critical review checklist
+- Export to Brightway and openLCA; Python and R clients; reproducibility bundles with fingerprints
 
 **Teaching**
-- Exercises with automatic checking and an answer key, and a demo project that uses every feature
+- Exercises with automatic checking and an answer key
 
 | Guided first start | Impact assessment | Dark mode |
 |---|---|---|
-| ![Cyclia welcome screen for new LCA users](docs/images/welcome.png) | ![Choosing impact categories in Cyclia](docs/images/impact-assessment.png) | ![Cyclia inventory step in dark mode](docs/images/dark-mode.png) |
-
-## Validated calculations
-
-LCA results only matter if they are right. Cyclia checks itself in six independent ways:
-
-1. **203 automated tests** of the calculation engine (`engine/tests`), each audit finding with a regression test
-2. **A validation suite of 35 product systems with exact known answers**: supply chains, loops,
-   allocation, system expansion, units, regional and site factors, background scenarios, module D,
-   dynamic GWP, Monte Carlo, Sobol and the fate model. Run it in the app (Toolbox > Validation) and
-   attach the report to your thesis or paper.
-3. **An independent cross-check**: datasets and models recalculated by a second implementation (matrices rebuilt,
-   a different solver) inside the app; see [`docs/CROSS_VALIDATION.md`](docs/CROSS_VALIDATION.md).
-4. **Automatic comparison with ecoinvent's own LCIA results**: connect your ecoinvent account and
-   Cyclia recalculates a sample of datasets and reports the deviation per impact category. Result
-   (EF v3.1, cut-off): **100 % of 2,500 results within 0.1 % of ecoinvent, median deviation 3.9e-07 %**; see
-   [`docs/VALIDATION_ECOINVENT.md`](docs/VALIDATION_ECOINVENT.md). An inventory check against ecoinvent's
-   cumulative LCI tells an inventory difference from a factor difference.
-5. **Factor matching validation**: Cyclia's characterisation factors compared flow by flow with an openLCA
-   JSON-LD export, a Brightway export or a CSV, with the effect of every difference on your models.
-6. **A comparison kit** that runs the same database in Brightway and openLCA and reports the differences.
-
-What each feature does, how it is tested and what it does not do yet: [`docs/ACCEPTANCE_1.3.5.md`](docs/ACCEPTANCE_1.3.5.md) the audit fixes of 1.3.6 in [`docs/ACCEPTANCE_1.3.6.md`](docs/ACCEPTANCE_1.3.6.md), 1.3.7 in [`docs/ACCEPTANCE_1.3.7.md`](docs/ACCEPTANCE_1.3.7.md), the database integrity work of 1.3.8 in [`docs/ACCEPTANCE_1.3.8.md`](docs/ACCEPTANCE_1.3.8.md), and the inventory check of 1.3.9 in [`docs/ACCEPTANCE_1.3.9.md`](docs/ACCEPTANCE_1.3.9.md).
-
-The calculation method, with references, is documented in [`docs/METHODS.md`](docs/METHODS.md).
+| ![Cyclia welcome screen with a guided first LCA study](docs/images/welcome.png) | ![Choosing impact categories in Cyclia](docs/images/impact-assessment.png) | ![Cyclia life cycle inventory in dark mode](docs/images/dark-mode.png) |
 
 ## Download and install
 
 1. Open the [latest release](https://github.com/pdnaeem/cyclia/releases/latest).
-2. Download `Cyclia-Setup-x.y.z.exe` (Windows), the `.dmg` (macOS on Apple silicon, M1 or later), or the `.AppImage` / `.deb` (Linux).
+2. Download the installer for your system:
+   - Windows: `Cyclia-Setup-x.y.z.exe`
+   - macOS on Apple silicon (M1 or later): the `.dmg`
+   - Linux: the `.AppImage` or the `.deb`
 3. Install and start Cyclia. Choose "Learn with a first study" to try it with the free tutorial database.
 
 Installed copies update themselves when a new release is published.
-
-## Who uses Cyclia?
-
-- **Students** writing an LCA chapter in a master's or PhD thesis
-- **Researchers** who need transparent, reproducible LCA results for journal articles
-- **Lecturers** teaching life cycle assessment, with exercises and answer keys
-- **Architects, engineers and small consultancies** preparing EPD-style or carbon footprint studies
-- **Companies** comparing product designs on environmental impact and cost
 
 ## Frequently asked questions
 
@@ -159,78 +137,92 @@ Installed copies update themselves when a new release is published.
 Yes. Cyclia is free and open-source software under the MIT licence, for academic and commercial use.
 
 **Do I need an ecoinvent licence?**
-Only if you want ecoinvent data. Cyclia also reads free databases (USLCI, Agribalyse, ELCD and others in
-openLCA JSON-LD, ILCD or SimaPro CSV format) and has a built-in tutorial database for learning.
+Only for ecoinvent data. Cyclia also reads free databases (USLCI, Agribalyse, ELCD and others in openLCA
+JSON-LD, ILCD or SimaPro CSV format) and includes a tutorial database for learning.
 
 **Do I need to know Python?**
-No. Everything is done through the interface. Python and R clients are available if you want them.
+No. Everything works through the interface. Python and R clients are available for scripted work.
 
-**How does Cyclia compare to openLCA, SimaPro or Brightway?**
-openLCA and Brightway are excellent open-source tools; SimaPro and Sphera are commercial. Cyclia focuses on
-guiding users through a complete ISO 14044 study, explaining each result, checking its own calculations, and
-producing ready reports, and it can export models to openLCA and Brightway. See the comparison in
-[`docs/ROADMAP.md`](docs/ROADMAP.md).
+**How does Cyclia compare with openLCA, SimaPro or Brightway?**
+openLCA and Brightway are open-source; SimaPro and Sphera LCA for Experts are commercial. Cyclia guides users
+through a complete ISO 14044 study, explains each result, checks its own calculations and writes ready reports.
+It exports models to openLCA and Brightway. A comparison based on each vendor's documentation is in the
+[roadmap](docs/ROADMAP.md#3-comparison-with-other-lca-software).
 
 **Which standards does Cyclia follow?**
 ISO 14040/14044, ISO 14071:2024 (critical review), ISO/TS 14074:2022, ISO 14067, ISO 14025:2026, EN 15804+A2
-and the EU PEF method (EF 3.1). The list with what each is used for is in the roadmap.
+and the EU PEF method (EF 3.1). What each one is used for is listed in the [roadmap](docs/ROADMAP.md).
 
-**Can I use Cyclia results in a publication?**
-Yes, with your own licensed or published database. Run the validation suite, report the software version,
-and cite Cyclia. The tutorial and demo data are illustrative only and must not be published.
+**Can I publish results calculated with Cyclia?**
+Yes, with a licensed or published database. Report the Cyclia version, attach the validation report and cite
+Cyclia. The tutorial and demo data are illustrative and must not be published.
 
 **Does my data leave my computer?**
-No. Projects and databases are stored locally. Cyclia only goes online to download ecoinvent with your
-login or to check for updates.
+No. Projects and databases are stored locally. Cyclia goes online only to download ecoinvent with your login
+and to check for updates.
 
 ## Cite Cyclia
 
-If Cyclia helps your research, please cite it. Citing is how free scientific software gets credit.
+If Cyclia helps your research, please cite it:
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.4.1)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.4.2)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
-GitHub's "Cite this repository" button gives APA and BibTeX from [`CITATION.cff`](CITATION.cff). Inside
-the app, Help > About copies the citation, BibTeX or a ready sentence for your methods section.
+GitHub's "Cite this repository" button gives APA and BibTeX from [CITATION.cff](CITATION.cff). In the app,
+Help > About copies the citation, BibTeX or a sentence for your methods section.
 
-## Support Cyclia
+## Documentation
 
-Cyclia is developed without outside funding. If it saves you time, you can support its maintenance and
-validation through [PayPal](https://paypal.me/pdnaeem) or [Revolut](https://revolut.me/pdnaeem).
-Starring the repository and citing Cyclia help too.
+| Document | Content |
+|---|---|
+| [User guide](docs/USER_GUIDE.md) | Every step and tool of the app |
+| [Methods](docs/METHODS.md) | Calculation methods, equations and references |
+| [Validation against ecoinvent](docs/VALIDATION_ECOINVENT.md) | Benchmark results per category and dataset group |
+| [Cross validation](docs/CROSS_VALIDATION.md) | Independent second calculation and factor matching |
+| [Feature status](docs/FEATURE_STATUS.md) | What is validated, implemented, partial or planned |
+| [Development plan](docs/DEVELOPMENT_PLAN.md) | Planned work in order of priority, with acceptance criteria |
+| [Roadmap](docs/ROADMAP.md) | Standards, features by LCA phase, comparison with other software |
+| [Changelog](docs/CHANGELOG.md) | Changes in every release |
+| [Examples](docs/examples/README.md) | Templates and example files for imports and profiles |
 
-## Author
+## Contributing and support
 
-Created by **Naeem Ur Rehman**, environmental scientist and founder of NielloSoft (Pvt) Ltd.
-[LinkedIn](https://www.linkedin.com/in/pdnaeem/) · [GitHub](https://github.com/pdnaeem) ·
-[niellosoft.com](https://niellosoft.com) · support@niellosoft.com
+- Questions and ideas: [GitHub Discussions](https://github.com/pdnaeem/cyclia/discussions)
+- Bugs and feature requests: [issues](https://github.com/pdnaeem/cyclia/issues/new/choose)
+- How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md) · Security: [SECURITY.md](SECURITY.md) ·
+  Support options: [SUPPORT.md](SUPPORT.md)
+- Private support: support@niellosoft.com
 
-## Contributing
-
-Bug reports, feature requests and pull requests are welcome; see [`CONTRIBUTING.md`](CONTRIBUTING.md).
-Third-party components and their licences are listed in [`THIRD_PARTY.md`](THIRD_PARTY.md).
+Cyclia is developed without outside funding. You can support its maintenance and validation through
+[PayPal](https://paypal.me/pdnaeem) or [Revolut](https://revolut.me/pdnaeem). Starring the repository and
+citing Cyclia also help.
 
 ### Build from source
 
 ```bash
 pip install -r engine/requirements.txt
+python -m unittest discover -s engine/tests
 cd app && npm install && npm start
-python -m unittest discover -s engine/tests -v
 ```
 
-On Windows, `build-windows.bat` runs the tests, builds the engine and produces the installer in
-`app\dist`. On macOS and Linux use `build-mac-linux.sh`. Pushing a tag such as `v1.4.1` makes GitHub
-Actions build Windows, macOS and Linux installers and publish them as a release.
+On Windows, `build-windows.bat` runs the tests, builds the engine and creates the installer in `app\dist`. On
+macOS and Linux, use `build-mac-linux.sh`.
 
 ```
-app/                 Electron desktop shell and interface
-engine/              Python calculation engine (local API on 127.0.0.1, token protected)
-engine/tests/        automated tests
-docs/                user guide, methods, release notes, screenshots
-credits.json         author information shown in the installer, app and reports
+app/            Electron desktop application and interface
+engine/         Python calculation engine (local, token-protected API on 127.0.0.1)
+engine/tests/   automated tests
+docs/           user guide, methods, validation, release notes, screenshots
 ```
+
+## Author
+
+Created by **Naeem Ur Rehman**, environmental scientist and founder of NielloSoft (Pvt) Ltd.
+[LinkedIn](https://www.linkedin.com/in/pdnaeem/) · [GitHub](https://github.com/pdnaeem) ·
+[niellosoft.com](https://niellosoft.com)
 
 ## Licence
 
-MIT, copyright (c) 2026 Naeem Ur Rehman and the Cyclia contributors. See [`LICENSE`](LICENSE).
-ecoinvent and other databases are not part of Cyclia and keep their own licences.
+MIT, copyright (c) 2026 Naeem Ur Rehman and the Cyclia contributors. See [LICENSE](LICENSE). ecoinvent and other
+databases are not part of Cyclia and keep their own licences. Third-party components are listed in
+[THIRD_PARTY.md](THIRD_PARTY.md).

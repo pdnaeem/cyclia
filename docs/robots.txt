@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://pdnaeem.github.io/cyclia/sitemap.xml

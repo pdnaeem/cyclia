@@ -57,7 +57,7 @@ both results and the difference, and the software versions used.
   Cyclia's factors flow by flow with an openLCA JSON-LD export of the method, a Brightway export
   (`engine/tools/brightway_export_factors.py`) or a CSV. It shows the effect of every difference on your models
   and, with the other tool's results, splits the result difference into factors and the rest (method:
-  docs/METHODS.md 12.1; tests and demonstration: docs/ACCEPTANCE_1.3.5.md). The tool is tested with files built to
+  docs/METHODS.md 12.1; tests and demonstration: docs/quality/ACCEPTANCE_1.3.5.md). The tool is tested with files built to
   the openLCA schema and with the shipped demonstration files. A published run of EF 3.1 exported from real
   openLCA and Brightway installations is still to be done; its reports will be added here.
 - **Brightway and openLCA calculations.** Since 1.3.7 the comparison kit (Toolbox > Validation) exports a database

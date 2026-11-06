@@ -579,7 +579,9 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
         raise ValueError(f"The columns of the results file could not be paired with the methods in the library. "
                          f"{'The method ' + family + ' is in the library. ' if family in fams else ''}"
                          f"The file has {len(cols):,} result columns; the first ones are labelled: {log_header}. "
-                         "Please send this message so the reader can be adjusted.")
+                         "Check that the file holds ecoinvent's cumulative LCIA results of the installed release and that "
+                         "the same method is installed in Cyclia. If both are right, contact support@niellosoft.com "
+                         "with this message.")
     progress(36, "Matching datasets")
     by_key, by_name = {}, {}
     if db_name:

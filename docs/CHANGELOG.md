@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.4.2 (2026-11-06)
+
+Documentation, website and in-app wording.
+
+- **In-app text**: messages written for the developer were rewritten for users. Version history was removed
+  from import warnings, the database details now show "not recorded" for older imports, and support requests say
+  what to check first. The calculation is unchanged.
+- **Website**: a landing page for GitHub Pages (`docs/index.html`) with search metadata, structured data
+  (SoftwareApplication, FAQ), sitemap and robots file.
+- **Repository**: README rewritten with a contents list, a validation table and a documentation index;
+  documents sorted into `docs/releases`, `docs/quality` and `docs/maintainers`; new feature status
+  (`docs/FEATURE_STATUS.md`), development plan (`docs/DEVELOPMENT_PLAN.md`) and a forward-looking roadmap, with the
+  release history moved to `docs/quality/DEVELOPMENT_HISTORY.md`.
+- **Community files**: code of conduct, security policy, support page, issue forms for feature requests and
+  database imports, and links to Discussions.
+
 ## 1.4.1 (2026-11-05)
 
 - **Validation against ecoinvent recorded**: docs/VALIDATION_ECOINVENT.md. 100 % of 2,500 results (100 datasets x
@@ -44,7 +60,7 @@ Fix of the land use deviation in the ecoinvent benchmark, found by the 1.3.9 inv
 
 ## 1.3.9 (2026-11-05)
 
-Finding the cause of the land use deviation in the ecoinvent benchmark. Details: docs/ACCEPTANCE_1.3.9.md.
+Finding the cause of the land use deviation in the ecoinvent benchmark. Details: docs/quality/ACCEPTANCE_1.3.9.md.
 
 - **Inventory check against ecoinvent's cumulative LCI**: validation can also download ecoinvent's cumulative LCI
   (option "Compare inventories too", on by default; or choose the file for a manual benchmark). The gap of every
@@ -62,7 +78,7 @@ Finding the cause of the land use deviation in the ecoinvent benchmark. Details:
 ## 1.3.8 (2026-11-05)
 
 Database integrity release: the findings of the third database audit (of 1.3.6). Details, tests and limits:
-docs/ACCEPTANCE_1.3.8.md.
+docs/quality/ACCEPTANCE_1.3.8.md.
 
 - **Non-finite values are rejected** (audit P0 A): the import check now covers unresolved-input amounts,
   uncertainty parameters p1 to p3, uncertainty types, production amounts and references to missing datasets and
@@ -87,7 +103,7 @@ docs/ACCEPTANCE_1.3.8.md.
 
 ## 1.3.7 (2026-11-05)
 
-The open items of 1.3.6. Details, tests and limits: docs/ACCEPTANCE_1.3.7.md.
+The open items of 1.3.6. Details, tests and limits: docs/quality/ACCEPTANCE_1.3.7.md.
 
 - **ILCD+EPD export**: the EPD as an ILCD+EPD 1.2 dataset with the authoritative EN 15804+A2 (EF 3.1) indicator
   identifiers of the InData network, validated against the official XSD schemas (shipped with Cyclia).
@@ -112,7 +128,7 @@ SQI normalisation references are not shipped; ILCD+EPD 1.3 (2024) elements are n
 
 Database integrity and scientific reliability release, after two external audits of 1.3.5 and the user's
 ecoinvent benchmark. Every item has a regression test that fails on 1.3.5 (engine/tests/test_v136.py). Details:
-docs/ACCEPTANCE_1.3.6.md.
+docs/quality/ACCEPTANCE_1.3.6.md.
 
 Fixed (results could be wrong)
 - SimaPro import merged two processes with the same product and location (two routes became one dataset with
@@ -161,12 +177,12 @@ Not done
 - Native PSILCA/SOCA import, AWARE monthly and GIS watershed factors, ILCD+EPD XML, visual MFA builder and MFA-LCA
   link, a staging database separate from the library, streaming import of very large files, operator approval of
   the EPD profiles, a published openLCA/Brightway comparison. The cause of the land use difference is narrowed down
-  but not confirmed (see docs/ACCEPTANCE_1.3.6.md).
+  but not confirmed (see docs/quality/ACCEPTANCE_1.3.6.md).
 
 ## 1.3.5 (2026-11-05)
 
 New features after a third external audit (of the 1.3.4 roadmap). Acceptance criteria, tests and demonstration
-data for each one: docs/ACCEPTANCE_1.3.5.md.
+data for each one: docs/quality/ACCEPTANCE_1.3.5.md.
 
 Validation
 - **Factor matching validation** (Toolbox > Validation): Cyclia's characterisation factors are compared flow by

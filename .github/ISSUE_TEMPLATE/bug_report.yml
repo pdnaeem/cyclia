@@ -10,7 +10,7 @@ body:
     attributes:
       label: Cyclia version
       description: Shown at the bottom left of the app or in Help > About
-      placeholder: "1.2.0"
+      placeholder: "1.4.1"
     validations:
       required: true
   - type: dropdown

@@ -1,0 +1,40 @@
+name: Database import problem
+description: A database does not import, or imported data look wrong
+labels: [import]
+body:
+  - type: markdown
+    attributes:
+      value: Please do not attach ecoinvent data or other licensed database content. The import report and the diagnostics file are enough in most cases.
+  - type: input
+    id: version
+    attributes:
+      label: Cyclia version
+      description: Shown in Help > About
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: Format
+      options: [ecoinvent download, ecoSpold2, ecoSpold1, openLCA JSON-LD, ILCD, SimaPro CSV, Other]
+    validations:
+      required: true
+  - type: input
+    id: database
+    attributes:
+      label: Database, version and system model
+      placeholder: "e.g. Agribalyse 3.2, or ecoinvent 3.11 cut-off"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: The message shown, or which datasets, flows or results look wrong.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Import report and diagnostics
+      description: Database details > import report, and Help > About > "Export diagnostics for support". Neither contains database content.

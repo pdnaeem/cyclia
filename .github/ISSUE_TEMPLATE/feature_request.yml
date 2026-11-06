@@ -1,20 +1,26 @@
 name: Feature request
-description: Suggest something that would help your LCA work
+description: Suggest a method, an import format, a report or another improvement
 labels: [enhancement]
 body:
+  - type: markdown
+    attributes:
+      value: Thank you for the suggestion. Methods are added only with official factors and documented equations, so a reference helps a lot.
   - type: textarea
     id: need
     attributes:
-      label: What do you need to do?
-      description: Describe the task in your study, not only the feature.
+      label: What do you need?
+      description: The study or task you want to do, and what is missing in Cyclia today.
     validations:
       required: true
   - type: textarea
-    id: now
+    id: reference
     attributes:
-      label: How do you do it today?
+      label: Method, standard or data source
+      description: Publication, standard clause, programme document or official factor package the feature should follow.
   - type: dropdown
-    id: role
+    id: area
     attributes:
-      label: You are
-      options: [Student, Researcher, Lecturer, Consultant or practitioner, Other]
+      label: Area
+      options: [Impact assessment method, Database or import format, Modelling, Uncertainty and sensitivity, Reports and EPD, Life cycle costing, Social LCA, Material flow analysis, Interface, Other]
+    validations:
+      required: true

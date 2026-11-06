@@ -4,7 +4,7 @@
 
 Sets the version in app/package.json, the engine and the README citation, refreshes the credits
 (CITATION.cff, installer, app), adds a section to docs/CHANGELOG.md and creates
-docs/RELEASE_NOTES_v<version>.md for you to fill in. Then commit, push, and create the tag v<version>.
+docs/releases/RELEASE_NOTES_v<version>.md for you to fill in. Then commit, push, and create the tag v<version>.
 """
 import datetime
 import json
@@ -44,12 +44,16 @@ def main():
 
     edit("engine/server.py", r'^VERSION = "[\d.]+"', f'VERSION = "{v}"')
     edit("README.md", r"\(version [\d.]+\)", f"(version {v})")
-    edit("README.md", r"a tag such as `v[\d.]+`", f"a tag such as `v{v}`")
+    edit("docs/ROADMAP.md", r"^Version: [\d.]+\.", f"Version: {v}.")
+    edit("docs/ROADMAP.md", r"^\| Feature \| Cyclia [\d.]+ \|", f"| Feature | Cyclia {v} |")
+    edit("docs/index.html", r'"softwareVersion": "[\d.]+"', f'"softwareVersion": "{v}"')
+    edit("docs/index.html", r"\(version [\d.]+\)", f"(version {v})")
+    edit("docs/FEATURE_STATUS.md", r"Status of Cyclia [\d.]+,", f"Status of Cyclia {v},")
 
     today = datetime.date.today().isoformat()
     edit("docs/CHANGELOG.md", r"# Changelog\n", f"# Changelog\n\n## {v} ({today})\n\n- \n")
 
-    notes = os.path.join(ROOT, "docs", f"RELEASE_NOTES_v{v}.md")
+    notes = os.path.join(ROOT, "docs", "releases", f"RELEASE_NOTES_v{v}.md")
     if not os.path.exists(notes):
         with open(notes, "w", encoding="utf-8") as f:
             f.write(f"""# Cyclia {v}
@@ -75,7 +79,7 @@ Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for re
 
     subprocess.run([sys.executable, os.path.join(ROOT, "engine", "tools", "apply_credits.py")], check=False)
     print(f"\nCyclia {old} -> {v}. Next:")
-    print(f"  1. Write what changed in docs/CHANGELOG.md and docs/RELEASE_NOTES_v{v}.md")
+    print(f"  1. Write what changed in docs/CHANGELOG.md and docs/releases/RELEASE_NOTES_v{v}.md")
     print(f"  2. GitHub Desktop: commit 'Cyclia {v}', Push origin")
     print(f"  3. History tab: right-click that commit > Create Tag > v{v} > Push origin")
 

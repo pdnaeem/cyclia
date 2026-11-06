@@ -1,0 +1,26 @@
+# GitHub Pages site for Cyclia (Settings > Pages > Deploy from a branch > main, /docs)
+title: Cyclia
+description: Free, open-source life cycle assessment (LCA) software for students, researchers and consultants.
+url: https://pdnaeem.github.io
+baseurl: /cyclia
+author: Naeem Ur Rehman
+lang: en
+theme: jekyll-theme-primer
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: false
+image: /images/social-preview.png
+social:
+  name: Naeem Ur Rehman
+  links:
+    - https://github.com/pdnaeem
+    - https://www.linkedin.com/in/pdnaeem/
+exclude:
+  - maintainers/
+  - examples/*.csv
+  - examples/*.json
+  - examples/*.xml

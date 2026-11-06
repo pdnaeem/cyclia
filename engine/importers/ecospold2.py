@@ -201,8 +201,8 @@ def _import(store, db_id, name, ds_dir, files, progress):
                         "under 'Link missing suppliers' so the supply chains are complete.")
     if skipped_links:
         warnings.append(f"{skipped_links} inputs have no supplier link in the dataset (activityLinkId). They are kept as "
-                        "unresolved inputs and listed under 'Link missing suppliers' (1.3.5 left them out without a "
-                        "record). They add nothing to the results until linked, as before. Link them only when the "
+                        "unresolved inputs and listed under 'Link missing suppliers'. They add nothing to the results "
+                        "until linked. Link them only when the "
                         "database intends a supplier; inputs cut off by the system model (e.g. recycled content in the "
                         "cut-off model) must stay unlinked. Datasets of the 'undefined' (unlinked) system model have "
                         "no links at all.")

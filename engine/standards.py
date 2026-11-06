@@ -336,8 +336,9 @@ def epd_word(path, model, result, databases, version="", profile=None, profiles_
     if not any(c in dec for c in ("A1-A3", "A1", "A2", "A3")):
         raise ValueError("The EPD cannot be written yet: no line is in the product stage A1-A3.")
     if reconcile(result) >= 1e-6:
-        raise ValueError("The EPD cannot be written: the module table does not add up to the LCA result. Please report "
-                         "this to support@niellosoft.com with the project file.")
+        raise ValueError("The EPD cannot be written because the module table does not add up to the LCA result. "
+                         "Calculate the model again; if this message remains, contact support@niellosoft.com and "
+                         "attach the project file.")
     fields = epd.get("fields") or {}
     fval = lambda f: str(fields.get(f["key"], "") or f.get("default", "") or "")
     doc = Document()

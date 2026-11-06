@@ -1,7 +1,7 @@
 # Demonstration files for Cyclia 1.3.5
 
 Every file here is used by an automated test (`engine/tests/test_v135.py`) and by the acceptance criteria in
-`docs/ACCEPTANCE_1.3.5.md`. All numbers are invented for the demonstration; none of them is an official factor or
+`docs/quality/ACCEPTANCE_1.3.5.md`. All numbers are invented for the demonstration; none of them is an official factor or
 dataset value.
 
 | File | Feature | How to use it |

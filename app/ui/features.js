@@ -706,7 +706,7 @@ $("#tplList").addEventListener("click", (e) => {
 /* python, R, brightway import */
 async function loadCode() {
   const info = await api("GET", "/api/api-info");
-  $("#apiInfo").textContent = info.url ? `The engine runs at ${info.url}; the connection details are in ${info.file} while Cyclia is open.` : "";
+  $("#apiInfo").textContent = info.url ? `Local address: ${info.url}. The connection details are in ${info.file} while Cyclia is open.` : "";
   $("#codePy").textContent = `# Python (after "Save the Python and R clients"; needs only the standard library)
 from cyclia_client import Cyclia
 cy = Cyclia()

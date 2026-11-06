@@ -12,7 +12,7 @@ def _client(username, password):
     try:
         from ecoinvent_interface import EcoinventRelease, Settings
     except ImportError:
-        raise ValueError("The ecoinvent connector is not installed in this engine. Download the release from "
+        raise ValueError("The ecoinvent download is not available in this installation. Download the release from "
                          "ecoquery.ecoinvent.org and use 'ecoinvent folder you already downloaded'.")
     username = (username or "").strip()
     if not username or not password:
@@ -51,7 +51,7 @@ def _explain(e, username):
         return " ".join(tips) + (f" (ecoinvent: {detail})" if detail else "")
     if status in (400, 401):
         return (f"ecoinvent refused the connection ({code or status}: {detail or 'no detail'}). ecoinvent may have "
-                f"changed its login system; please report this to support@niellosoft.com. {FOLDER_HINT}")
+                f"changed its login service; if the problem remains, contact support@niellosoft.com. {FOLDER_HINT}")
     if status == 403:
         return ("Login worked, but this account has no ecoinvent licence attached. Ask your university's "
                 "ecoinvent administrator to add your account to the licence. " + FOLDER_HINT)

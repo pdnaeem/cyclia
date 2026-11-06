@@ -108,7 +108,7 @@ class TestFactorMatching(Base):
 
     def test_shipped_demonstration_files(self):
         """docs/examples/factor_matching_demo_*.csv against the demo database: the expected outcome written in
-        docs/ACCEPTANCE_1.3.5.md."""
+        docs/quality/ACCEPTANCE_1.3.5.md."""
         from importers import demo
         ws = Workspace(os.path.join(self.dir, "demo"))  # the demo database alone, as in the app's feature demo
         self.addCleanup(ws.close_all)

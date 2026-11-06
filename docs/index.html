@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cyclia: free, open-source LCA software (ISO 14040/14044)</title>
+<meta name="description" content="Cyclia is free, open-source life cycle assessment (LCA) software for students, researchers and consultants. ISO 14040/14044 workflow, ecoinvent with your own licence, EPD per EN 15804+A2, ISO 14067 carbon footprint, Monte Carlo and LCC. Validated against ecoinvent.">
+<meta name="author" content="Naeem Ur Rehman">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://pdnaeem.github.io/cyclia/">
+<link rel="icon" href="images/icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Cyclia">
+<meta property="og:title" content="Cyclia: free, open-source LCA software">
+<meta property="og:description" content="Life cycle assessment without programming: ISO 14044 workflow, ecoinvent, EPD, carbon footprint, uncertainty and costing. 100 % of 2,500 results within 0.1 % of ecoinvent.">
+<meta property="og:url" content="https://pdnaeem.github.io/cyclia/">
+<meta property="og:image" content="https://pdnaeem.github.io/cyclia/images/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Cyclia: free, open-source LCA software">
+<meta name="twitter:description" content="Life cycle assessment without programming, validated against ecoinvent.">
+<meta name="twitter:image" content="https://pdnaeem.github.io/cyclia/images/social-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Cyclia",
+  "alternateName": "Cyclia LCA",
+  "description": "Free, open-source desktop software for life cycle assessment (LCA) following ISO 14040/14044, with ecoinvent support, EPD per EN 15804+A2, ISO 14067 carbon footprint, Monte Carlo uncertainty, life cycle costing, material flow analysis and social LCA screening.",
+  "applicationCategory": "ScientificApplication",
+  "applicationSubCategory": "Life cycle assessment",
+  "operatingSystem": "Windows, macOS, Linux",
+  "softwareVersion": "1.4.2",
+  "license": "https://opensource.org/licenses/MIT",
+  "isAccessibleForFree": true,
+  "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+  "downloadUrl": "https://github.com/pdnaeem/cyclia/releases/latest",
+  "codeRepository": "https://github.com/pdnaeem/cyclia",
+  "url": "https://pdnaeem.github.io/cyclia/",
+  "image": "https://pdnaeem.github.io/cyclia/images/results.png",
+  "screenshot": "https://pdnaeem.github.io/cyclia/images/results.png",
+  "identifier": "https://doi.org/10.5281/zenodo.23853747",
+  "keywords": "life cycle assessment, LCA software, ISO 14044, ecoinvent, EPD, EN 15804, carbon footprint, ISO 14067, environmental footprint, PEF, life cycle costing, Monte Carlo",
+  "author": {"@type": "Person", "name": "Naeem Ur Rehman", "url": "https://www.linkedin.com/in/pdnaeem/"},
+  "publisher": {"@type": "Organization", "name": "NielloSoft (Pvt) Ltd", "url": "https://niellosoft.com"}
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {"@type": "Question", "name": "Is Cyclia free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Cyclia is free and open-source software under the MIT licence, for academic and commercial use."}},
+    {"@type": "Question", "name": "Do I need an ecoinvent licence?", "acceptedAnswer": {"@type": "Answer", "text": "Only for ecoinvent data. Cyclia also reads free databases such as USLCI, Agribalyse and ELCD in openLCA JSON-LD, ILCD or SimaPro CSV format, and includes a tutorial database."}},
+    {"@type": "Question", "name": "Do I need to know programming?", "acceptedAnswer": {"@type": "Answer", "text": "No. Everything works through the interface. Python and R clients are available for scripted work."}},
+    {"@type": "Question", "name": "How accurate are Cyclia's results?", "acceptedAnswer": {"@type": "Answer", "text": "Compared with ecoinvent's published LCIA results (EF 3.1, cut-off), 100 % of 2,500 results agree within 0.1 %, with a median deviation of 3.9e-07 %."}},
+    {"@type": "Question", "name": "Which standards does Cyclia follow?", "acceptedAnswer": {"@type": "Answer", "text": "ISO 14040/14044, ISO 14071, ISO/TS 14074, ISO 14067, ISO 14025:2026, EN 15804+A2 and the EU PEF method (EF 3.1)."}},
+    {"@type": "Question", "name": "Does my data leave my computer?", "acceptedAnswer": {"@type": "Answer", "text": "No. Projects and databases are stored locally. Cyclia goes online only to download ecoinvent with your login and to check for updates."}}
+  ]
+}
+</script>
+<style>
+:root {
+  --bg: #f7f8f6; --surface: #ffffff; --text: #1d2624; --muted: #56635f; --line: #dfe5e2;
+  --brand: #23574a; --brand-soft: #e3eeea; --accent: #b5821b;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121816; --surface: #1a2220; --text: #e6ece9; --muted: #a3b0ab; --line: #2c3734;
+          --brand: #6fb8a2; --brand-soft: #1f2f2a; --accent: #e0b25a; }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--brand); }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+header { border-bottom: 1px solid var(--line); background: var(--surface); }
+header .wrap { display: flex; align-items: center; gap: 16px; min-height: 64px; flex-wrap: wrap; }
+.logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; color: var(--text); text-decoration: none; }
+.logo img { width: 32px; height: 32px; }
+nav { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; font-size: 15px; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a:hover { color: var(--brand); }
+.hero { padding: 64px 0 40px; }
+.hero h1 { font-size: clamp(32px, 5vw, 50px); line-height: 1.12; margin: 0 0 16px; letter-spacing: -0.5px; }
+.hero p.lead { font-size: 20px; color: var(--muted); max-width: 720px; margin: 0 0 28px; }
+.cta { display: flex; gap: 12px; flex-wrap: wrap; }
+.btn { display: inline-block; padding: 12px 22px; border-radius: 8px; font-weight: 600; text-decoration: none; border: 1px solid var(--brand); }
+.btn.primary { background: var(--brand); color: #fff; }
+@media (prefers-color-scheme: dark) { .btn.primary { color: #0f1513; } }
+.btn.ghost { color: var(--brand); background: transparent; }
+.shot { margin: 40px 0 0; border-radius: 10px; border: 1px solid var(--line); width: 100%; height: auto; display: block; }
+section { padding: 48px 0; border-top: 1px solid var(--line); }
+h2 { font-size: 28px; margin: 0 0 20px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+.stat b { display: block; font-size: 28px; color: var(--brand); line-height: 1.2; }
+.stat span { color: var(--muted); font-size: 15px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+.card h3 { margin: 0 0 8px; font-size: 18px; }
+.card ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 15px; }
+.card li { margin: 4px 0; }
+.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.shots figure { margin: 0; }
+.shots img { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); display: block; }
+.shots figcaption { font-size: 14px; color: var(--muted); margin-top: 6px; }
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; margin: 10px 0; }
+summary { font-weight: 600; cursor: pointer; }
+details p { margin: 10px 0 0; color: var(--muted); }
+blockquote { margin: 0; padding: 16px 20px; background: var(--brand-soft); border-left: 4px solid var(--brand); border-radius: 6px; }
+footer { padding: 32px 0 48px; color: var(--muted); font-size: 15px; border-top: 1px solid var(--line); }
+footer a { color: var(--muted); }
+@media (max-width: 600px) { nav { margin-left: 0; width: 100%; } .hero { padding-top: 36px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="logo" href="./"><img src="images/icon.png" alt="" width="32" height="32">Cyclia</a>
+    <nav aria-label="Main">
+      <a href="#features">Features</a>
+      <a href="#validation">Validation</a>
+      <a href="#faq">FAQ</a>
+      <a href="USER_GUIDE.html">User guide</a>
+      <a href="https://github.com/pdnaeem/cyclia">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <h1>Free, open-source LCA software</h1>
+    <p class="lead">Cyclia is desktop software for life cycle assessment. It guides you through an ISO 14040/14044
+      study, calculates with your own ecoinvent licence or free databases, and writes reports, EPDs and carbon
+      footprints. No programming needed.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/pdnaeem/cyclia/releases/latest">Download for Windows, macOS or Linux</a>
+      <a class="btn ghost" href="USER_GUIDE.html">Read the user guide</a>
+    </div>
+    <img class="shot" src="images/results.png" width="1440" height="900"
+         alt="Cyclia LCA software showing impact assessment results per functional unit">
+  </div>
+
+  <section id="validation">
+    <div class="wrap">
+      <h2>Validated results</h2>
+      <div class="stats">
+        <div class="stat"><b>100 %</b><span>of 2,500 results within 0.1 % of ecoinvent's published LCIA results (EF 3.1, cut-off)</span></div>
+        <div class="stat"><b>3.9e-07 %</b><span>median deviation from ecoinvent</span></div>
+        <div class="stat"><b>35</b><span>validation systems with exact known answers, built into the app</span></div>
+        <div class="stat"><b>203</b><span>automated tests, run on Windows, macOS and Linux for every release</span></div>
+      </div>
+      <p>Details per impact category and dataset group are in the <a href="VALIDATION_ECOINVENT.html">validation report</a>.
+        What is validated, implemented or planned is listed in the <a href="FEATURE_STATUS.html">feature status</a>.</p>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>What Cyclia does</h2>
+      <div class="grid">
+        <div class="card"><h3>Guided ISO 14044 study</h3><ul>
+          <li>Goal and scope, inventory, impact assessment, interpretation and reporting in order</li>
+          <li>Explanations, examples and checks at every step</li>
+          <li>Tutorial database and a complete demo project</li></ul></div>
+        <div class="card"><h3>Databases</h3><ul>
+          <li>ecoinvent download with your own licence</li>
+          <li>openLCA JSON-LD, SimaPro CSV, ILCD, ecoSpold1 and ecoSpold2</li>
+          <li>Staged imports with integrity report, database explorer and version comparison</li></ul></div>
+        <div class="card"><h3>Impact assessment</h3><ul>
+          <li>EF 3.1 with normalisation and weighting, ReCiPe 2016, CML-IA, IPCC 2021</li>
+          <li>AWARE water scarcity and LANCA land use with official factors</li>
+          <li>Dynamic GWP and regional factors</li></ul></div>
+        <div class="card"><h3>Uncertainty and interpretation</h3><ul>
+          <li>Monte Carlo with pedigree uncertainty and correlated parameters</li>
+          <li>Sobol sensitivity indices, contribution analysis, Sankey diagrams</li>
+          <li>Key findings, burden-shifting alerts and data quality per result</li></ul></div>
+        <div class="card"><h3>EPD and carbon footprint</h3><ul>
+          <li>EPD per ISO 14025:2026 and EN 15804+A2, modules A to D</li>
+          <li>ILCD+EPD XML for ÖKOBAUDAT and InData</li>
+          <li>ISO 14067 carbon footprint and GHG Protocol workbook</li></ul></div>
+        <div class="card"><h3>Costing and circularity</h3><ul>
+          <li>Life cycle costing with discounting and replacements</li>
+          <li>Material flow analysis and the Material Circularity Indicator</li>
+          <li>Circular Footprint Formula (EU PEF)</li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Screenshots</h2>
+      <div class="shots">
+        <figure><img src="images/welcome.png" width="1440" height="900" loading="lazy" alt="Cyclia welcome screen with a guided first LCA study"><figcaption>Three ways to start: a guided first study, a demo or your own project</figcaption></figure>
+        <figure><img src="images/inventory.png" width="1440" height="900" loading="lazy" alt="Life cycle inventory editor in Cyclia"><figcaption>Life cycle inventory with data quality and provenance per line</figcaption></figure>
+        <figure><img src="images/impact-assessment.png" width="1440" height="900" loading="lazy" alt="Choosing impact assessment methods and categories in Cyclia"><figcaption>Impact assessment methods and categories</figcaption></figure>
+        <figure><img src="images/dark-mode.png" width="1440" height="900" loading="lazy" alt="Cyclia in dark mode"><figcaption>Dark mode</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <h2>Frequently asked questions</h2>
+      <details><summary>Is Cyclia free?</summary><p>Yes. Cyclia is free and open-source software under the MIT licence, for academic and commercial use.</p></details>
+      <details><summary>Do I need an ecoinvent licence?</summary><p>Only for ecoinvent data. Cyclia also reads free databases such as USLCI, Agribalyse and ELCD in openLCA JSON-LD, ILCD or SimaPro CSV format, and includes a tutorial database.</p></details>
+      <details><summary>Do I need to know programming?</summary><p>No. Everything works through the interface. Python and R clients are available for scripted work.</p></details>
+      <details><summary>How accurate are Cyclia's results?</summary><p>Compared with ecoinvent's published LCIA results (EF 3.1, cut-off), 100 % of 2,500 results agree within 0.1 %, with a median deviation of 3.9e-07 %.</p></details>
+      <details><summary>Which standards does Cyclia follow?</summary><p>ISO 14040/14044, ISO 14071, ISO/TS 14074, ISO 14067, ISO 14025:2026, EN 15804+A2 and the EU PEF method (EF 3.1).</p></details>
+      <details><summary>Does my data leave my computer?</summary><p>No. Projects and databases are stored locally. Cyclia goes online only to download ecoinvent with your login and to check for updates.</p></details>
+    </div>
+  </section>
+
+  <section id="cite">
+    <div class="wrap">
+      <h2>Cite Cyclia</h2>
+      <blockquote>Rehman, N. U. (2026). <i>Cyclia: open-source life cycle assessment software for researchers</i> (version 1.4.2) [Computer software]. <a href="https://doi.org/10.5281/zenodo.23853747">https://doi.org/10.5281/zenodo.23853747</a></blockquote>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    Cyclia is created by <a href="https://www.linkedin.com/in/pdnaeem/">Naeem Ur Rehman</a>, founder of
+    <a href="https://niellosoft.com">NielloSoft (Pvt) Ltd</a>. MIT licence.
+    · <a href="METHODS.html">Methods</a> · <a href="ROADMAP.html">Roadmap</a> · <a href="CHANGELOG.html">Changelog</a>
+    · <a href="https://github.com/pdnaeem/cyclia/discussions">Discussions</a> · support@niellosoft.com
+    <br>ecoinvent and other databases are not part of Cyclia and keep their own licences.
+  </div>
+</footer>
+</body>
+</html>
