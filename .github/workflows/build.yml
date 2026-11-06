@@ -35,6 +35,8 @@ jobs:
             csc_link: NONE
             csc_pass: NONE
     runs-on: ${{ matrix.os }}
+    # without a limit a hung step runs for GitHub's 6 hours and the job then shows as "cancelled"
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,6 +46,7 @@ jobs:
         with:
           node-version: "20"
       - name: Build engine (runs the test suite first)
+        timeout-minutes: 60
         run: python engine/build-engine.py
       - name: World map
         run: |
@@ -52,10 +55,20 @@ jobs:
       - name: Install Electron and builder
         working-directory: app
         run: npm install
+      - name: Free the disk image tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Spotlight indexing and XProtect hold new disk images open, the usual cause of "Resource busy" and of
+          # hdiutil hanging
+          sudo mdutil -a -i off || true
+          sudo pkill -9 XProtect || true
       - name: Build installer
         working-directory: app
         shell: bash
+        timeout-minutes: 75
         run: |
+          # each attempt gets 20 minutes; a hung hdiutil is stopped and retried instead of blocking the job
+          run_limited() { if [ "$RUNNER_OS" = "macOS" ]; then perl -e 'alarm shift; exec @ARGV' 1200 "$@"; else "$@"; fi; }
           EXTRA=""
           if [ -z "$CSC_LINK" ]; then
             # no certificate: build unsigned (an empty CSC_LINK makes electron-builder fail)
@@ -66,11 +79,14 @@ jobs:
           fi
           # hdiutil on GitHub's macOS runners sometimes fails with "Resource busy" while making the .dmg: retry
           n=0
-          until npx electron-builder ${{ matrix.target }} $EXTRA --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}; do
+          until run_limited npx electron-builder ${{ matrix.target }} $EXTRA --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}; do
             n=$((n+1))
             if [ "$RUNNER_OS" != "macOS" ] || [ $n -ge 3 ]; then echo "electron-builder failed"; exit 1; fi
             echo "electron-builder failed on macOS, retry $n of 2 in 30 s"
             hdiutil info || true
+            # detach any image left mounted by the failed attempt
+            for v in /Volumes/Cyclia*; do [ -d "$v" ] && hdiutil detach -force "$v" || true; done
+            rm -f dist/*.dmg dist/*.blockmap
             sleep 30
           done
         env:
