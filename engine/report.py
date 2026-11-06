@@ -378,6 +378,14 @@ def word_report(path, model, result, databases, version=""):
         _table(doc, ["Flow", "Compartment", "Amount", "Note"],
                [[u["name"], u["context"], f"{fmt(u['amount'])} {u['unit']}",
                  "factor exists under another name/compartment" if u["mapping_issue"] else ""] for u in unc_flows[:15]], size=8)
+    gaps = [r for r in result["results"] if r.get("factor_gaps")]
+    if gaps:
+        doc.add_paragraph("Incomplete results. The inventory contains user-defined elementary flows whose "
+                          "characterisation factor is not known in these categories. Their contribution is unknown and "
+                          "is not included; it is not assumed to be zero:")
+        _table(doc, ["Category", "Flow", "Compartment", "Amount"],
+               [[r["category"], f["name"], f["context"], f"{fmt(f['amount'])} {f['unit']}"]
+                for r in gaps for f in r["factor_gaps"]["flows"][:10]], size=8)
     ps = result.get("parameter_sensitivity") or []
     if ps:
         doc.add_paragraph(f"Parameter sensitivity: change of each category when one parameter changes by ±{pct:g} %.")
@@ -535,11 +543,17 @@ def excel_results(path, model, result, version=""):
     cols = ["Method", "Category", "Indicator", "Total", "Unit"]
     if result.get("nw_set"):
         cols += ["Normalised", "Weighted"]
+    gaps = any(r.get("factor_gaps") for r in result["results"])
+    if gaps:
+        cols += ["Completeness"]
     header(ws, cols)
     for r in result["results"]:
         row = [r["family"], r["category"], r["indicator"], r["total"], r["unit"]]
         if result.get("nw_set"):
             row += [r.get("normalised"), r.get("weighted")]
+        if gaps:
+            gp = r.get("factor_gaps")
+            row += [f"incomplete: no factor for {', '.join(f['name'] for f in gp['flows'][:5])}" if gp else "complete"]
         ws.append(row)
 
     ws = wb.create_sheet("By input")

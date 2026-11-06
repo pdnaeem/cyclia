@@ -20,6 +20,20 @@ from canon import canon
 
 SCHEMA_VERSION = 4
 
+# custom data entry (1.6.0): master tables of custom databases, flows, exchanges and factors
+CUSTOM_SCHEMA = """
+CREATE TABLE IF NOT EXISTS lib.custom_items (uuid TEXT PRIMARY KEY, kind TEXT, db_id INTEGER, ref_id INTEGER,
+    name TEXT, data TEXT, source TEXT, author TEXT, created TEXT, modified TEXT, revision INTEGER DEFAULT 1);
+CREATE INDEX IF NOT EXISTS lib.idx_custom_kind ON custom_items(kind, db_id);
+CREATE TABLE IF NOT EXISTS lib.custom_exchanges (id INTEGER PRIMARY KEY, process_uuid TEXT, kind TEXT,
+    target TEXT, amount REAL, unit TEXT, amount_ref REAL, avoided INTEGER DEFAULT 0, utype INTEGER DEFAULT 0,
+    p1 REAL, p2 REAL, p3 REAL, pedigree TEXT, uncertainty TEXT, source TEXT, comment TEXT, modified TEXT);
+CREATE INDEX IF NOT EXISTS lib.idx_custom_ex ON custom_exchanges(process_uuid);
+CREATE TABLE IF NOT EXISTS lib.custom_factors (method_id INTEGER, flow_uuid TEXT, status TEXT, value REAL,
+    value_entered REAL, unit_entered TEXT, source TEXT, comment TEXT, author TEXT, modified TEXT,
+    PRIMARY KEY(method_id, flow_uuid));
+"""
+
 LIB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS lib.lmeta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS lib.databases (
@@ -167,6 +181,7 @@ class ProjectStore:
                         if col not in have:
                             c.execute(f"ALTER TABLE lib.{table} ADD COLUMN {col} {decl}")
             c.executescript(LIB_SCHEMA)
+            c.executescript(CUSTOM_SCHEMA)
             c.executescript(PROJECT_SCHEMA)
             c.commit()
             if "activities" in main_tables:
@@ -401,6 +416,10 @@ class ProjectStore:
         c.execute(f"UPDATE unlinked SET linked_to=NULL WHERE linked_to IN ({ids})", (db_id,))
         c.execute(f"DELETE FROM bio WHERE activity_id IN ({ids})", (db_id,))
         c.execute("DELETE FROM unlinked WHERE db_id=?", (db_id,))
+        c.execute("DELETE FROM activity_dq WHERE activity_id IN (SELECT id FROM activities WHERE db_id=?)", (db_id,))
+        c.execute("DELETE FROM custom_exchanges WHERE process_uuid IN (SELECT uuid FROM custom_items WHERE db_id=? "
+                  "AND kind IN ('product','process'))", (db_id,))
+        c.execute("DELETE FROM custom_items WHERE db_id=? AND kind IN ('database','product','process')", (db_id,))
         c.execute("DELETE FROM activities WHERE db_id=?", (db_id,))
         c.execute("DELETE FROM databases WHERE id=?", (db_id,))
 
@@ -1132,6 +1151,21 @@ class Workspace:
             try:
                 c = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
                 n = c.execute("SELECT COUNT(*) FROM model_inputs WHERE ref_db=?", (db_name,)).fetchone()[0]
+                c.close()
+            except sqlite3.Error:
+                n = 0
+            if n:
+                out.append({"project": pr["name"], "lines": n})
+        return out
+
+    def activity_usage(self, activity_id):
+        """Projects (and number of lines) whose models use one library dataset."""
+        out = []
+        for pr in self.list():
+            try:
+                c = sqlite3.connect(f"file:{self._path(pr['name'])}?mode=ro", uri=True)
+                n = c.execute("SELECT COUNT(*) FROM model_inputs WHERE kind='activity' AND ref_id=?",
+                              (int(activity_id),)).fetchone()[0]
                 c.close()
             except sqlite3.Error:
                 n = 0

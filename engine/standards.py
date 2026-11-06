@@ -246,6 +246,10 @@ def epd_checklist(model, result, profile=None):
             if result["results"][k]["cfs_matched"] == 0]
     add(not nocf, "Every declared indicator has characterisation factors for the inventory" +
         (f" (none for: {', '.join(nocf)})" if nocf else ""), "EN 15804+A2 Annex C")
+    gapcats = [result["results"][k]["category"] for k in list(core.values()) + list(inv.values())
+               if result["results"][k].get("factor_gaps")]
+    add(not gapcats, "No declared indicator has a custom flow with an unknown factor" +
+        (f" (incomplete: {', '.join(gapcats)})" if gapcats else ""), "EN 15804+A2 Annex C")
     if prof["id"] != "generic":
         fields = epd.get("fields") or {}
         miss_f = [f["label"] for f in prof["fields"] if f.get("required") and not str(fields.get(f["key"], "") or f.get("default", "") or "").strip()]

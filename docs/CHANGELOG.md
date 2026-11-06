@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.6.0 (2026-11-06)
+
+Custom data entry. Details, tests and limits: docs/quality/ACCEPTANCE_1.6.0.md.
+
+- **Custom data** (Toolbox > Custom data): build a complete product system in Cyclia, from an empty library if
+  needed. Custom databases, product flows, elementary flows (compartment, subcompartment, unit, CAS number),
+  processes (reference product and amount, production or waste treatment, location, technology, time period,
+  data type, PEF data quality ratings), and their exchanges: inputs from a custom process or any library dataset,
+  avoided products, waste sent to treatment, emissions and resources.
+- **Identifiers and provenance**: every item gets a UUID and keeps its source, author, creation and change time
+  and revision. Edited processes keep their dataset id, so models stay linked.
+- **Unit validation**: units must be known; an amount is converted to the unit of the flow or supplier only
+  within the same dimension (3.6 MJ to 1 kWh, 10 g to 0.01 kg), anything else is refused. Land occupation needs
+  m2*a and land transformation m2. CAS numbers are checked with their check digit. A flow that the library
+  already has is not created again.
+- **Uncertainty**: lognormal (GSD), normal, triangular, uniform or pedigree scores, converted with the amount;
+  bounds of avoided products and waste treatment are mirrored with the sign.
+- **Characterisation factors**: factors for custom flows in any installed method, and custom methods with
+  factors for any flow, each with its source; a factor given per another unit (per g) is converted.
+- **Unknown factors are not zero**: a custom flow without a factor and without a recorded "does not apply"
+  decision makes the category result incomplete. The result table, the inventory view, the Word report, the
+  Excel workbook and the checks list these flows, and the EPD check does not pass.
+- **Database check**: integrity, inputs without a supplier, solvability, missing sources and data quality, and
+  open factor decisions.
+- **Export and import** of a custom database as JSON (identifiers, provenance, exchanges, factors).
+
 ## 1.5.0 (2026-11-06)
 
 Stage P0 of the development plan: scientific correctness and reliability. Details, tests and limits:

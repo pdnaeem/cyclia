@@ -644,6 +644,38 @@ Compare before you claim that one product is better.
 
 ---
 
+### Custom data
+Toolbox > **Custom data** builds a product system from your own data, from an empty library if needed.
+
+1. **Create a custom database** with its name, author, geography and reference period.
+2. **Product flows**: the reference products of your processes and the waste they send to treatment, each with a
+   unit.
+3. **Elementary flows**: only for substances or resources the library does not have. Choose the compartment and
+   subcompartment from the list; give the CAS number if there is one. For land use, occupation flows need m2*a and
+   transformation flows m2. If the library already has the flow, Cyclia says so: use that one, it keeps the
+   factors of the installed methods.
+4. **Processes**: name, reference product and amount, production or waste treatment, location, technology, time
+   period, data type, source and the four data quality ratings (TeR, GeR, TiR, P from 1 to 5). Save the process.
+5. **Exchanges** of the selected process: inputs from one of your processes or from a library dataset (search
+   it), avoided products, and emissions or resources. Enter the amount in the unit you measured: 3.6 MJ for an
+   input in kWh or 10 g for an emission in kg is converted; an incompatible unit is refused. For waste, choose the
+   treatment process as supplier and enter the amount treated. Add the uncertainty (lognormal with its GSD,
+   normal, triangular, uniform, or the five pedigree scores) and the source.
+6. **Characterisation factors**: for each of your flows and each impact category you use, give the factor and
+   its source (per kg, per g or another unit of the same dimension), or choose "does not apply" with the reason.
+   **Show factor status** lists every open decision. You can also create your own method or impact category and
+   give factors to any flow.
+7. **Check database** lists errors (inputs without a supplier, a process that cannot be calculated) and what is
+   missing (sources, data quality, factor decisions).
+8. Use your processes in a model like any other dataset (step 3, search).
+
+When a custom flow has no factor in a category, the result of that category is marked **Incomplete** and the flow
+is listed in step 5 (Inventory), in the report and in the Excel workbook. Its contribution is unknown and is not
+counted as zero.
+
+**Export (JSON)** saves the custom database with all identifiers, sources, exchanges and factors; **Import** reads
+it into another project or library. Library datasets used as suppliers must be installed there too.
+
 ## Recipes by sector
 
 **Construction product or building element (EN 15804+A2)**: template "External wall"; stage system EN 15804;

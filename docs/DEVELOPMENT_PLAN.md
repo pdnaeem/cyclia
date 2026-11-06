@@ -29,6 +29,7 @@ release are in the [changelog](CHANGELOG.md).
 | Database integrity | Staging import, integrity report, rollback, non-finite values rejected, explicit providers kept, per-database check |
 | Factor matching | Flow-by-flow comparison with openLCA, Brightway or CSV factor sets, with the effect on results |
 | EPD module consistency | The module table must match the LCA result before an EPD is written |
+| Custom data entry (1.6.0) | Own databases, flows, processes, exchanges and factors with identifiers, provenance and unit validation; unknown factors of custom flows are reported, never taken as zero |
 
 ## Stage P0: scientific correctness and reliability
 

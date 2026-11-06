@@ -21,18 +21,17 @@
 <meta name="twitter:title" content="Cyclia: free, open-source LCA software">
 <meta name="twitter:description" content="Life cycle assessment without programming, validated against ecoinvent.">
 <meta name="twitter:image" content="https://pdnaeem.github.io/cyclia/images/social-preview.png">
-<meta name="google-site-verification" content="mEPyZDJ5CPnSdONT5AZ_NNQM1Ufowif6PymflmPW4tE" />  
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Cyclia",
   "alternateName": "Cyclia LCA",
-  "description": "Free, open-source desktop software for life cycle assessment (LCA) following ISO 14040/14044, with ecoinvent support, EPD per EN 15804+A2, ISO 14067 carbon footprint, Monte Carlo uncertainty, life cycle costing, material flow analysis and social LCA screening.",
+  "description": "Free, open-source desktop software for life cycle assessment (LCA) following ISO 14040/14044, with ecoinvent support, EPD per EN 15804+A2, ISO 14067 carbon footprint, Monte Carlo uncertainty, life cycle costing, material flow analysis, social LCA screening and custom data entry.",
   "applicationCategory": "ScientificApplication",
   "applicationSubCategory": "Life cycle assessment",
   "operatingSystem": "Windows, macOS, Linux",
-  "softwareVersion": "1.5.0",
+  "softwareVersion": "1.6.0",
   "license": "https://opensource.org/licenses/MIT",
   "isAccessibleForFree": true,
   "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
@@ -109,6 +108,10 @@ h2 { font-size: 28px; margin: 0 0 20px; }
 details { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; margin: 10px 0; }
 summary { font-weight: 600; cursor: pointer; }
 details p { margin: 10px 0 0; color: var(--muted); }
+.table-scroll { overflow-x: auto; margin: 20px 0; }
+.vtable { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; font-size: 15px; }
+.vtable th, .vtable td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.vtable th { color: var(--muted); font-weight: 600; }
 blockquote { margin: 0; padding: 16px 20px; background: var(--brand-soft); border-left: 4px solid var(--brand); border-radius: 6px; }
 footer { padding: 32px 0 48px; color: var(--muted); font-size: 15px; border-top: 1px solid var(--line); }
 footer a { color: var(--muted); }
@@ -148,12 +151,24 @@ footer a { color: var(--muted); }
       <h2>Validated results</h2>
       <div class="stats">
         <div class="stat"><b>100 %</b><span>of 2,500 results within 0.1 % of ecoinvent's published LCIA results (EF 3.1, cut-off)</span></div>
-        <div class="stat"><b>3.9e-07 %</b><span>median deviation from ecoinvent</span></div>
+        <div class="stat"><b>1e-6</b><span>agreement with Brightway on every result; largest difference 1.4e-12</span></div>
         <div class="stat"><b>35</b><span>validation systems with exact known answers, built into the app</span></div>
         <div class="stat"><b>227</b><span>automated tests, run on Windows, macOS and Linux for every release</span></div>
       </div>
-      <p>Details per impact category and dataset group are in the <a href="VALIDATION_ECOINVENT.html">validation report</a>.
-        What is validated, implemented or planned is listed in the <a href="FEATURE_STATUS.html">feature status</a>.</p>
+      <div class="table-scroll"><table class="vtable"><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>
+        <tr><td>ecoinvent's published LCIA results (EF 3.1, cut-off, 100 datasets x 25 categories)</td><td>100 % of 2,500 results within 0.1 %, median deviation 3.9e-07 %</td></tr>
+        <tr><td>Inventory check against ecoinvent's cumulative LCI</td><td>Each deviation split into an inventory and a factor part</td></tr>
+        <tr><td>Brightway (bw2calc 3.1), its own matrices and solver</td><td>All results within 1e-6; largest difference 1.4e-12 on databases up to 10,000 datasets</td></tr>
+        <tr><td>Validation suite in the app</td><td>35 product systems with exact known answers</td></tr>
+        <tr><td>Independent second calculation (dense LU and GMRES)</td><td>Largest difference 5.7e-14</td></tr>
+        <tr><td>Characterisation factors against openLCA, Brightway or CSV</td><td>Flow by flow, with the effect on results</td></tr>
+        <tr><td>ILCD+EPD export</td><td>Validated against the official schemas</td></tr>
+        <tr><td>Reference tests</td><td>Comparative probabilities, nested uncertainty and data quality, AWARE, LANCA, SQI, social LCA, MFA and MCI, against analytic or hand-calculated values</td></tr>
+        <tr><td>Automated tests</td><td>227, on Windows, macOS and Linux before every release</td></tr>
+      </tbody></table></div>
+      <p>Details: <a href="VALIDATION_ECOINVENT.html">ecoinvent validation</a> and <a href="CROSS_VALIDATION.html">cross validation</a>.
+        Still open: the comparison with openLCA, ReCiPe 2016 and CML-IA against ecoinvent, and a check against the official
+        AWARE and LANCA factor packages. Every feature's status is in the <a href="FEATURE_STATUS.html">feature status</a>.</p>
     </div>
   </section>
 
@@ -163,28 +178,56 @@ footer a { color: var(--muted); }
       <div class="grid">
         <div class="card"><h3>Guided ISO 14044 study</h3><ul>
           <li>Goal and scope, inventory, impact assessment, interpretation and reporting in order</li>
-          <li>Explanations, examples and checks at every step</li>
-          <li>Tutorial database and a complete demo project</li></ul></div>
+          <li>Explanations, examples, common mistakes and checklists at every step</li>
+          <li>Guided first study, complete demo or your own project</li>
+          <li>Glossary, tutorial and feature tour</li>
+        </ul></div>
         <div class="card"><h3>Databases</h3><ul>
-          <li>ecoinvent download with your own licence</li>
-          <li>openLCA JSON-LD, SimaPro CSV, ILCD, ecoSpold1 and ecoSpold2</li>
-          <li>Staged imports with integrity report, database explorer and version comparison</li></ul></div>
+          <li>ecoinvent download with your own licence, or a release you already have</li>
+          <li>openLCA JSON-LD, SimaPro CSV, ILCD (ÖKOBAUDAT, EF), ecoSpold1 and ecoSpold2</li>
+          <li>Staged imports with integrity report and rollback; named suppliers kept, ambiguous ones never guessed</li>
+          <li>Streaming of large imports</li>
+          <li>Database explorer, per-database check, version comparison and model migration</li>
+          <li>Custom data entry: own processes, product and elementary flows and factors, with identifiers, provenance and unit checks; unknown factors are reported, never counted as zero</li>
+        </ul></div>
         <div class="card"><h3>Impact assessment</h3><ul>
-          <li>EF 3.1 with normalisation and weighting, ReCiPe 2016, CML-IA, IPCC 2021</li>
-          <li>AWARE water scarcity and LANCA land use with official factors</li>
-          <li>Dynamic GWP and regional factors</li></ul></div>
+          <li>EF 3.1 with normalisation and weighting, ReCiPe 2016, CML-IA, IPCC 2021 (EN 15804+A2 split), any CSV method</li>
+          <li>AWARE water scarcity: annual, monthly and GIS watersheds</li>
+          <li>LANCA land use and soil quality index</li>
+          <li>Dynamic GWP, regional and site-specific factors</li>
+          <li>Toxicity screening and import of official factors by CAS number</li>
+        </ul></div>
+        <div class="card"><h3>Modelling</h3><ul>
+          <li>Parameters, formulas and scenarios</li>
+          <li>Allocation by mass, economic value, energy or physical relation; system expansion and avoided products</li>
+          <li>Circular Footprint Formula (EU PEF); EN 15804+A2 modules A to D; biogenic carbon</li>
+          <li>Prospective and consequential background scenarios (premise, Activity Browser)</li>
+          <li>Nested models, sector templates, inventory from tables in papers</li>
+        </ul></div>
         <div class="card"><h3>Uncertainty and interpretation</h3><ul>
-          <li>Monte Carlo with pedigree uncertainty and correlated parameters</li>
-          <li>Sobol sensitivity indices, contribution analysis, Sankey diagrams</li>
-          <li>Key findings, burden-shifting alerts and data quality per result</li></ul></div>
-        <div class="card"><h3>EPD and carbon footprint</h3><ul>
-          <li>EPD per ISO 14025:2026 and EN 15804+A2, modules A to D</li>
+          <li>Monte Carlo with pedigree uncertainty and correlated parameters, through every nested model, with convergence check</li>
+          <li>Sobol indices, parameter sweeps, optimisation and Pareto fronts</li>
+          <li>Contribution analysis, supply chain tree, Sankey diagram and world map</li>
+          <li>Comparative LCA with equivalence checks and a conclusion per category at 90, 95 or 99 % confidence</li>
+          <li>Key findings, burden-shifting alerts, pedigree indicator and PEF DQR kept apart</li>
+        </ul></div>
+        <div class="card"><h3>Costing, circularity and social LCA</h3><ul>
+          <li>Life cycle costing with discounting, cost types and replacements</li>
+          <li>Material flow analysis: stocks, lifetimes, collection rate, recycling efficiency, MCI, link to LCA</li>
+          <li>Social LCA screening of worker hours and risk hours with PSILCA, SOCA or own data</li>
+        </ul></div>
+        <div class="card"><h3>Reports and declarations</h3><ul>
+          <li>ISO 14044 Word report, executive summary, Excel workbook, 300 dpi figures</li>
+          <li>EPD per ISO 14025:2026 and EN 15804+A2 with EPD International, IBU and INIES layouts (drafts until verified)</li>
           <li>ILCD+EPD XML for ÖKOBAUDAT and InData</li>
-          <li>ISO 14067 carbon footprint and GHG Protocol workbook</li></ul></div>
-        <div class="card"><h3>Costing and circularity</h3><ul>
-          <li>Life cycle costing with discounting and replacements</li>
-          <li>Material flow analysis and the Material Circularity Indicator</li>
-          <li>Circular Footprint Formula (EU PEF)</li></ul></div>
+          <li>ISO 14067 carbon footprint, GHG Protocol workbook, PEF most relevant results, critical review checklist</li>
+        </ul></div>
+        <div class="card"><h3>Open and reproducible</h3><ul>
+          <li>Export to Brightway and openLCA; Python and R clients</li>
+          <li>Reproducibility bundles with database and method fingerprints</li>
+          <li>Exercises with automatic checking for teaching</li>
+          <li>Free and open source (MIT); your data stays on your computer</li>
+        </ul></div>
       </div>
     </div>
   </section>
@@ -216,7 +259,7 @@ footer a { color: var(--muted); }
   <section id="cite">
     <div class="wrap">
       <h2>Cite Cyclia</h2>
-      <blockquote>Rehman, N. U. (2026). <i>Cyclia: open-source life cycle assessment software for researchers</i> (version 1.5.0) [Computer software]. <a href="https://doi.org/10.5281/zenodo.23853747">https://doi.org/10.5281/zenodo.23853747</a></blockquote>
+      <blockquote>Rehman, N. U. (2026). <i>Cyclia: open-source life cycle assessment software for researchers</i> (version 1.6.0) [Computer software]. <a href="https://doi.org/10.5281/zenodo.23853747">https://doi.org/10.5281/zenodo.23853747</a></blockquote>
     </div>
   </section>
 </main>

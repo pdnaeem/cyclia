@@ -704,6 +704,13 @@ def run(store, model_id, method_ids, top=12, mc_iterations=0, sensitivity_pct=10
             uncharacterised.append({"name": n, "context": ctxt, "unit": u, "amount": float(g[i]),
                                     "mapping_issue": mc.flow_cname[i][0] in raw_names})
 
+    # 1.6.0: a custom flow (or, in a custom method, any flow) without a factor and without a "does not apply"
+    # decision is an unknown factor, not a zero: the category is marked incomplete and the flows are listed
+    import custom_data
+    gaps = custom_data.factor_gaps(store, mc, M, g, flow_label)
+    for k, gp in enumerate(gaps):
+        if gp:
+            results[k]["factor_gaps"] = gp
     land_cov = land_coverage(M, mc, g, flow_label, results)
 
     out = {"model": {k: model[k] for k in ("id", "name", "product", "unit", "amount", "scope")},
@@ -711,6 +718,7 @@ def run(store, model_id, method_ids, top=12, mc_iterations=0, sensitivity_pct=10
            "results": results, "lines": lines, "stages": stages, "sensitivity_pct": pct, "allocation_share": share,
            "nw_set": nw_set if nw else None, "scenario": scenario, "parameters": ctx.params(model_id),
            "parameter_sensitivity": param_sens, "lci": lci, "uncharacterised": uncharacterised,
+           "factor_gaps": sum(1 for gp in gaps if gp),
            "has_module_d": any(l["module_d"] for l in lines), "regional_factors_used": M.regional,
            "site_factors": M.site, "toxicity_coverage": tox_cov,
            "background": {"name": getattr(mc, "bg_name", None), "kind": getattr(mc, "bg_kind", None),
@@ -1852,6 +1860,13 @@ def checks(store, model_id, method_ids, result=None):
                 add("warning", "impact", f"{lc['category']}: {lc['share_without_factor'] * 100:.1f} % of the land "
                                          f"{lc['kind']} in the inventory has no factor (e.g. {ex}), so the result is "
                                          "probably too low. Check the method file or add the factors from the method's source.")
+        for r in result["results"]:
+            gp = r.get("factor_gaps")
+            if gp:
+                ex = ", ".join(f["name"] for f in gp["flows"][:3])
+                add("error", "impact", f"{r['category']}: the result is incomplete. {gp['n']} custom flow(s) in the "
+                                       f"inventory have no factor in this category (e.g. {ex}). Give the factor with its "
+                                       "source, or record that the category does not apply, in Toolbox > Custom data.")
         mi = [u for u in result.get("uncharacterised", []) if u["mapping_issue"]]
         if mi:
             add("warning", "impact", f"{len(mi)} inventory flow(s) have factors in the selected method under another name or "

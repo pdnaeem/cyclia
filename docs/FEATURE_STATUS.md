@@ -1,6 +1,6 @@
 # Cyclia feature status
 
-Status of Cyclia 1.5.0, checked against the source code, the automated tests and the validation records. A feature
+Status of Cyclia 1.6.0, checked against the source code, the automated tests and the validation records. A feature
 counts as **validated** only when its calculation is compared with independent reference results. Interface
 elements alone do not count.
 
@@ -48,6 +48,8 @@ elements alone do not count.
 | Database explorer | Implemented | Filters, paging, unresolved-only view, export of selected datasets |
 | Database check per database | Implemented | Six-part check: integrity, units, flow coverage, LCIA compatibility, matrix, metadata |
 | Database version comparison and model migration | Implemented | Preview and undo |
+| Custom data entry (own databases, product and elementary flows, processes, exchanges, factors) | Implemented | Complete product system from an empty library; UUID, source, author and revision per item; unit validation and conversion within one dimension; ecoinvent compartments; CAS check digit; uncertainty and pedigree; custom methods; JSON export and import. Hand-calculated supply chain with waste treatment, avoided product and unit conversions reproduced exactly (22 tests) |
+| Unknown factors of custom flows | Implemented | Never taken as zero: the category is marked incomplete in results, report, workbook and checks until a factor or a "does not apply" decision with reason is recorded |
 | Duplicate dataset detection, comparison dashboard, supplier graph | Planned | |
 | Export to Brightway and openLCA; Python and R clients | Implemented | Brightway round-trip and openLCA JSON-LD export tests |
 

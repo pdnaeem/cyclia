@@ -52,8 +52,9 @@ researchers, lecturers, architects, engineers and small consultancies.
   assessment, interpretation and reporting. Each step explains what to do and checks your work.
 - **Ready reports.** It writes a structured Word report with a methods paragraph you can use in a thesis or a
   journal article.
-- **Your own data.** Cyclia ships with no database. Use your **ecoinvent** licence, or free databases such as
-  USLCI, Agribalyse or ELCD. Projects and data stay on your computer.
+- **Your own data.** Cyclia ships with no database. Use your **ecoinvent** licence, free databases such as
+  USLCI, Agribalyse or ELCD, or enter your own processes, flows and factors. Projects and data stay on your
+  computer.
 
 ## Validated results
 
@@ -85,6 +86,9 @@ The status of every feature, including what is not validated yet, is listed in
   split per EN 15804+A2, or any method from a CSV table
 - Staged imports with an integrity report and rollback; process identity and named suppliers kept
 - Database explorer with filters, database check, version comparison and model migration
+- Custom data entry: your own databases, product and elementary flows, processes, exchanges and characterisation
+  factors, with unique identifiers, provenance, unit validation, uncertainty and data quality. A flow without a
+  known factor is reported as an incomplete result, never counted as zero
 
 **Modelling**
 - Parameters, formulas and scenarios; allocation by mass, economic value, energy or physical relation; system
@@ -166,7 +170,7 @@ and to check for updates.
 
 If Cyclia helps your research, please cite it:
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.5.0)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.6.0)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [CITATION.cff](CITATION.cff). In the app,

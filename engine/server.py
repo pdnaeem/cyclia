@@ -31,6 +31,7 @@ import factormatch  # noqa: E402
 import ilcd_epd  # noqa: E402
 import compare_kit  # noqa: E402
 import brightway_check  # noqa: E402
+import custom_data  # noqa: E402
 import lci_check  # noqa: E402,F401  (used by trust; imported here so the packaged engine includes it)
 import staging  # noqa: E402
 import mfa  # noqa: E402
@@ -53,7 +54,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -321,6 +322,7 @@ def db_delete(st, body, q, db_id):
         raise ApiError("Used by: " + ", ".join(f"{u['project']} ({u['lines']} lines)" for u in usage) +
                        ". Remove those lines first; the database is shared by all projects.")
     store.delete_database(int(db_id))
+    custom_data.recompile_all(store)
     calc.invalidate()
     return {"ok": True}
 
@@ -2370,6 +2372,157 @@ def export_brightway_check(st, body, q):
     _writable(path)
     brightway_check.excel(path, res)
     return {"path": path, "file": os.path.basename(path)}
+
+
+# ------------------------------------------------------------------ custom data entry
+def _cd(fn, *a, **k):
+    try:
+        return fn(*a, **k)
+    except custom_data.CustomDataError as e:
+        raise ApiError(str(e))
+
+
+def _cd_free(st):
+    if st.import_lock.locked():
+        raise ApiError("An import is running. Wait until it finishes.")
+
+
+@route("GET", "/api/custom")
+def custom_overview(st, body, q):
+    store = st.store
+    custom_data.ensure_schema(store)
+    return {"databases": custom_data.databases(store), "compartments": custom_data.COMPARTMENTS,
+            "units": [u for v in units._ORDER.values() for u in v],
+            "uncertainty": list(custom_data.UNCERTAINTY) + ["pedigree"],
+            "methods": [dict(m) for m in store.q("SELECT m.id, m.family, m.category, m.indicator, m.unit FROM methods m "
+                                                 "JOIN custom_items i ON i.ref_id=m.id AND i.kind='method' ORDER BY "
+                                                 "m.family, m.category")],
+            "elementary_flows": custom_data.elementary_flows(store)}
+
+
+@route("GET", r"/api/custom/(\d+)")
+def custom_db(st, body, q, db_id):
+    if not custom_data.is_custom(st.store, db_id):
+        raise ApiError("Custom database not found.", 404)
+    return custom_data.contents(st.store, db_id)
+
+
+@route("POST", "/api/custom/database")
+def custom_create_db(st, body, q):
+    _cd_free(st)
+    try:
+        db = custom_data.create_database(st.store, body.get("name"), body.get("description") or "",
+                                         body.get("author") or "", body.get("licence") or "",
+                                         body.get("geography") or "", body.get("reference_period") or "")
+    except ValueError as e:
+        raise ApiError(str(e))
+    return {"db_id": db}
+
+
+@route("POST", r"/api/custom/(\d+)/product")
+def custom_product(st, body, q, db_id):
+    _cd_free(st)
+    return {"uuid": _cd(custom_data.save_product, st.store, int(db_id), body)}
+
+
+@route("POST", r"/api/custom/(\d+)/process")
+def custom_process(st, body, q, db_id):
+    _cd_free(st)
+    return {"uuid": _cd(custom_data.save_process, st.store, int(db_id), body)}
+
+
+@route("POST", "/api/custom/elementary")
+def custom_elementary(st, body, q):
+    _cd_free(st)
+    return {"uuid": _cd(custom_data.save_elementary, st.store, body)}
+
+
+@route("POST", "/api/custom/exchange")
+def custom_exchange(st, body, q):
+    _cd_free(st)
+    (proc,) = _need(body, "process")
+    return {"id": _cd(custom_data.save_exchange, st.store, proc, body)}
+
+
+@route("POST", "/api/custom/exchange/delete")
+def custom_exchange_delete(st, body, q):
+    _cd_free(st)
+    proc, eid = _need(body, "process", "id")
+    _cd(custom_data.delete_exchange, st.store, proc, eid)
+    return {"ok": True}
+
+
+@route("POST", "/api/custom/delete")
+def custom_delete(st, body, q):
+    _cd_free(st)
+    (uid,) = _need(body, "uuid")
+    it = st.store.one("SELECT kind, ref_id FROM custom_items WHERE uuid=?", (uid,))
+    if it and it["kind"] == "process" and it["ref_id"]:
+        usage = st.ws.activity_usage(it["ref_id"])
+        if usage:
+            raise ApiError("Used by models in: " + ", ".join(f"{u['project']} ({u['lines']} lines)" for u in usage) +
+                           ". Remove those lines first.")
+    _cd(custom_data.delete_item, st.store, uid)
+    return {"ok": True}
+
+
+@route("POST", "/api/custom/method")
+def custom_method(st, body, q):
+    return {"method_id": _cd(custom_data.create_method, st.store, body.get("family"), body.get("category"),
+                             body.get("indicator"), body.get("unit"), body.get("source"), body.get("author") or "")}
+
+
+@route("POST", "/api/custom/factor")
+def custom_factor(st, body, q):
+    mid, flow, status = _need(body, "method_id", "flow_uuid", "status")
+    _cd(custom_data.save_factor, st.store, mid, flow, status, body.get("value"), body.get("unit"),
+        body.get("source") or "", body.get("comment") or "", body.get("author") or "")
+    return {"ok": True}
+
+
+@route("POST", "/api/custom/factor/delete")
+def custom_factor_delete(st, body, q):
+    mid, flow = _need(body, "method_id", "flow_uuid")
+    _cd(custom_data.delete_factor, st.store, mid, flow)
+    return {"ok": True}
+
+
+@route("POST", "/api/custom/factors")
+def custom_factor_table(st, body, q):
+    mids = [int(x) for x in (body.get("method_ids") or [])]
+    if not mids:
+        raise ApiError("Choose the impact categories first.")
+    return {"rows": custom_data.factor_table(st.store, mids)}
+
+
+@route("GET", r"/api/custom/(\d+)/check")
+def custom_check(st, body, q, db_id):
+    return _cd(custom_data.check, st.store, int(db_id))
+
+
+@route("POST", r"/api/custom/(\d+)/export")
+def custom_export(st, body, q, db_id):
+    doc = _cd(custom_data.export_json, st.store, int(db_id))
+    path = _export_path(st, body, {"name": doc["database"]["name"] + " (Cyclia custom data)"}, "json")
+    _writable(path)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh, indent=1, ensure_ascii=False)
+    return {"path": path, "file": os.path.basename(path)}
+
+
+@route("POST", "/api/custom/import")
+def custom_import(st, body, q):
+    _cd_free(st)
+    (path,) = _need(body, "path")
+    try:
+        with open(_check_path(path), encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError) as e:
+        raise ApiError(f"The file could not be read: {e}")
+    try:
+        return {"db_id": custom_data.import_json(st.store, doc, body.get("name") or None)}
+    except ValueError as e:
+        raise ApiError(str(e))
 
 
 @route("POST", "/api/export/compare-kit")

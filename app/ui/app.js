@@ -1128,7 +1128,7 @@ function renderResults() {
     d ? "Total excludes module D" : "", r.regional_factors_used ? "Regional factors applied" : ""].filter(Boolean).join(". ") + ".";
   $("#totals").innerHTML = `<thead><tr><th>Method</th><th>Impact category</th><th class="num">${d ? "Total A-C" : "Result"}</th>${d ? '<th class="num">Module D</th>' : ""}<th>Unit</th>${unc ? '<th class="num">95% interval</th>' : ""}${nw ? '<th class="num">Normalised</th><th class="num">Weighted</th>' : ""}</tr></thead><tbody>` +
     r.results.map((x, k) => `<tr data-k="${k}" class="${k === S.cat ? "sel" : ""}"><td>${esc(x.family)}</td><td>${esc(x.category)}${x.indicator !== x.category ? `<br><span class="hint">${esc(x.indicator)}</span>` : ""}
-    ${x.cfs_matched === 0 ? '<br><span class="danger hint">No factor matches your flows</span>' : ""}</td>
+    ${x.cfs_matched === 0 ? '<br><span class="danger hint">No factor matches your flows</span>' : ""}${x.factor_gaps ? `<br><span class="danger hint">Incomplete: ${x.factor_gaps.n} custom flow(s) without a factor</span>` : ""}</td>
     <td class="num total">${fmt(x.total)}</td>${d ? `<td class="num">${fmt(x.module_d)}</td>` : ""}<td>${esc(x.unit)}</td>
     ${unc ? `<td class="num">${fmt(unc.methods[k].p2_5)} to ${fmt(unc.methods[k].p97_5)}</td>` : ""}
     ${nw ? `<td class="num">${fmt(x.normalised)}</td><td class="num">${fmt(x.weighted)}</td>` : ""}</tr>`).join("") + "</tbody>";
@@ -1226,6 +1226,9 @@ function renderLci() {
   $("#uncharOut").innerHTML = r.uncharacterised.length ? `<table><thead><tr><th>Flow</th><th>Compartment</th><th class="num">Amount</th><th>Note</th></tr></thead><tbody>
     ${r.uncharacterised.slice(0, 25).map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.context)}</td><td class="num">${fmt(u.amount)} ${esc(u.unit)}</td><td>${u.mapping_issue ? '<span class="warn">The method has this flow under another name or compartment: import a flow mapping.</span>' : ""}</td></tr>`).join("")}</tbody></table>`
     : '<p class="hint">Every inventory flow has a factor in at least one selected category.</p>';
+  const gaps = r.results.filter((x) => x.factor_gaps);
+  if (gaps.length) $("#uncharOut").innerHTML = `<p class="danger">Incomplete results: these custom flows have no known factor, so their contribution is not included (it is not taken as zero). Give the factor or record that the category does not apply in Toolbox &gt; Custom data.</p><table><thead><tr><th>Impact category</th><th>Flow</th><th>Compartment</th><th class="num">Amount</th></tr></thead><tbody>` +
+    gaps.flatMap((x) => x.factor_gaps.flows.slice(0, 10).map((f) => `<tr><td>${esc(x.category)}</td><td>${esc(f.name)}</td><td>${esc(f.context)}</td><td class="num">${fmt(f.amount)} ${esc(f.unit)}</td></tr>`)).join("") + "</tbody></table>" + $("#uncharOut").innerHTML;
   $("#lciNote").textContent = `${r.lci_total || r.lci.length} elementary flows in total; the Excel export has all of them.`;
   $("#lciTable").innerHTML = `<thead><tr><th>Elementary flow</th><th>Compartment</th><th class="num">Amount</th><th>Unit</th></tr></thead><tbody>` +
     r.lci.slice(0, 120).map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(x.context)}</td><td class="num">${fmt(x.amount)}</td><td>${esc(x.unit)}</td></tr>`).join("") + "</tbody>";

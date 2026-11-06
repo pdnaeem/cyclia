@@ -687,6 +687,55 @@ that leaves with the products or is not reported by the data).
 The ecoinvent validation can compare every installed method that ecoinvent's results file contains (option
 "Validate every installed method"), not only EF 3.1.
 
+## 17. Custom data entry (1.6.0)
+
+### 17.1 Data model
+Custom data are kept in master tables (items, exchanges, factors) and written into the library tables
+(datasets, technosphere and elementary exchanges, unresolved inputs, data quality, raw factors) in one
+transaction whenever they change. A custom database is therefore an ordinary library database: every calculation,
+uncertainty analysis, report and export works with it. Edited processes keep their dataset id.
+
+Every product flow, elementary flow, process and custom method has a UUID (version 4), a source, an author, the
+time of creation and change, and a revision number that increases with every change.
+
+### 17.2 Units and signs
+An exchange is stored in the reference unit of its flow or supplier: amount_ref = amount x f(unit -> reference
+unit), where f exists only within one dimension (mass, energy, volume, area, length, transport, person transport,
+vehicle distance, time, land occupation, volume transport, count, radioactivity). Uncertainty parameters in
+absolute units (standard deviation, minimum, mode, maximum) are converted with the same factor; the geometric
+standard deviation is dimensionless.
+
+The technosphere matrix uses A[i, j] = -a for an input of a to dataset j from supplier i. An avoided product is
+an input with a negative amount. A waste treatment process has a negative reference amount (the treated waste is
+its reference flow); waste sent to it is entered as the positive amount treated and stored as a negative input,
+so that the treatment runs for that amount. When the sign changes, triangular and uniform bounds are mirrored
+(min, mode, max -> -max, -mode, -min). Pedigree scores give the log standard deviation of a lognormal
+distribution with the basic variance of the exchange type (section 5).
+
+### 17.3 Elementary flows
+Compartments and subcompartments follow the ecoinvent elementary flow list that Cyclia's factor matching uses. A
+new flow is refused when the library has a flow with the same canonical name and context, because that flow
+already carries the factors of the installed methods. Land occupation flows need area x time (m2*a), land
+transformation flows area (m2). CAS numbers are checked with their check digit.
+
+### 17.4 Characterisation factors
+A factor is given per unit u of the flow's dimension and stored per reference unit r of the flow:
+CF_r = CF_u x f(r -> u). For example 0.005 kg CO2-eq per g is 5 per kg. Custom factors are written as raw
+factors with the flow's UUID and matched like the factors of an imported method. Factors of installed methods for
+library flows are not changed; a custom method can give factors to any flow.
+
+### 17.5 Unknown factors
+An installed method characterises the flows it lists. A custom flow is new to it, so a missing factor means that
+the factor is unknown, not that it is zero. For each custom flow and impact category the user gives a factor with
+its source or records, with the reason, that the category does not apply. A category whose inventory contains a
+custom flow with neither is reported as incomplete: the total excludes the unknown contribution, the flows and
+their amounts are listed, the checks report an error, and the EPD check does not pass.
+
+### 17.6 Database check
+Integrity (finite amounts and parameters, valid links), inputs without a supplier, a unit demand of every process
+solved with a residual below 1e-8, processes without exchanges, missing sources and data quality ratings, and
+the number of impact categories without a factor decision per custom flow.
+
 ## References
 
 Andreasi Bassi S., Biganzoli F., Ferrara N., Amadei A., Valente A., Sala S., Ardente F. (2023) Updated characterisation and normalisation factors for the Environmental Footprint 3.1 method. JRC130796, Publications Office of the European Union.
