@@ -35,8 +35,8 @@ Settings > General > Social preview: upload `.github/social-preview.png`.
 
 Settings > General > Features: tick **Discussions**. The app's user guide and `SUPPORT.md` link to it.
 
-## Release title for 1.6.2
+## Release title for 1.7.0
 
-Cyclia 1.6.2: steadier screen and narrow-window fixes
+Cyclia 1.7.0: ISO 15686-5 life cycle costing, MFA linked to LCA, social subcategory assessment
 
-Paste the text of `docs/releases/RELEASE_NOTES_v1.6.2.md` as the release description.
+Paste the text of `docs/releases/RELEASE_NOTES_v1.7.0.md` as the release description.

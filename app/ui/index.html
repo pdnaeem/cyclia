@@ -277,8 +277,9 @@
         </div>
         <div class="alloc-cp">
           <table class="cp-table"><thead><tr><th>Co-product</th><th>Mass (kg)</th><th>Economic value</th><th>Energy (MJ)</th><th>Physical property</th><th></th></tr></thead><tbody id="cpRows"></tbody></table>
-          <button type="button" class="ghost" id="btnAddCp">Add co-product</button>
+          <button type="button" class="ghost" id="btnAddCp">Add co-product</button><button type="button" class="ghost" id="btnAllocCmp" title="Results under mass, economic, energy, physical and manual allocation and without allocation, for the categories of step 4">Compare allocation choices</button>
           <p class="hint" id="allocShare"></p>
+          <div id="allocCmpOut"></div>
         </div>
 
         <h2>Time <button type="button" class="q" data-help="dynamic GWP" aria-label="Help">?</button></h2>
@@ -293,6 +294,8 @@
           <label>Currency<input name="lcc_currency" placeholder="EUR" maxlength="8"></label>
           <label>Discount rate (% per year)<input name="lcc_rate" type="number" step="any" min="0" max="50" placeholder="0"></label>
           <label>Study period (years, for replacements)<input name="lcc_period" type="number" step="any" min="0" placeholder="60"></label>
+          <label title="Real price escalation per year, by cost type, e.g. maintenance=2, operation=1.5, all=1">Price escalation (% per year, by cost type)<input name="lcc_escalation" placeholder="e.g. maintenance=2, all=1"></label>
+          <label class="inline" title="ISO 15686-5: the remaining service life of the last purchase is credited at the end of the study period"><input type="checkbox" name="lcc_residual" checked> Residual value at the end of the study period</label>
         </div>
         <div class="row"><button class="primary" type="submit">Save goal &amp; scope</button><span class="hint" id="scopeSaved" role="status"></span></div>
       </form>
@@ -401,8 +404,9 @@
             <label>Year of the data<input name="data_year" type="number" min="1900" max="2100" step="1" placeholder="2024"></label>
             <label>Supplier or site<input name="supplier" placeholder="Plant in Lyon"></label>
             <label>Price per <span id="provUnit">unit</span><input name="unit_cost" type="number" step="any" placeholder="0.00"></label>
-            <label>Cost type<select name="cost_type"><option value="">not classified</option><option value="capex">investment (CAPEX)</option><option value="opex">operation (OPEX)</option><option value="maintenance">maintenance</option><option value="replacement">replacement</option><option value="end of life">end of life</option></select></label>
+            <label>Cost type<select name="cost_type"><option value="">not classified</option><option value="capex">investment (CAPEX)</option><option value="opex">operation (OPEX)</option><option value="maintenance">maintenance</option><option value="replacement">replacement</option><option value="end of life">end of life</option><optgroup label="ISO 15686-5"><option value="construction">construction</option><option value="operation">operation</option><option value="non-construction">non-construction</option><option value="income">income</option><option value="externalities">externalities</option></optgroup></select></label>
             <label>Replaced every (years)<input name="replace_every" type="number" step="any" min="0" placeholder="e.g. 25"></label>
+            <label title="Geometric standard deviation of the price: 1.2 means the price is within a factor 1.2 roughly two times in three">Price uncertainty (GSD)<input name="cost_gsd" type="number" step="any" min="1" placeholder="e.g. 1.2"></label>
             <label class="inline"><input type="checkbox" name="verified"> Checked or verified by a third party</label>
             <fieldset class="wide pef-set"><legend>PEF data quality scores (optional, 1 best to 5 worst) <button type="button" class="q" data-help="PEF data quality rating" aria-label="Help">?</button></legend>
               <label>TeR technological<select name="pef0"><option value="">-</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
@@ -703,9 +707,15 @@
         <button data-tt="chem">Chemicals and site factors</button><button data-tt="tpl">Templates</button>
         <button data-tt="code">Python, R and other software</button><button data-tt="teach">Teaching</button>
         <button data-tt="dbs">Database versions</button><button data-tt="dash">Project overview</button><button data-tt="alloc">Allocation</button>
-        <button data-tt="regional">Regional methods</button><button data-tt="social">Social LCA</button><button data-tt="mfa">Material flows</button><button data-tt="explore">Database explorer</button>
+        <button data-tt="regional">Regional methods</button><button data-tt="social">Social screening</button><button data-tt="mfa">Material flows</button><button data-tt="explore">Database explorer</button>
       </div>
       <div class="tt" id="tt-valid">
+        <div class="block" id="benchCentre">
+          <h2>Scientific Benchmark Centre</h2>
+          <p class="hint">All the evidence for Cyclia's calculations in this installation, in one table: for every check and method, the reference, Cyclia's result, the differences, the missing flows and the status. Only checks that ran here with every result within its tolerance count as validated; "Not run" and "Not available" are not validation. The checks below add their results here when they finish.</p>
+          <div class="row"><button class="primary" id="btnBenchIpcc">Run the IPCC 2021 check</button><button id="btnBenchRefresh">Refresh</button><button id="btnBenchExport">Export (Excel)</button></div>
+          <div class="table-wrap"><table id="benchTable"></table></div>
+        </div>
         <div class="block">
           <h2>Validation suite</h2>
           <p class="hint">Runs 35 small product systems with known exact answers (chains, loops, waste treatment, allocation, system expansion, nesting, units, regional and site factors, background scenarios, scenario files, module D, dynamic GWP, Monte Carlo, Sobol, fate model) in a temporary library and compares Cyclia with them. Attach the report to a paper or a thesis.</p>
@@ -831,6 +841,16 @@
           <div id="slcaOut"></div>
         </div>
       </div>
+        <div class="block" id="t1Block">
+          <h2>Social LCA: subcategory assessment (Type I, UNEP 2020)</h2>
+          <p class="hint">The assessment proper, beyond the risk screening above. For each stakeholder category and subcategory of the UNEP 2020 guidelines, score the organisations of your product system against a performance reference point (PRP): the law, ILO convention, standard or norm that defines acceptable performance. Scale: +2 ideal, +1 progressive, 0 compliant, -1 risky, -2 very poor. Weight each organisation by an activity variable (worker hours or value added per functional unit). Cyclia reports per subcategory the weighted score, the coverage, the share of site-specific data, the hotspots and the subcategories not yet assessed. It contains no social data of its own.</p>
+          <div class="row"><span class="hint">Product system total:</span><input id="t1Total" type="number" step="any" placeholder="e.g. 12.5" size="8"><input id="t1TotalUnit" placeholder="unit, e.g. worker hours" size="16"><textarea id="t1Excl" class="grow" rows="2" placeholder="Excluded subcategories with the reason, one per line, e.g. Ethical treatment of animals: no animals"></textarea><button id="btnT1Scope">Save</button></div>
+          <div class="row"><select id="t1Sh"></select><select id="t1Sub" class="grow"></select><input id="t1Unit" placeholder="Organisation or process" class="grow"></div>
+          <div class="row"><input id="t1Ind" placeholder="Indicator, e.g. wage vs living wage" class="grow"><input id="t1Prp" placeholder="Performance reference point, e.g. ILO C131, national minimum wage" class="grow"></div>
+          <div class="row"><select id="t1Score"><option value="2">+2 ideal</option><option value="1">+1 progressive</option><option value="0" selected>0 compliant</option><option value="-1">-1 risky</option><option value="-2">-2 very poor</option></select><input id="t1W" type="number" step="any" placeholder="weight" size="7"><input id="t1WU" placeholder="weight unit" size="12" value="worker hours"><select id="t1Dt"></select></div>
+          <div class="row"><input id="t1Ev" placeholder="Evidence (audit finding, document, interview)" class="grow"><input id="t1Src" placeholder="Source" class="grow"><button class="primary" id="btnT1Add">Add assessment</button></div>
+          <div id="t1Out"></div>
+        </div>
       <div class="tt" id="tt-mfa" hidden>
         <div class="block">
           <h2>Dynamic material flow analysis</h2>
@@ -859,8 +879,8 @@
         </div>
         <div class="block">
           <h2>Material flows linked to the LCA</h2>
-          <p class="hint">Link MFA processes to datasets of the library or to your models; Cyclia multiplies each year's throughput by the impact per unit (categories chosen in step 4). The factor converts the MFA unit to the unit of the dataset (1 if both are kg; 0.001 if the MFA is in kg and the dataset in t).</p>
-          <div class="table-wrap"><table class="mfa-edit"><thead><tr><th>MFA process</th><th>Linked to</th><th class="num">Factor</th><th></th></tr></thead><tbody id="mfaLinks"></tbody></table></div>
+          <p class="hint">Link MFA processes to datasets of the library or to your models; Cyclia multiplies each year's quantity by the impact per unit (categories chosen in step 4), in one calculation with the material flows. The factor converts the MFA unit to the unit of the dataset (1 if both are kg; 0.001 if the MFA is in kg and the dataset in t). Charge the production process on its <b>virgin input only</b>, so that recycled material is not charged again as primary material. For a recycling process, the second row gives a <b>credit</b> for the recovered material: link the primary material it replaces and set the substitution ratio (1 replaces it one to one; lower for quality losses). Results show primary supply, production and use, recycling, losses and credits, and the net total.</p>
+          <div class="table-wrap"><table class="mfa-edit"><thead><tr><th>MFA process</th><th>Linked to</th><th class="num">Factor</th><th>Counted on</th></tr></thead><tbody id="mfaLinks"></tbody></table></div>
           <div class="row"><button class="primary" id="btnMfaLca">Impacts over time</button></div>
           <div id="mfaLcaOut"></div>
         </div>
@@ -922,7 +942,7 @@
             <div class="row"><button class="primary" id="btnCdNewDb">Create database</button></div>
           </details>
           <details id="cdDbParamBox"><summary>Parameters of this database</summary>
-            <p class="hint">Named values that formulas in step 5 can use, for example <code>yield = 0.8</code> or <code>distance = 120</code>. A parameter can itself be a formula of other parameters. Change a value and every line that uses it is recalculated. A process can override a parameter with its own value.</p>
+            <p class="hint">Named values that formulas in step 5 can use, for example <code>yield = 0.8</code> or <code>distance = 120</code>. A parameter can itself be a formula of other parameters. Change a value and every line that uses it is recalculated. A process can override a parameter with its own value. Give a parameter a distribution and the full Monte Carlo (step 5, Uncertainty) draws it in every iteration and recalculates every formula that uses it; all processes of the database share the same draw.</p>
             <div class="table-wrap"><table id="cdDbParams"></table></div>
             <div class="row"><button class="ghost" id="btnCdDbParamAdd">Add parameter</button><button class="primary" id="btnCdDbParamSave">Save parameters</button></div>
           </details>
@@ -959,15 +979,20 @@
           <details id="cdCoBox"><summary>Co-products and allocation <span class="hint" id="cdCoSummary"></span></summary>
             <p class="hint">When the process makes more than one product (cheese and whey, sawn wood and sawdust), list the other products here and choose how its inputs and emissions are shared. Mass and energy use the amounts (in kg or MJ; give kg or MJ per unit when the unit is not a mass or energy unit), economic uses the price per unit, manual takes your shares (they must add up to 1). Cyclia then makes one dataset per product. ISO 14044 prefers avoiding allocation, for example by system expansion with an avoided product; use allocation when that is not possible and say why in the source.</p>
             <div id="cdCoRows"></div>
-            <div class="row"><button class="ghost" id="btnCdCoAdd">Add a co-product</button><select id="cdAlMethod"><option value="">allocation method</option><option value="mass">mass</option><option value="energy">energy</option><option value="economic">economic</option><option value="manual">manual shares</option></select><input id="cdAlSrc" class="grow" placeholder="Source of prices or properties, and why allocation is used"></div>
+            <div class="row"><button class="ghost" id="btnCdCoAdd">Add a co-product</button><select id="cdAlMethod"><option value="">allocation method</option><option value="mass">mass</option><option value="energy">energy</option><option value="economic">economic</option><option value="physical">physical causality</option><option value="manual">manual shares</option></select><input id="cdAlSrc" class="grow" placeholder="Source of prices or properties, and why allocation is used"></div>
+            <div class="row" id="cdAlEco" hidden><span class="hint">Prices in</span><input id="cdAlCur" placeholder="currency, e.g. EUR" size="10"><span class="hint">of the year</span><input id="cdAlYear" type="number" placeholder="e.g. 2025" size="7"></div>
+            <div class="row" id="cdAlPhys" hidden><span class="hint">Physical property that causes the shares:</span><input id="cdAlProp" placeholder="e.g. protein content" size="18"><input id="cdAlPropUnit" placeholder="its unit, e.g. kg per kg" size="14"></div>
             <div id="cdAlValues"></div>
+            <div class="row"><button class="ghost" id="btnCdAlCmp">Compare allocation methods</button><span class="hint grow">How the results per unit of each product change with mass, energy, economic, physical or manual allocation, for the impact categories of step 4.</span></div>
+            <div id="cdAlCmpOut"></div>
           </details>
           <details id="cdPrParamBox"><summary>Parameters of this process</summary>
             <p class="hint">Values only this process uses, or that override a database parameter of the same name. Example: <code>dough = 0.65</code>, <code>flour_in = dough / (1 - loss)</code>.</p>
             <div class="table-wrap"><table id="cdPrParams"></table></div>
             <div class="row"><button class="ghost" id="btnCdPrParamAdd">Add parameter</button><span class="hint">Saved with the process.</span></div>
           </details>
-          <div class="row"><input id="cdPrComment" class="grow" placeholder="Comment"><button class="primary" id="btnCdProc">Save process</button></div>
+          <div class="row"><input id="cdPrComment" class="grow" placeholder="Comment"><button class="primary" id="btnCdProc">Save process</button><button class="ghost" id="btnCdUndo" title="Undo the last change of this process; press again to redo it">Undo last change</button></div>
+          <p class="hint" id="cdDeps"></p>
         </div>
         <div class="block cd-sec" id="cdSec5">
           <h3><span class="cd-n">5</span>Inputs, waste, credits, emissions and resources</h3>
@@ -1012,7 +1037,7 @@
         <div class="block cd-sec" id="cdSec7">
           <h3><span class="cd-n">7</span>Check and use</h3>
           <p class="hint">The check lists errors to correct (an input without a supplier, a process that cannot be calculated) and what is still missing (sources, data quality, factor decisions). Then add your process to the open model; set its amount in step 3.</p>
-          <div class="row"><button class="primary" id="btnCdCheck">Check database</button><button id="btnCdUse">Add the selected process to the open model</button><button class="ghost" id="btnCdHist">Change history of the selected process</button></div>
+          <div class="row"><button class="primary" id="btnCdCheck">Check database</button><button id="btnCdUse">Add the selected process to the open model</button><button class="ghost" id="btnCdHist">Versions of the selected process</button><button class="ghost" id="btnCdDeleted">Deleted processes</button></div>
           <div id="cdCheckOut"></div>
           <div id="cdHistOut"></div>
         </div>

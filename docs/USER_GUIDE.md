@@ -320,6 +320,22 @@ y, y + R, y + 2R ... before the end of the period and each occurrence is discoun
 cost per functional unit by line, stage and cost type, and whether the cost hotspot is the same as the
 environmental one.
 
+Following ISO 15686-5, Cyclia also handles:
+
+- **Price escalation** (step 2), per cost type, as a real rate in % per year. Write it as
+  `maintenance=2, operation=1.5`, or `all=1` for every type.
+- **Residual value** (step 2, on by default). If the last replacement still has service life left at the end of the
+  study period, that remaining value is credited. Example: an item bought every 25 years in a 60-year study is
+  bought in years 0, 25 and 50; the last one still has 15 of its 25 years left, so 15/25 of its price is credited.
+- **Price uncertainty** (line Details), as a geometric standard deviation. For example, 1.2 means the price is within
+  a factor 1.2, roughly two times in three. The Summary then shows the 95 % range of the net present cost.
+- **Cost types** include the ISO 15686-5 categories: construction, operation, maintenance, end of life,
+  non-construction, income and externalities.
+
+**Compare allocation choices** (step 2, allocation, when the model has co-products) shows the results under mass,
+economic, energy, physical and manual allocation, and without allocation, for the categories of step 4. A choice
+whose values are missing is listed with what to fill in.
+
 ### Parameters and scenarios
 
 A **parameter** is a named number you can use in amounts, for example `distance_km = 300`. Formulas use
@@ -551,7 +567,11 @@ Compare before you claim that one product is better.
 - **Create Word report**: a report structured as ISO 14044: goal and scope, inventory with parameters and
   data quality, impact assessment, interpretation with key findings, data quality, checks and sensitivity, a methods paragraph you can
   paste into a thesis or article, the inventory results and references (including Cyclia).
-- **Export results to Excel**: every table, including data quality, key findings, costs and water.
+- **Export results to Excel**: every table, including data quality, key findings, costs and water. The
+  **Provenance** sheet lists every dataset of the supply chain (also deep in the background) with its database,
+  version, system model, identifier, the amount per functional unit and its own direct contribution to each
+  category; for your own data also the source, author, revision and data quality. The Word report summarises it in
+  an annex with the 25 largest contributions.
 - **Executive summary**: two pages for managers: what was assessed, the main results with their largest
   contributor and data quality, key findings, conclusions and review status.
 - **Figures for a journal**: the contribution charts as 300 dpi PNG and as SVG in a zip file.
@@ -645,6 +665,11 @@ every amount that uses it is recalculated. A change that would make an amount ne
 be calculated (an unknown name, a parameter that depends on itself), is refused with a message, and nothing is
 changed.
 
+A parameter can also have a **distribution** (lognormal with its GSD, normal, triangular or uniform), for a value
+you know only roughly, such as a yield between 0.75 and 0.85. The full Monte Carlo (step 5, Uncertainty, "Full
+Monte Carlo") then draws it in every iteration and recalculates every formula that uses it. All processes of the
+database share the same draw, so a common assumption moves them together, as it should.
+
 ### 2. Product flows
 List what your processes make, and the waste they send to treatment, each with the unit you count it in: bread in
 kg, electricity in kWh, transport in t*km, a machine in unit. Use **Edit** to correct a name or category later;
@@ -699,6 +724,13 @@ the inputs and emissions are shared:
 | manual | your shares, adding up to 1 | from a published study |
 
 For mass and energy, Cyclia uses the unit when it is a mass or energy unit; otherwise give the kg or MJ per unit.
+For **economic** allocation give the currency and the year of the prices, because prices change. **Physical
+causality** shares by a property that physically causes the burdens, such as protein content for feed or machine
+hours for parts: name the property and give its value per unit of each product.
+
+**Compare allocation methods** shows, for the impact categories of step 4, the result per unit of each product
+under every method that has its values. The total of the process stays the same; only its division changes.
+Use it to show in a report how much your conclusions depend on the choice.
 Cyclia then makes one dataset per product, each carrying its share of every line. Other processes, and your
 models, can use each product separately. ISO 14044 asks to avoid allocation where possible, for example by
 system expansion (an avoided product in step 5); use allocation when that is not possible, and give the source of
@@ -741,7 +773,11 @@ Below step 5, the diagram draws your processes and the library datasets they use
 - **click an arrow** to edit that line;
 - **Arrange automatically** places suppliers to the left of the processes that use them.
 
-In step 3 of a model (Inventory), clicking a box of the model's flow diagram opens its line in the table.
+In step 3 of a model (Inventory), press **Diagram** to edit the model by drawing:
+- drag a line's box to another stage column to move it there, or to "new stage" to create one;
+- click its amount to change it, "credit" to make it an avoided product (or not), and × to remove it;
+- click the box to open its row in the table;
+- **+ Add a line** goes to the search.
 
 ### 6. Characterisation factors
 Impact methods do not know the flows you created in step 3. For each of them, and each impact category you use,
@@ -754,6 +790,11 @@ choose one of two answers:
 **Show factor status** lists every flow and category and marks each open decision; **Decide** fills the form for
 it.
 
+If you later change the name, compartment, subcompartment or CAS number of one of your flows, the factors you gave
+it are put **under review**: a factor for a solvent emitted to air does not automatically hold for the same solvent
+in water. Until you press **Confirm** (the factor still holds) or **Correct** (give the right one), the factor is not
+used and results that contain the flow are marked incomplete.
+
 You can also create **your own method** or impact category for an indicator no installed method has. Say what
 happens to flows that get no factor in it:
 
@@ -765,7 +806,21 @@ factor to any flow.
 
 ### 7. Check and use
 **Check database** lists errors to correct (an input whose supplier was removed, a process that cannot be
-calculated) and what is still missing (sources, data quality, factor decisions). **Add the selected process to the
+calculated) and what is still missing (sources, data quality, factor decisions). It also warns about entries that
+look like a unit slip: material inputs far from the mass of the products (650 kg of flour for 1 kg of bread), or a
+line more than 10,000 times the reference amount. If such a value is right, note why in the source.
+
+**Versions and undo.** Every change of a process keeps the state before and after it.
+- **Undo last change** reverses the latest change; pressing it again redoes it.
+- **Versions of the selected process** lists every change with what changed, and can restore the state before or
+  after any of them.
+- **Deleted processes** brings back a process you deleted.
+
+A restore that no longer fits (its supplier was deleted since, for example) leaves an open input that the check
+reports, rather than failing silently.
+
+**Who depends on a process.** Under the process form, Cyclia lists the processes that use it and the models of
+every project that use it or them, so you know which results to recalculate after a change. **Add the selected process to the
 open model** puts it in the inventory of the model you have open; set its amount there, in step 3. Your processes
 are also found by the normal search of step 3. **Change history** lists every change of the selected process and
 its lines, with time and author.
@@ -792,6 +847,24 @@ every factor is decided. Give the factors or record why the category does not ap
 
 ## Toolbox
 
+- **Scientific Benchmark Centre** (top of the Validation tab): one table of all the evidence for Cyclia's
+  calculations in your installation. For every check and every installed method it shows:
+  - the reference and the reference result;
+  - Cyclia's result;
+  - the absolute, relative and maximum differences;
+  - the missing flows;
+  - the status, the date and the Cyclia version.
+
+  Only a check that ran here, with every result within its tolerance, shows **Validated**. "Not run" means it has
+  not been run yet; "Not available" means the software it needs (Brightway) is not installed. Neither is
+  validation. **Run the IPCC 2021 check** calculates 1 kg of each of 14 greenhouse gases and compares the result
+  with the published IPCC AR6 values. The validation suite, the Brightway comparison and the ecoinvent benchmark
+  add their results to the table when they finish. **Export (Excel)** saves the table for a report or a reviewer.
+  When you import an official AWARE, LANCA or USEtox package, the Centre checks its structure: completeness,
+  units, ranges, the world fallback and a named source. It shows "Package checked" or what is missing. Checking the
+  factor values themselves needs the package's own reference results, so these rows are never "Validated". The
+  Word report includes this table and the ISO 14044 critical review checklist, checked automatically from your
+  study, in an annex.
 - **Validation**: the validation suite runs 35 small product systems with exact known answers and saves a
   Word report to attach to a thesis or paper. The **independent cross-check** recalculates datasets of your
   library and the models of your project with a second implementation (other solver, matrices rebuilt from the
@@ -823,13 +896,32 @@ every factor is decided. Give the factors or record why the category does not ap
   Monthly AWARE factors (a month column in the table) are used with a 12-month water use profile of the model;
   watershed polygons (GeoJSON) find the basin from the site's latitude and longitude. The soil quality index can be
   aggregated from the four LANCA indicators with the normalisation references of the method version you follow.
-- **Social LCA** (risk screening, not a full social LCA). PSILCA and SOCA data in openLCA JSON-LD are imported
+- **Social screening, and the subcategory assessment (Type I).** The lower part of the tab is the assessment
+  proper, after the UNEP 2020 guidelines:
+  - choose a stakeholder category (workers, local community, value chain actors, consumers, society or children)
+    and one of its subcategories;
+  - score each organisation of your product system against a performance reference point (the law, ILO
+    convention or norm): +2 ideal, +1 progressive, 0 compliant, -1 risky, -2 very poor;
+  - give its weight, for example worker hours per functional unit.
+
+  Cyclia reports:
+  - per subcategory, the weighted score, the coverage against the total you give, the share of site-specific data
+    and the hotspots (scores of -1 or -2);
+  - per stakeholder, the lowest score and the subcategories not yet assessed.
+
+  Exclude a subcategory with its reason (one per line) when it does not apply. Scores are not added up into a
+  single number. The risk screening above it is a screening, not a social LCA: PSILCA and SOCA data in openLCA JSON-LD are imported
   directly (social aspects, activity values, risk levels, raw values); PSILCA sectors are assigned to your datasets
   with a mapping table. A screening of social risks along the supply chain: worker hours per functional unit and
   risk hours per stakeholder and indicator, with the processes that cause them. Import your licensed PSILCA or
   SOCA extract or your own data with the template; Cyclia ships no social data. Process coverage shows how many
   processes of the supply chain have data; totals are lower bounds. Add a default row (match `*`) to estimate the
   worker hours of processes without data and get a worker-hour coverage. Avoided products are shown separately.
+- **Material flows** (Material flows linked to the LCA): charge the production process on its **virgin input
+  only**, so recycled material is not counted again as primary material. Give each recycling process a **credit**:
+  link the primary material its output replaces, with a substitution ratio (1 replaces it one to one; lower for
+  quality losses). The results separate primary supply, production and use, recycling, losses and credits, and give
+  the net total per year and cumulatively.
 - **Material flows**: build the system in tables and a diagram (drag the boxes), or edit the JSON. **Material flows
   linked to the LCA** links MFA processes to datasets or models and gives the impacts of the material system year by
   year. Dynamic material flow analysis (MFA) of a material system over years: processes, in-use stocks with

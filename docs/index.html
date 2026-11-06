@@ -31,7 +31,7 @@
   "applicationCategory": "ScientificApplication",
   "applicationSubCategory": "Life cycle assessment",
   "operatingSystem": "Windows, macOS, Linux",
-  "softwareVersion": "1.6.2",
+  "softwareVersion": "1.7.0",
   "license": "https://opensource.org/licenses/MIT",
   "isAccessibleForFree": true,
   "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
@@ -154,7 +154,7 @@ footer a { color: var(--muted); }
         <div class="stat"><b>100 %</b><span>of 2,500 results within 0.1 % of ecoinvent's published LCIA results (EF 3.1, cut-off)</span></div>
         <div class="stat"><b>1e-6</b><span>agreement with Brightway on every result; largest difference 1.4e-12</span></div>
         <div class="stat"><b>35</b><span>validation systems with exact known answers, built into the app</span></div>
-        <div class="stat"><b>227</b><span>automated tests, run on Windows, macOS and Linux for every release</span></div>
+        <div class="stat"><b>305</b><span>automated tests, run on Windows, macOS and Linux for every change</span></div>
       </div>
       <div class="table-scroll"><table class="vtable"><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>
         <tr><td>ecoinvent's published LCIA results (EF 3.1, cut-off, 100 datasets x 25 categories)</td><td>100 % of 2,500 results within 0.1 %, median deviation 3.9e-07 %</td></tr>
@@ -165,7 +165,8 @@ footer a { color: var(--muted); }
         <tr><td>Characterisation factors against openLCA, Brightway or CSV</td><td>Flow by flow, with the effect on results</td></tr>
         <tr><td>ILCD+EPD export</td><td>Validated against the official schemas</td></tr>
         <tr><td>Reference tests</td><td>Comparative probabilities, nested uncertainty and data quality, AWARE, LANCA, SQI, social LCA, MFA and MCI, against analytic or hand-calculated values</td></tr>
-        <tr><td>Automated tests</td><td>227, on Windows, macOS and Linux before every release</td></tr>
+        <tr><td>Automated tests</td><td>305, on Windows, macOS and Linux for every change; the Brightway comparison runs with pinned versions and may not be skipped</td></tr>
+        <tr><td>IPCC 2021 GWP100</td><td>14 gases reproduce the published AR6 values exactly (Benchmark Centre)</td></tr>
       </tbody></table></div>
       <p>Details: <a href="VALIDATION_ECOINVENT.html">ecoinvent validation</a> and <a href="CROSS_VALIDATION.html">cross validation</a>.
         Still open: the comparison with openLCA, ReCiPe 2016 and CML-IA against ecoinvent, and a check against the official
@@ -215,7 +216,8 @@ footer a { color: var(--muted); }
         <div class="card"><h3>Costing, circularity and social LCA</h3><ul>
           <li>Life cycle costing with discounting, cost types and replacements</li>
           <li>Material flow analysis: stocks, lifetimes, collection rate, recycling efficiency, MCI, link to LCA</li>
-          <li>Social LCA screening of worker hours and risk hours with PSILCA, SOCA or own data</li>
+          <li>Social LCA screening of worker hours and risk hours with PSILCA, SOCA or own data, and a subcategory assessment against performance reference points (UNEP 2020)</li>
+          <li>Life cycle costing per ISO 15686-5, and material flow analysis linked to the LCA with recycling credits and net impacts over time</li>
         </ul></div>
         <div class="card"><h3>Reports and declarations</h3><ul>
           <li>ISO 14044 Word report, executive summary, Excel workbook, 300 dpi figures</li>
@@ -261,7 +263,7 @@ footer a { color: var(--muted); }
   <section id="cite">
     <div class="wrap">
       <h2>Cite Cyclia</h2>
-      <blockquote>Rehman, N. U. (2026). <i>Cyclia: open-source life cycle assessment software for researchers</i> (version 1.6.2) [Computer software]. <a href="https://doi.org/10.5281/zenodo.23853747">https://doi.org/10.5281/zenodo.23853747</a></blockquote>
+      <blockquote>Rehman, N. U. (2026). <i>Cyclia: open-source life cycle assessment software for researchers</i> (version 1.7.0) [Computer software]. <a href="https://doi.org/10.5281/zenodo.23853747">https://doi.org/10.5281/zenodo.23853747</a></blockquote>
     </div>
   </section>
 </main>

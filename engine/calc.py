@@ -291,6 +291,59 @@ def impacts(mc, M, acts, flows, fixed=None, lu=None, B=None, Q=None):
     return h, s, g
 
 
+def provenance(store, model_id, method_ids, scenario=None, bg=None, limit=20000):
+    """Every dataset in the supply chain of a model (recursive inventory), with where it comes from: database,
+    version and system model, identifier, the amount of its reference product per functional unit, its direct
+    contribution to each category, and, for custom data, source, author, revision and data quality."""
+    import json as _json
+    method_ids = [int(m) for m in method_ids]
+    ctx = Context(store, _scenario(store, scenario))
+    model = ctx.model(model_id)
+    mc = get_mc(store, bg)
+    M = Methods(store, mc, method_ids)
+    sc = model["scope"]
+    share = allocation_share(sc)
+    acts, flows, fixed = {}, {}, []
+    expand(ctx, model_id, 1.0, acts, flows, fixed, keep=lambda inp: not is_module_d(sc, inp["stage"]))
+    _, s, _ = impacts(mc, M, acts, flows, fixed)
+    s = s * share
+    nz = np.nonzero(s)[0]
+    direct = (M.Q[:, nz] * s[nz]) if len(nz) else np.zeros((len(method_ids), 0))
+    order = np.argsort(-np.abs(direct[0])) if len(nz) else []
+    custom = {}
+    try:
+        for r in store.q("SELECT uuid, ref_id, data, source, author, revision, modified FROM custom_items WHERE "
+                         "kind='process'"):
+            d = _json.loads(r["data"] or "{}")
+            for aid in [r["ref_id"]] + list((d.get("coproduct_refs") or {}).values()):
+                if aid:
+                    custom[aid] = {"source": r["source"] or "", "author": r["author"] or "", "revision": r["revision"],
+                                   "modified": r["modified"], "dq": d.get("dq") or {}, "uuid": r["uuid"]}
+    except Exception:
+        pass
+    rows = []
+    for idx in list(order)[:limit]:
+        j = int(nz[idx])
+        aid = int(mc.act_ids[j])
+        a = store.one("SELECT a.name, a.location, a.unit, a.production, a.key, a.product, d.name AS db, d.version, "
+                      "d.system_model, d.source AS db_source FROM activities a JOIN databases d ON d.id=a.db_id "
+                      "WHERE a.id=?", (aid,))
+        if not a:
+            continue
+        cu = custom.get(aid)
+        dq = (cu or {}).get("dq") or {}
+        rows.append({"dataset": a["name"], "product": a["product"], "location": a["location"], "database": a["db"],
+                     "version": a["version"], "system_model": a["system_model"], "identifier": a["key"],
+                     "amount": float(s[j] * (a["production"] or 1.0)), "unit": a["unit"],
+                     "direct": [float(x) for x in direct[:, idx]],
+                     "custom": bool(cu), "source": (cu or {}).get("source", a["db_source"] or ""),
+                     "author": (cu or {}).get("author", ""), "revision": (cu or {}).get("revision"),
+                     "modified": (cu or {}).get("modified", ""),
+                     "dq": ",".join(str(dq[k]) for k in ("ter", "ger", "tir", "p")) if len(dq) == 4 else ""})
+    return {"datasets": rows, "n": int(len(nz)), "databases": sorted({r["database"] for r in rows}),
+            "methods": [{k: r[k] for k in ("family", "category", "indicator", "unit")} for r in M.rows]}
+
+
 def demand_vector(mc, acts):
     """Demand for the background. A line amount is always entered as a positive quantity of the dataset's product;
     for a treatment dataset (negative reference amount, ecoSpold2 convention: it 'produces' -1 kg of waste) that
@@ -341,6 +394,57 @@ def _num(v):
         return float(v)
     except (TypeError, ValueError):
         return 0.0
+
+
+def allocation_compare(store, model_id, method_ids, scenario=None, bg=None):
+    """Results of a model under every allocation choice its scope has values for: mass, economic, energy, physical,
+    manual share, and no allocation (system expansion with the credit lines as entered). The result scales with the
+    share of the main product, so each choice is the unallocated result x its share; checked against a full
+    calculation in the tests."""
+    model = store.model(int(model_id))
+    if not model:
+        raise LCAError("Model not found.")
+    sc = model["scope"] or {}
+    cur = allocation_share(sc)
+    res = run(store, int(model_id), method_ids, scenario=scenario, bg=bg)
+    tot = np.array([r["total"] for r in res["results"]])
+    unalloc = tot / cur if cur > 0 else None
+    cps = sc.get("coproducts") or []
+    names = {"mass": "mass", "price": "economic", "energy": "energy", "physical": "physical causality"}
+    rows = []
+    for b, label in names.items():
+        raw = [sc.get(f"main_{b}")] + [c.get(b) for c in cps]
+        if not cps:
+            rows.append({"choice": label, "available": False, "reason": "The model has no co-products."})
+            continue
+        if any(v in (None, "") for v in raw):
+            rows.append({"choice": label, "available": False,
+                         "reason": f"Give the {label} value of the main product and of every co-product in step 2."})
+            continue
+        vals = [_num(v) for v in raw]
+        if vals[0] <= 0 or any(v < 0 for v in vals):
+            rows.append({"choice": label, "available": False, "reason": "The values must be positive."})
+            continue
+        shr = vals[0] / sum(vals)
+        rows.append({"choice": label, "available": True, "share": shr,
+                     "totals": (unalloc * shr).tolist() if unalloc is not None else None,
+                     "current": (sc.get("alloc_basis") or "") == b})
+    try:
+        man = float(sc.get("alloc_share"))
+        if 0 < man <= 100:
+            rows.append({"choice": "manual share", "available": True, "share": man / 100,
+                         "totals": (unalloc * man / 100).tolist() if unalloc is not None else None,
+                         "current": not sc.get("alloc_basis")})
+    except (TypeError, ValueError):
+        pass
+    rows.append({"choice": "no allocation (system expansion: all burdens, credit lines as entered)", "available": True,
+                 "share": 1.0, "totals": unalloc.tolist() if unalloc is not None else None, "current": cur == 1.0})
+    return {"methods": [{k: r.get(k) for k in ("method_id", "family", "category", "indicator", "unit")}
+                        for r in res["results"]],
+            "rows": rows, "current_share": cur,
+            "note": "Per functional unit. ISO 14044 4.3.4.2: avoid allocation where possible (subdivision or system "
+                    "expansion); otherwise use a physical relationship; otherwise another relationship such as "
+                    "economic value. Report how the conclusions change with the choice."}
 
 
 class Context:
@@ -1212,13 +1316,26 @@ def full_mc(store, model_ids, method_ids, iterations=200, seed=42, progress=lamb
         amt = hier.amounts_matrix(store, overrides, ctx0, T, var_list, draws, iterations)
         pre.append(amt * hier.path_multipliers(T, hier.multipliers(frng, T, iterations, shared)))
     has_bg = bool((mc.t_unc["type"] > 0).any() or (mc.b_unc["type"] > 0).any())
+    try:
+        import custom_data
+        cplan = custom_data.mc_plan(store, mc)
+    except Exception:
+        cplan = None
+    prng = np.random.default_rng(seed + 2)
     res = np.zeros((len(prepared), iterations, len(method_ids)))
     for it in range(iterations):
         if cancelled():
             raise Cancelled()
-        if has_bg:
-            A = mc.build_A(sample_values(rng, mc.t_amt, mc.t_unc))
-            B = mc.build_B(sample_values(rng, mc.b_amt, mc.b_unc))
+        if has_bg or cplan:
+            A = mc.build_A(sample_values(rng, mc.t_amt, mc.t_unc) if has_bg else mc.t_amt)
+            B = mc.build_B(sample_values(rng, mc.b_amt, mc.b_unc) if has_bg else mc.b_amt)
+            if cplan:
+                # parameters of custom data: drawn, formulas evaluated, the change added to the entries
+                dl = cplan["deltas"](prng)
+                if dl["A"][2]:
+                    A = (A - sp.csc_matrix((dl["A"][2], (dl["A"][0], dl["A"][1])), shape=A.shape)).tocsc()
+                if dl["B"][2]:
+                    B = (B + sp.csr_matrix((dl["B"][2], (dl["B"][0], dl["B"][1])), shape=B.shape)).tocsr()
             try:
                 lu = splu(A)
             except RuntimeError:
@@ -1240,7 +1357,8 @@ def full_mc(store, model_ids, method_ids, iterations=200, seed=42, progress=lamb
             res[p, it] = Q @ s + M.Cd @ gd + fixed_h
         if it % max(1, iterations // 100) == 0:
             progress(int(100 * it / iterations), f"Iteration {it + 1:,} of {iterations:,}")
-    out = {"mode": "full" if has_bg else "foreground", "iterations": iterations, "background_uncertainty": has_bg,
+    out = {"mode": "full" if has_bg or cplan else "foreground", "iterations": iterations, "background_uncertainty": has_bg,
+           "custom_parameters": cplan["n_parameters"] if cplan else 0,
            "models": [{"id": m["id"], "name": m["name"], "methods": [_stats(res[p, :, k]) for k in range(len(method_ids))]}
                       for p, (m, _, _) in enumerate(prepared)],
            "methods": [{k: r[k] for k in ("id", "family", "category", "indicator", "unit")} for r in M.rows],
@@ -1260,6 +1378,9 @@ def full_mc(store, model_ids, method_ids, iterations=200, seed=42, progress=lamb
                         for i in range(len(prepared)) for j in range(i + 1, len(prepared))]
     shared_txt = ("Lines and parameters that the models have in common use the same random values; the other "
                   "foreground lines are sampled for each model.")
+    if cplan:
+        shared_txt += (f" {cplan['n_parameters']} parameter distribution(s) of your own data were drawn in every "
+                       f"iteration and {cplan['n_lines']} formula line(s) evaluated again.")
     out["note"] = (f"Background exchange uncertainty from the database (the same random background for every model in "
                    f"each iteration), foreground data-quality scores of every line including nested models, and "
                    f"parameter distributions, {iterations} iterations. {shared_txt}" if has_bg else

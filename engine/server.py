@@ -32,6 +32,8 @@ import ilcd_epd  # noqa: E402
 import compare_kit  # noqa: E402
 import brightway_check  # noqa: E402
 import custom_data  # noqa: E402
+import slca_type1  # noqa: E402
+import benchmark as bench_mod  # noqa: E402  (server.py has a route function named benchmark)
 import lci_check  # noqa: E402,F401  (used by trust; imported here so the packaged engine includes it)
 import staging  # noqa: E402
 import mfa  # noqa: E402
@@ -54,7 +56,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.6.2"
+VERSION = "1.7.0"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -541,6 +543,7 @@ def _ei_validate(st, store, user, pw, version, model, db_name, sample, progress,
         st.last_bench = trust.benchmark_ecoinvent(store, path, "" if all_methods else trust.preferred_family(store), sample,
                                                   progress=lambda pc, m: progress(40 + pc * 0.6, m), db_name=db_name,
                                                   lci_path=lci)
+        _bench_record(st, "ecoinvent", None, st.last_bench)
         if lci_error:
             st.last_bench["inventory"] = {"error": "ecoinvent's cumulative LCI could not be downloaded, so the inventory "
                                                    f"check was not run ({lci_error})."}
@@ -957,7 +960,9 @@ def input_add(st, body, q, mid):
 
 
 DATA_TYPES = ("", "primary", "secondary", "estimate")
-COST_TYPES = ("", "capex", "opex", "maintenance", "replacement", "end of life")
+# capex ... end of life (Cyclia 1.3) and the ISO 15686-5 categories of life cycle cost and whole-life cost
+COST_TYPES = ("", "capex", "opex", "maintenance", "replacement", "end of life", "construction", "operation",
+              "non-construction", "income", "externalities")
 
 
 @route("PATCH", r"/api/inputs/(\d+)")
@@ -1001,6 +1006,15 @@ def input_update(st, body, q, iid):
         if body["cost_type"] not in COST_TYPES:
             raise ApiError("Cost type must be one of: " + ", ".join(t or "(none)" for t in COST_TYPES) + ".")
         fields["cost_type"] = body["cost_type"]
+    if "cost_gsd" in body:
+        if body["cost_gsd"] in (None, ""):
+            fields["cost_gsd"] = None
+        else:
+            g = _num(body["cost_gsd"], "Price uncertainty (GSD)")
+            if g < 1:
+                raise ApiError("The price uncertainty is a geometric standard deviation of 1 or more (1.2 means the "
+                               "price is within a factor 1.2 roughly two times in three).")
+            fields["cost_gsd"] = g
     if "replace_every" in body:
         if body["replace_every"] in (None, ""):
             fields["replace_every"] = None
@@ -1293,7 +1307,16 @@ def export_word(st, body, q):
     model = st.store.model(int(body["model_id"]))
     path = _export_path(st, body, model, "docx")
     _writable(path)
-    report.word_report(path, model, res, st.store.databases(), VERSION)
+    try:
+        evidence = bench_mod.centre(st.store)
+    except Exception:   # noqa: BLE001
+        evidence = None
+    try:
+        review = standards.review_checklist(model, res)
+    except Exception:   # noqa: BLE001
+        review = None
+    report.word_report(path, model, res, st.store.databases(), VERSION, provenance=_prov(st, body), evidence=evidence,
+                       review=review)
     return {"path": path, "file": os.path.basename(path)}
 
 
@@ -1303,8 +1326,18 @@ def export_excel(st, body, q):
     model = st.store.model(int(body["model_id"]))
     path = _export_path(st, body, model, "xlsx")
     _writable(path)
-    report.excel_results(path, model, res, VERSION)
+    report.excel_results(path, model, res, VERSION, provenance=_prov(st, body))
     return {"path": path, "file": os.path.basename(path)}
+
+
+def _prov(st, body):
+    """Recursive provenance of the supply chain for the reports (left out, not failing, if it cannot be built)."""
+    try:
+        return calc.provenance(st.store, int(body["model_id"]), [int(x) for x in body["method_ids"]],
+                               int(body["scenario"]) if body.get("scenario") else None, _bg(body))
+    except Exception as e:   # noqa: BLE001
+        log.warning("provenance not built: %s", e)
+        return None
 
 
 @route("POST", "/api/methods-text")
@@ -1429,8 +1462,42 @@ def teach_key_doc(st, body, q):
 def validation_suite(st, body, q):
     def job(progress, cancelled):
         st.last_validation = trust.validation_suite(progress)
+        _bench_record(st, "suite", "validation suite", st.last_validation)
         return st.last_validation
     return {"job": st.start_job("Validation suite", job)}
+
+
+def _bench_record(st, kind, title, res):
+    """Keep the evidence of a run for the Benchmark Centre (never fails the run itself)."""
+    try:
+        if kind == "ecoinvent":
+            bench_mod.record_ecoinvent(st.store, res)
+        else:
+            bench_mod.record(st.store, kind, title or kind, bench_mod.summarise(kind, res))
+    except Exception as e:   # noqa: BLE001
+        log.warning("benchmark record failed: %s", e)
+
+
+@route("GET", "/api/benchmark/centre")
+def bench_centre(st, body, q):
+    return bench_mod.centre(st.store)
+
+
+@route("POST", "/api/benchmark/ipcc")
+def bench_ipcc(st, body, q):
+    def job(progress, cancelled):
+        r = bench_mod.ipcc_check(progress)
+        _bench_record(st, "ipcc", "IPCC 2021 GWP100", r)
+        return r
+    return {"job": st.start_job("IPCC 2021 check", job, exclusive=False)}
+
+
+@route("POST", "/api/export/benchmark-centre")
+def bench_export(st, body, q):
+    path = _export_path(st, body, {"name": "Cyclia benchmark centre"}, "xlsx")
+    _writable(path)
+    bench_mod.excel(path, bench_mod.centre(st.store))
+    return {"path": path, "file": os.path.basename(path)}
 
 
 @route("POST", "/api/export/validation")
@@ -2000,6 +2067,7 @@ def bench_ei(st, body, q):
             lci = _check_path(body["lci_path"]) if body.get("lci_path") else None
             st.last_bench = trust.benchmark_ecoinvent(store, path, body.get("family") or "", sample, progress=progress,
                                                       db_name=body.get("db_name") or None, lci_path=lci)
+            _bench_record(st, "ecoinvent", None, st.last_bench)
         except calc.LCAError as e:
             raise ValueError(str(e))
         out = dict(st.last_bench)
@@ -2359,6 +2427,7 @@ def brightway_compare(st, body, q):
             st.last_bw = brightway_check.compare(store, int(db), mids, sample, progress=progress)
         except ValueError as e:
             raise ApiError(str(e))
+        _bench_record(st, "brightway", st.last_bw.get("database"), st.last_bw)
         return st.last_bw
     return {"job": st.start_job("Comparison with Brightway", job, exclusive=False)}
 
@@ -2505,6 +2574,93 @@ def custom_db_params(st, body, q, db_id):
 def custom_layout(st, body, q):
     uid, x, y = _need(body, "uuid", "x", "y")
     _cd(custom_data.save_layout, st.store, uid, x, y)
+    return {"ok": True}
+
+
+@route("POST", "/api/custom/undo")
+def custom_undo(st, body, q):
+    _cd_free(st)
+    (uid,) = _need(body, "process")
+    _cd(custom_data.undo, st.store, uid, body.get("author") or "")
+    return {"ok": True}
+
+
+@route("POST", "/api/custom/restore")
+def custom_restore(st, body, q):
+    _cd_free(st)
+    uid, hid = _need(body, "process", "history_id")
+    _cd(custom_data.restore, st.store, uid, hid, body.get("which") or "before", body.get("author") or "")
+    return {"ok": True}
+
+
+@route("GET", r"/api/custom/(\d+)/deleted")
+def custom_deleted(st, body, q, db_id):
+    return {"processes": custom_data.deleted_processes(st.store, int(db_id))}
+
+
+@route("GET", "/api/custom/dependents")
+def custom_dependents(st, body, q):
+    uid = (q.get("process") or [""])[0]
+    if not uid:
+        raise ApiError("Missing field: process")
+    return custom_data.dependents(st.store, uid, st.ws.activity_usage)
+
+
+@route("GET", "/api/slca/type1")
+def slca_t1(st, body, q):
+    mid = (q.get("model_id") or [""])[0]
+    if not mid:
+        raise ApiError("Missing field: model_id")
+    return {**slca_type1.assess(st.store, int(mid)), "categories": slca_type1.SUBCATEGORIES,
+            "data_types": slca_type1.DATA_TYPES}
+
+
+@route("POST", "/api/slca/type1/row")
+def slca_t1_row(st, body, q):
+    (mid,) = _need(body, "model_id")
+    try:
+        return {"id": slca_type1.save_row(st.store, int(mid), body)}
+    except slca_type1.SocialError as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/slca/type1/delete")
+def slca_t1_del(st, body, q):
+    (rid,) = _need(body, "id")
+    slca_type1.delete_row(st.store, rid)
+    return {"ok": True}
+
+
+@route("POST", "/api/slca/type1/scope")
+def slca_t1_scope(st, body, q):
+    (mid,) = _need(body, "model_id")
+    try:
+        slca_type1.set_scope(st.store, int(mid), body.get("total_weight"), body.get("weight_unit"), body.get("excluded") or "")
+    except slca_type1.SocialError as e:
+        raise ApiError(str(e))
+    return {"ok": True}
+
+
+@route("POST", "/api/allocation/compare")
+def model_alloc_compare(st, body, q):
+    mid, mids = _need(body, "model_id", "method_ids")
+    return _calc_error(calc.allocation_compare, st.store, int(mid), [int(x) for x in mids],
+                       int(body["scenario"]) if body.get("scenario") else None, _bg(body))
+
+
+@route("POST", "/api/custom/allocation-compare")
+def custom_alloc_compare(st, body, q):
+    uid, mids = _need(body, "process", "method_ids")
+    try:
+        return custom_data.allocation_compare(st.store, uid, [int(m) for m in mids], body.get("alternatives"))
+    except (custom_data.CustomDataError, calc.LCAError) as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/custom/factor/confirm")
+def custom_factor_confirm(st, body, q):
+    mid, flow = _need(body, "method_id", "flow_uuid")
+    _cd(custom_data.confirm_factor, st.store, mid, flow, body.get("author") or "")
     return {"ok": True}
 
 

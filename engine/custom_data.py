@@ -82,6 +82,9 @@ def _number(v, what, allow_zero=False):
     try:
         x = float(v)
     except (TypeError, ValueError):
+        if isinstance(v, str) and re.fullmatch(r"\s*-?\d+,\d+\s*", v):
+            raise CustomDataError(f"{what}: use a dot as the decimal separator ({v.strip().replace(',', '.')}, not "
+                                  f"{v.strip()}).")
         raise CustomDataError(f"{what} must be a number.")
     if not math.isfinite(x):
         raise CustomDataError(f"{what} must be a finite number.")
@@ -133,12 +136,194 @@ def _log(store, item, kind, action, author="", data=None):
         store.conn.commit()
 
 
+def _diff(before, after):
+    """Plain description of what changed between two versions of a process."""
+    if before is None:
+        return "created"
+    if after is None:
+        return "deleted"
+    out = []
+    bi, ai = before["item"], after["item"]
+    if bi["name"] != ai["name"]:
+        out.append(f"name '{bi['name']}' -> '{ai['name']}'")
+    bd, ad = json.loads(bi["data"] or "{}"), json.loads(ai["data"] or "{}")
+    for k in ("amount", "type", "location", "technology", "time_period", "data_type", "dq", "parameters",
+              "coproducts", "allocation", "product"):
+        if bd.get(k) != ad.get(k):
+            out.append(k.replace("_", " ") + " changed")
+    if (bi.get("source") or "") != (ai.get("source") or ""):
+        out.append("source changed")
+    be = {e["id"]: e for e in before["exchanges"]}
+    ae = {e["id"]: e for e in after["exchanges"]}
+    add = [i for i in ae if i not in be]
+    rem = [i for i in be if i not in ae]
+    chg = [i for i in ae if i in be and any(ae[i].get(k) != be[i].get(k) for k in
+                                            ("target", "amount", "unit", "avoided", "utype", "p1", "p2", "p3",
+                                             "formula", "source"))]
+    for label, ids, src in (("added", add, ae), ("removed", rem, be), ("changed", chg, ae)):
+        for i in ids[:5]:
+            e = src[i]
+            amt = f"{e['amount']:g} {e['unit']}" + (f" (= {e['formula']})" if e.get("formula") else "")
+            if label == "changed":
+                o = be[i]
+                amt = f"{o['amount']:g} {o['unit']} -> {amt}"
+            out.append(f"line {label}: {amt}")
+    return "; ".join(out) or "no change in the data"
+
+
 def history(store, item, limit=100):
+    """Change history of an item, newest first. Versions are summarised (what changed, and whether the state before
+    and after can be restored) instead of being returned in full."""
     ensure_schema(store)
     rows = store.q("SELECT * FROM custom_history WHERE item=? ORDER BY id DESC LIMIT ?", (item, int(limit)))
     for r in rows:
-        r["data"] = json.loads(r["data"]) if r["data"] else None
+        d = json.loads(r["data"]) if r["data"] else None
+        if isinstance(d, dict) and ("before" in d or "after" in d):
+            r["diff"] = _diff(d.get("before"), d.get("after"))
+            r["can_restore_before"] = d.get("before") is not None
+            r["can_restore_after"] = d.get("after") is not None
+            d = {k: v for k, v in d.items() if k not in ("before", "after")}
+        r["data"] = d
     return rows
+
+
+_EX_COLS = ("kind", "target", "amount", "unit", "amount_ref", "avoided", "utype", "p1", "p2", "p3", "pedigree",
+            "uncertainty", "source", "comment", "modified", "author", "created", "revision", "formula", "unit_factor")
+
+
+def snapshot(store, uid):
+    """The complete state of a process: its record and all its lines (for versions, undo and restore)."""
+    it = store.one("SELECT uuid, db_id, name, data, source, author, revision FROM custom_items WHERE uuid=? AND "
+                   "kind='process'", (uid,))
+    if not it:
+        return None
+    return {"item": dict(it), "exchanges": [{k: e[k] for k in ("id",) + _EX_COLS} for e in store.q(
+        "SELECT * FROM custom_exchanges WHERE process_uuid=? ORDER BY id", (uid,))]}
+
+
+def _attach_versions(store, uid, before):
+    """Store the state before and after the latest change of a process in its history row."""
+    after = snapshot(store, uid)
+    h = store.one("SELECT id, data FROM custom_history WHERE item=? ORDER BY id DESC LIMIT 1", (uid,))
+    if not h:
+        return
+    d = json.loads(h["data"] or "{}") if h["data"] else {}
+    d["before"], d["after"] = before, after
+    store.x("UPDATE custom_history SET data=? WHERE id=?", (json.dumps(d), h["id"]))
+
+
+def restore(store, uid, history_id, which="before", author=""):
+    """Bring a process back to the state before (or after) a recorded change. The restore is itself recorded, so it
+    can be undone. Refused, with nothing changed, when the old state no longer fits (for example a supplier or a
+    product that was deleted since)."""
+    h = store.one("SELECT * FROM custom_history WHERE id=? AND item=?", (int(history_id), uid))
+    if not h or not h["data"]:
+        raise CustomDataError("That version was not found.")
+    snap = (json.loads(h["data"]) or {}).get("before" if which == "before" else "after")
+    if snap is None and which == "before":
+        raise CustomDataError("The process did not exist before this change. Delete it instead.")
+    if not snap:
+        raise CustomDataError("No version is recorded for this change.")
+    now = snapshot(store, uid)
+    it = snap["item"]
+    with store.lock:
+        c = store.conn
+        if now:
+            c.execute("UPDATE custom_items SET name=?, data=?, source=?, author=?, modified=?, revision=revision+1 "
+                      "WHERE uuid=?", (it["name"], it["data"], it["source"], author or it["author"], _now(), uid))
+        else:
+            c.execute("INSERT INTO custom_items(uuid,kind,db_id,ref_id,name,data,source,author,created,modified,revision) "
+                      "VALUES(?,?,?,?,?,?,?,?,?,?,?)", (uid, "process", it["db_id"], None, it["name"], it["data"],
+                                                        it["source"], author or it["author"], _now(), _now(),
+                                                        (it.get("revision") or 1) + 1))
+        c.execute("DELETE FROM custom_exchanges WHERE process_uuid=?", (uid,))
+        for e in snap["exchanges"]:
+            free = not c.execute("SELECT 1 FROM custom_exchanges WHERE id=?", (e["id"],)).fetchone()
+            cols = (("id",) if free else ()) + _EX_COLS + ("process_uuid",)
+            vals = ((e["id"],) if free else ()) + tuple(e.get(k) for k in _EX_COLS) + (uid,)
+            c.execute(f"INSERT INTO custom_exchanges({','.join(cols)}) VALUES({','.join('?' * len(cols))})", vals)
+        c.commit()
+    try:
+        if now is None:
+            # recreate the dataset for the restored process (its earlier id is gone)
+            d = json.loads(it["data"])
+            d["coproduct_refs"] = {}
+            store.x("UPDATE custom_items SET data=? WHERE uuid=?", (json.dumps(d), uid))
+        compile(store, it["db_id"])
+    except Exception:
+        _put_back(store, uid, now, it["db_id"])
+        raise
+    _log(store, uid, "process", f"restored the version {'before' if which == 'before' else 'after'} the change of "
+                                f"{(h['time'] or '')[:19].replace('T', ' ')}", author)
+    _attach_versions(store, uid, now)
+
+
+def _put_back(store, uid, snap, db_id):
+    with store.lock:
+        c = store.conn
+        c.execute("DELETE FROM custom_exchanges WHERE process_uuid=?", (uid,))
+        if snap is None:
+            c.execute("DELETE FROM custom_items WHERE uuid=?", (uid,))
+        else:
+            it = snap["item"]
+            c.execute("UPDATE custom_items SET name=?, data=?, source=?, author=?, revision=? WHERE uuid=?",
+                      (it["name"], it["data"], it["source"], it["author"], it["revision"], uid))
+            for e in snap["exchanges"]:
+                cols = ("id",) + _EX_COLS + ("process_uuid",)
+                c.execute(f"INSERT INTO custom_exchanges({','.join(cols)}) VALUES({','.join('?' * len(cols))})",
+                          (e["id"],) + tuple(e.get(k) for k in _EX_COLS) + (uid,))
+        c.commit()
+    compile(store, db_id)
+
+
+def undo(store, uid, author=""):
+    """Undo the latest recorded change of a process (a second undo undoes the undo)."""
+    h = store.one("SELECT id FROM custom_history WHERE item=? AND data LIKE '%\"before\"%' ORDER BY id DESC LIMIT 1",
+                  (uid,))
+    if not h:
+        raise CustomDataError("There is no recorded change to undo for this process.")
+    restore(store, uid, h["id"], "before", author)
+
+
+def deleted_processes(store, db_id):
+    """Processes of a custom database that were deleted and can be restored."""
+    out = []
+    for h in store.q("SELECT id, item, time, data FROM custom_history WHERE kind='process' AND action='deleted' "
+                     "ORDER BY id DESC LIMIT 200"):
+        d = json.loads(h["data"] or "{}")
+        b = d.get("before")
+        if b and b["item"]["db_id"] == int(db_id) and not store.one("SELECT 1 AS x FROM custom_items WHERE uuid=?",
+                                                                    (h["item"],)):
+            if all(o["uuid"] != h["item"] for o in out):
+                out.append({"uuid": h["item"], "name": b["item"]["name"], "time": h["time"], "history_id": h["id"]})
+    return out
+
+
+def dependents(store, uid, usage=None):
+    """What a change of a process affects: the custom processes that use it, directly or further down the chain,
+    and (with usage(activity_id) -> [{project, lines}]) the models of every project that use any of them."""
+    seen, order, todo = {uid}, [], [uid]
+    while todo:
+        cur = todo.pop()
+        for r in store.q("SELECT DISTINCT e.process_uuid, i.name FROM custom_exchanges e JOIN custom_items i ON "
+                         "i.uuid=e.process_uuid WHERE e.kind='technosphere' AND (e.target=? OR e.target LIKE ?)",
+                         (cur, cur + "/%")):
+            if r["process_uuid"] not in seen:
+                seen.add(r["process_uuid"])
+                order.append({"uuid": r["process_uuid"], "name": r["name"], "via": cur})
+                todo.append(r["process_uuid"])
+    models = {}
+    if usage:
+        for p in [uid] + [o["uuid"] for o in order]:
+            it = store.one("SELECT ref_id, data FROM custom_items WHERE uuid=?", (p,))
+            if not it:
+                continue
+            refs = [it["ref_id"]] + list((json.loads(it["data"] or "{}").get("coproduct_refs") or {}).values())
+            for ref in refs:
+                if ref:
+                    for u in usage(ref):
+                        models[u["project"]] = models.get(u["project"], 0) + u["lines"]
+    return {"processes": order, "models": [{"project": k, "lines": v} for k, v in sorted(models.items())]}
 
 
 def _save_item(store, kind, uid, db_id, ref_id, name, data, source, author):
@@ -369,7 +554,16 @@ def save_elementary(store, d):
         if old:
             if unitconv.norm(old[1]) != unitconv.norm(unit) and _flow_used(store, uid):
                 raise CustomDataError("The unit of a flow that exchanges or factors already use cannot be changed.")
-            prev = store.conn.execute("SELECT c_name FROM flows WHERE uuid=?", (uid,)).fetchone()[0]
+            prev, pcomp, psub, pname, pcas = store.conn.execute(
+                "SELECT c_name, compartment, subcompartment, name, cas FROM flows WHERE uuid=?", (uid,)).fetchone()
+            changed = [w for w, a, b in (("name", pname, name), ("compartment", pcomp, comp), ("subcompartment", psub, sub),
+                                          ("CAS number", pcas or "", cas)) if (a or "") != (b or "")]
+            if changed:
+                # a factor belongs to a substance in a context: when either changes, the factors given for it are
+                # no longer known to apply. They are kept for review and are not used until confirmed.
+                store.conn.execute("UPDATE custom_factors SET review=? WHERE flow_uuid=? AND review IS NULL",
+                                   (f"The flow's {', '.join(changed)} changed (was {pname}, {pcomp}/{psub}); "
+                                    "confirm or correct this factor.", uid))
             store.conn.execute("UPDATE flows SET name=?, compartment=?, subcompartment=?, unit=?, cas=?, c_name=?, c_comp=?, "
                                "c_sub=? WHERE uuid=?", (name, comp, sub, unit, cas, *cn, uid))
             fid = old[0]
@@ -380,6 +574,8 @@ def save_elementary(store, d):
                 "SELECT DISTINCT method_id FROM cfs WHERE flow_id=?", (prev, cn[0], uid, fid)).fetchall()]
             store.conn.execute("DELETE FROM cfs WHERE flow_id=?", (fid,))
             store.conn.execute("DELETE FROM cfs_regional WHERE flow_id=?", (fid,))
+            remat += [r[0] for r in store.conn.execute("SELECT DISTINCT method_id FROM custom_factors WHERE flow_uuid=?",
+                                                       (uid,)).fetchall()]
             store._bump_lib()
         else:
             fid = store.add_flow(uid, name, comp, sub, unit, cas)
@@ -388,10 +584,9 @@ def save_elementary(store, d):
     _save_item(store, "elementary", uid, None, fid, name, data, _text(d.get("source"), "Source", False, 1000),
                _text(d.get("author"), "Author", False, 200))
     if old:
-        from importers import lcia
-        if remat:
-            lcia.rematch(store, sorted(set(remat)))
-        _refresh_factors(store)
+        # rewrite this flow's own factors (those under review are left out) and rematch every method that could
+        # characterise it
+        _refresh_factors(store, sorted(set(remat)))
         calc.invalidate()
     return uid
 
@@ -431,7 +626,40 @@ def _check_params(params, what):
             v = None
         else:
             v = _number(q.get("value"), f"The value of parameter '{name}'", allow_zero=True)
-        out.append({"name": name, "value": v, "formula": f, "comment": _text(q.get("comment"), "Comment", False, 500)})
+        item = {"name": name, "value": v, "formula": f, "comment": _text(q.get("comment"), "Comment", False, 500),
+                "utype": 0, "p1": None, "p2": None, "p3": None}
+        t = (q.get("uncertainty") or {}).get("type") if isinstance(q.get("uncertainty"), dict) else None
+        t = t or {1: "lognormal", 2: "normal", 3: "triangular", 4: "uniform"}.get(q.get("utype") or 0, "none")
+        if t != "none":
+            if f:
+                raise CustomDataError(f"Parameter '{name}' is a formula; give the distribution to the parameters it uses.")
+            u = q.get("uncertainty") if isinstance(q.get("uncertainty"), dict) else {
+                "gsd": q.get("p1"), "sd": q.get("p1"), "min": q.get("p1"), "mode": q.get("p2"),
+                "max": q.get("p3") if (q.get("utype") == 3) else q.get("p2")}
+            if t == "lognormal":
+                g = _number(u.get("gsd"), f"The GSD of parameter '{name}'")
+                if g <= 1 or v <= 0:
+                    raise CustomDataError(f"Parameter '{name}': a lognormal needs a positive value and a GSD above 1.")
+                item.update(utype=1, p1=g)
+            elif t == "normal":
+                sd = _number(u.get("sd"), f"The standard deviation of parameter '{name}'")
+                if sd <= 0:
+                    raise CustomDataError(f"Parameter '{name}': the standard deviation must be positive.")
+                item.update(utype=2, p1=sd)
+            elif t == "triangular":
+                lo, mo, hi = (_number(u.get(k), f"The {k} of parameter '{name}'", True) for k in ("min", "mode", "max"))
+                if not (lo <= mo <= hi and lo < hi and lo <= v <= hi):
+                    raise CustomDataError(f"Parameter '{name}': minimum <= most likely <= maximum, minimum < maximum, "
+                                          "and the value between them.")
+                item.update(utype=3, p1=lo, p2=mo, p3=hi)
+            elif t == "uniform":
+                lo, hi = (_number(u.get(k), f"The {k} of parameter '{name}'", True) for k in ("min", "max"))
+                if not (lo < hi and lo <= v <= hi):
+                    raise CustomDataError(f"Parameter '{name}': minimum < maximum, with the value between them.")
+                item.update(utype=4, p1=lo, p2=hi)
+            else:
+                raise CustomDataError(f"Parameter '{name}': unknown distribution.")
+        out.append(item)
     return out
 
 
@@ -477,8 +705,104 @@ def _raw_data(store, uid, data):
         store.conn.commit()
 
 
+def mc_plan(store, mc):
+    """Monte Carlo of the parameters of custom data. Returns None, or a sampler: deltas(rng) gives the change of the
+    technosphere and elementary entries, for one iteration, caused by drawing every parameter with a distribution
+    and evaluating the formulas again. Database parameters are drawn once per iteration and shared by all its
+    processes; a process's own parameter replaces the database parameter of the same name."""
+    try:
+        dbs = store.q("SELECT id FROM databases WHERE source=?", (SOURCE,))
+    except Exception:
+        return None
+    groups = []
+    for d in dbs:
+        dbp = _db_params(store, d["id"])
+        for r in store.q("SELECT uuid, name, data FROM custom_items WHERE kind='process' AND db_id=?", (d["id"],)):
+            pd = json.loads(r["data"] or "{}")
+            by = {q["name"]: ("db", q) for q in dbp}
+            for q in pd.get("parameters") or []:
+                by[q["name"]] = ("proc", q)
+            if not any((q.get("utype") or 0) > 0 for _, q in by.values()):
+                continue
+            exs = store.q("SELECT * FROM custom_exchanges WHERE process_uuid=? AND formula IS NOT NULL AND formula!=''",
+                          (r["uuid"],))
+            if not exs:
+                continue
+            outs = [(r["uuid"], d["id"])]
+            shares = allocation_shares(store, pd) if pd.get("coproducts") else {pd["product"]: 1.0}
+            aids = {pd["product"]: store.one("SELECT ref_id FROM custom_items WHERE uuid=?", (r["uuid"],))["ref_id"],
+                    **(pd.get("coproduct_refs") or {})}
+            entries = []
+            for e in exs:
+                fac = e["unit_factor"] if e["unit_factor"] is not None else 1.0
+                ents = []
+                for puid, f in shares.items():
+                    aid = aids.get(puid)
+                    if aid is None or f <= 0 or aid not in mc.act_index:
+                        continue
+                    col = mc.act_index[aid]
+                    if e["kind"] == "elementary":
+                        fr = store.one("SELECT id FROM flows WHERE uuid=?", (e["target"],))
+                        if fr and fr["id"] in mc.flow_index:
+                            ents.append(("B", mc.flow_index[fr["id"]], col, fac * f))
+                    else:
+                        sid = int(e["target"]) if str(e["target"]).isdigit() else target_activity(store, e["target"])
+                        if sid not in mc.act_index:
+                            continue
+                        sp_ = store.one("SELECT production FROM activities WHERE id=?", (sid,))["production"] or 1.0
+                        sign = (-1.0 if e["avoided"] else 1.0) * (-1.0 if sp_ < 0 else 1.0)
+                        ents.append(("A", mc.act_index[sid], col, sign * fac * f))
+                if ents:
+                    entries.append((e["formula"], float(e["amount"]), ents))
+            if entries:
+                groups.append({"db": d["id"], "process": r["uuid"], "params": by, "entries": entries})
+    if not groups:
+        return None
+
+    def deltas(rng):
+        draws = {}
+        rows = {"A": ([], [], []), "B": ([], [], [])}
+        for g in groups:
+            vals = []
+            for name, (lvl, q) in g["params"].items():
+                if q.get("formula"):
+                    vals.append({"name": name, "formula": q["formula"]})
+                    continue
+                if (q.get("utype") or 0) > 0:
+                    key = (g["db"], None, name) if lvl == "db" else (g["db"], g["process"], name)
+                    if key not in draws:
+                        draws[key] = float(calc.sample_param(rng, q))
+                    vals.append({"name": name, "value": draws[key]})
+                else:
+                    vals.append({"name": name, "value": q["value"]})
+            try:
+                env = fm.resolve(vals)
+            except fm.FormulaError:
+                continue
+            for formula, base, ents in g["entries"]:
+                try:
+                    v = float(fm.evaluate(formula, env))
+                except fm.FormulaError:
+                    continue
+                if not math.isfinite(v):
+                    continue
+                dv = max(v, 0.0) - base       # amounts stay non-negative, as in the deterministic model
+                if dv == 0:
+                    continue
+                for m, i, j, c in ents:
+                    rows[m][0].append(i)
+                    rows[m][1].append(j)
+                    rows[m][2].append(c * dv)
+        return rows
+
+    keys = {(g["db"], None if lvl == "db" else g["process"], name) for g in groups
+            for name, (lvl, q) in g["params"].items() if (q.get("utype") or 0) > 0}
+    return {"deltas": deltas, "n_parameters": len(keys),
+            "n_lines": sum(len(g["entries"]) for g in groups)}
+
+
 # ----------------------------------------------------------------------------------------------- allocation
-ALLOCATION = ("mass", "energy", "economic", "manual")
+ALLOCATION = ("mass", "energy", "economic", "physical", "manual")
 
 
 def allocation_shares(store, d):
@@ -491,7 +815,8 @@ def allocation_shares(store, d):
     al = d.get("allocation") or {}
     method, vals = al.get("method"), al.get("values") or {}
     if method not in ALLOCATION:
-        raise CustomDataError("Choose the allocation method for the co-products: mass, energy, economic or manual.")
+        raise CustomDataError("Choose the allocation method for the co-products: mass, energy, economic, physical "
+                              "causality or manual.")
     w = {}
     for uid, amt in outs:
         prod = _item(store, uid, "product")
@@ -510,6 +835,18 @@ def allocation_shares(store, d):
             if per < 0:
                 raise CustomDataError("Allocation values cannot be negative.")
             w[uid] = amt * per
+        elif method == "physical":
+            v = vals.get(uid)
+            prop = (al.get("property") or "").strip()
+            if not prop:
+                raise CustomDataError("Name the physical property that causes the shares (for example protein content, "
+                                      "volume or machine hours) for physical causality allocation.")
+            if v in (None, ""):
+                raise CustomDataError(f"Give the {prop} per {unit} of '{prod['name']}'.")
+            v = _number(v, f"The {prop} of '{prod['name']}'", allow_zero=True)
+            if v < 0:
+                raise CustomDataError("Allocation values cannot be negative.")
+            w[uid] = amt * v
         elif method == "economic":
             v = vals.get(uid)
             if v in (None, ""):
@@ -534,6 +871,73 @@ def allocation_shares(store, d):
     if tot <= 0:
         raise CustomDataError("The allocation values add up to zero, so no share can be calculated.")
     return {k: v / tot for k, v in w.items()}
+
+
+def allocation_compare(store, uid, method_ids, alternatives=None):
+    """Sensitivity of the results of a multi-output process to the allocation method.
+
+    The process's total burden T (all outputs together) does not depend on the allocation, because the allocated
+    datasets together carry exactly the exchanges of the process: T = sum_i a_i x I_i, with I_i the current result
+    per unit of output i. Under another method m, output i carries f_i,m x T, so I_i,m = f_i,m x T / a_i. This holds
+    exactly when the process does not use its own outputs, directly or through its supply chain; otherwise the
+    comparison is refused. alternatives: {method: values} to try values not saved with the process."""
+    p = _item(store, uid, "process")
+    d = p["data"]
+    if not d.get("coproducts"):
+        raise CustomDataError("This process has one product, so there is nothing to allocate.")
+    dep = dependents(store, uid)
+    ups, todo = set(), [uid]
+    while todo:
+        cur = todo.pop()
+        for e in store.q("SELECT target FROM custom_exchanges WHERE process_uuid=? AND kind='technosphere'", (cur,)):
+            t = str(e["target"]).split("/")[0]
+            if not t.isdigit() and t not in ups:
+                ups.add(t)
+                todo.append(t)
+    if uid in ups or ups & {x["uuid"] for x in dep["processes"]}:
+        raise CustomDataError("The process uses its own products through its supply chain, so the comparison would not "
+                              "be exact. Compare by saving each allocation in turn instead.")
+    mc = calc.get_mc(store)
+    M = calc.Methods(store, mc, [int(m) for m in method_ids])
+    outs = [(d["product"], d["amount"])] + [(c["product"], c["amount"]) for c in d["coproducts"]]
+    aids = {d["product"]: p["ref_id"], **(d.get("coproduct_refs") or {})}
+    per_unit = {}
+    for puid, _ in outs:
+        j = mc.act_index.get(aids.get(puid))
+        if j is None:
+            raise CustomDataError("The datasets of this process are not compiled yet.")
+        f = np.zeros(mc.n)
+        f[j] = 1.0
+        s = mc.solve(f)
+        per_unit[puid] = np.asarray(M.Q @ s).ravel()
+    T = sum(a * per_unit[u] for u, a in outs)
+    current = (d.get("allocation") or {}).get("method")
+    tries = {}
+    for m in ALLOCATION:
+        al = dict(d.get("allocation") or {})
+        al["method"] = m
+        if alternatives and m in alternatives:
+            al.update(alternatives[m])
+        elif m != current:
+            al["values"] = {}           # values saved for another method do not apply to this one
+        try:
+            tries[m] = allocation_shares(store, {**d, "allocation": al})
+        except CustomDataError as e:
+            tries[m] = str(e)
+    names = {u: _item(store, u, "product")["name"] for u, _ in outs}
+    units_ = {u: _item(store, u, "product")["data"]["unit"] for u, _ in outs}
+    rows = []
+    for m, sh in tries.items():
+        if isinstance(sh, str):
+            rows.append({"method": m, "available": False, "reason": sh})
+            continue
+        rows.append({"method": m, "available": True, "current": m == current, "outputs": [
+            {"product": names[u], "unit": units_[u], "share": sh[u],
+             "per_unit": [float(sh[u] * T[k] / a) if a else None for k in range(len(M.ids))]} for u, a in outs]})
+    return {"methods": [{k: r[k] for k in ("id", "family", "category", "indicator", "unit")} for r in M.rows],
+            "comparison": rows, "total_burden": [float(x) for x in T],
+            "note": "Per unit of each product. The total burden of the process is the same under every method; "
+                    "only its division between the products changes."}
 
 
 # ----------------------------------------------------------------------------------------------- processes
@@ -565,6 +969,7 @@ def save_process(store, db_id, d):
         dq[k] = v
     if dq and len(dq) < 4:
         raise CustomDataError("Give all four data quality ratings (TeR, GeR, TiR, P) or none.")
+    before = snapshot(store, uid)
     old = store.one("SELECT data FROM custom_items WHERE uuid=?", (uid,))
     old = json.loads(old["data"]) if old else None
     cps, seen = [], {prod["uuid"]}
@@ -584,7 +989,19 @@ def save_process(store, db_id, d):
     al = d.get("allocation") or {}
     allocation = {"method": al.get("method") or "", "values": {k: v for k, v in (al.get("values") or {}).items()
                                                                 if k in seen and v not in (None, "")},
-                  "source": _text(al.get("source"), "Source of the allocation values", False, 500)} if cps else {}
+                  "source": _text(al.get("source"), "Source of the allocation values", False, 500),
+                  "property": _text(al.get("property"), "The physical property", False, 120),
+                  "property_unit": _text(al.get("property_unit"), "The unit of the property", False, 40),
+                  "currency": _text(al.get("currency"), "The currency", False, 12).upper(),
+                  "price_year": al.get("price_year")} if cps else {}
+    if cps and allocation["method"] == "economic":
+        # prices change over time and between currencies: both are part of the allocation's definition
+        if not allocation["currency"]:
+            raise CustomDataError("Give the currency of the prices (for example EUR or USD) for economic allocation.")
+        y = _number(allocation["price_year"], "The year of the prices")
+        if not 1900 <= y <= 2100 or y != int(y):
+            raise CustomDataError("The year of the prices is a year such as 2025.")
+        allocation["price_year"] = int(y)
     data = {"product": prod["uuid"], "amount": amount, "type": kind, "location": loc,
             "technology": _text(d.get("technology"), "Technology", False, 2000),
             "time_period": _text(d.get("time_period"), "Time period", False, 100),
@@ -614,6 +1031,7 @@ def save_process(store, db_id, d):
             store.x("DELETE FROM custom_items WHERE uuid=?", (uid,))
         compile(store, int(db_id))
         raise
+    _attach_versions(store, uid, before)
     return uid
 
 
@@ -687,6 +1105,7 @@ def save_exchange(store, process_uuid, d):
     """An input from a supplier (kind 'technosphere') or an elementary exchange (kind 'elementary')."""
     ensure_schema(store)
     p = _item(store, process_uuid, "process")
+    before = snapshot(store, process_uuid)
     kind = d.get("kind")
     formula = (d.get("formula") or "").strip()
     if formula:
@@ -746,7 +1165,12 @@ def save_exchange(store, process_uuid, d):
     _log(store, process_uuid, "exchange", "exchange changed" if d.get("id") else "exchange added", author,
          {"exchange": eid, "kind": kind, "target": target, "amount": amount, "unit": unit, "avoided": avoided,
           "formula": formula, "uncertainty": ulabel, "source": row[13]})
-    compile(store, p["db_id"])
+    try:
+        compile(store, p["db_id"])
+    except Exception:
+        _put_back(store, process_uuid, before, p["db_id"])
+        raise
+    _attach_versions(store, process_uuid, before)
     return eid
 
 
@@ -756,16 +1180,20 @@ def delete_exchange(store, process_uuid, exchange_id):
                     (int(exchange_id), process_uuid))
     if not old:
         raise CustomDataError("The exchange was not found.")
+    before = snapshot(store, process_uuid)
     store.x("DELETE FROM custom_exchanges WHERE id=? AND process_uuid=?", (int(exchange_id), process_uuid))
     _log(store, process_uuid, "exchange", "exchange removed", "", {"exchange": int(exchange_id), **old})
     compile(store, p["db_id"])
+    _attach_versions(store, process_uuid, before)
 
 
 def delete_item(store, uid):
     """Delete a product, elementary flow or process that nothing uses."""
     it = _item(store, uid)
+    before = snapshot(store, uid) if it["kind"] == "process" else None
     _delete_item(store, uid, it)
-    _log(store, uid, it["kind"], "deleted", "", {"name": it["name"]})
+    _log(store, uid, it["kind"], "deleted", "", {"name": it["name"], "before": before, "after": None}
+         if before else {"name": it["name"]})
 
 
 def _delete_item(store, uid, it):
@@ -912,12 +1340,24 @@ def save_factor(store, method_id, flow_uuid, status, value=None, unit=None, sour
     else:
         raise CustomDataError("Give a factor or state that the category does not apply.")
     with store.lock:
-        store.conn.execute("INSERT OR REPLACE INTO custom_factors VALUES(?,?,?,?,?,?,?,?,?,?)",
+        store.conn.execute("INSERT OR REPLACE INTO custom_factors(method_id,flow_uuid,status,value,value_entered,"
+                           "unit_entered,source,comment,author,modified,review) VALUES(?,?,?,?,?,?,?,?,?,?,NULL)",
                            row + (_text(author, "Author", False, 200), _now()))
         store.conn.commit()
     _log(store, flow_uuid, "factor", "factor saved", author,
          {"method_id": int(method_id), "status": status, "value_entered": row[4], "unit": row[5], "source": row[6],
           "comment": row[7]})
+    _refresh_factors(store, [int(method_id)])
+
+
+def confirm_factor(store, method_id, flow_uuid, author=""):
+    """Accept a factor that was put under review, unchanged."""
+    r = store.one("SELECT * FROM custom_factors WHERE method_id=? AND flow_uuid=?", (int(method_id), flow_uuid))
+    if not r or not r["review"]:
+        raise CustomDataError("This factor is not under review.")
+    store.x("UPDATE custom_factors SET review=NULL, author=?, modified=? WHERE method_id=? AND flow_uuid=?",
+            (author or r["author"], _now(), int(method_id), flow_uuid))
+    _log(store, flow_uuid, "factor", "factor confirmed after review", author, {"method_id": int(method_id)})
     _refresh_factors(store, [int(method_id)])
 
 
@@ -933,7 +1373,7 @@ def _refresh_factors(store, method_ids=None):
     from importers import lcia
     from canon import canon as _canon
     rows = store.q("SELECT c.method_id, c.flow_uuid, c.value, f.name, f.compartment, f.subcompartment FROM custom_factors c "
-                   "JOIN flows f ON f.uuid=c.flow_uuid WHERE c.status='value'")
+                   "JOIN flows f ON f.uuid=c.flow_uuid WHERE c.status='value' AND c.review IS NULL")
     mids = set(method_ids or []) | {r["method_id"] for r in rows}
     if not mids:
         return
@@ -983,12 +1423,13 @@ def factor_table(store, method_ids):
         flows = custom + (lib if m["id"] in scopes else [])
         for f in flows:
             d = dec.get(f["uuid"])
-            st = d["status"] if d else ("value" if f["id"] in matched else "missing")
+            st = ("review" if d and d.get("review") else d["status"]) if d else ("value" if f["id"] in matched else "missing")
             if st == "missing" and f["uuid"] not in cids and scopes.get(m["id"], ("unknown",))[0] == "zero":
                 st = "outside_scope"
             out.append({"method_id": m["id"], "family": m["family"], "category": m["category"], "indicator": m["indicator"],
                         "method_unit": m["unit"], "flow_uuid": f["uuid"], "flow": f["name"], "custom_flow": f["uuid"] in cids,
                         "compartment": f"{f['compartment']}/{f['subcompartment']}", "flow_unit": f["unit"], "status": st,
+                        "review": d.get("review") if d else None, "previous_status": d["status"] if d else None,
                         "value": d["value"] if d and d["status"] == "value" else matched.get(f["id"]),
                         "value_entered": d.get("value_entered") if d else None, "unit_entered": d.get("unit_entered") if d else None,
                         "source": d.get("source") if d else ("installed method" if f["id"] in matched else ""),
@@ -1016,7 +1457,7 @@ def factor_gaps(store, mc, M, g, flow_label, limit=25):
     for sql in (f"SELECT method_id, flow_id FROM cfs WHERE method_id IN ({q})",
                 f"SELECT DISTINCT method_id, flow_id FROM cfs_regional WHERE method_id IN ({q})",
                 f"SELECT c.method_id, f.id AS flow_id FROM custom_factors c JOIN flows f ON f.uuid=c.flow_uuid "
-                f"WHERE c.method_id IN ({q})"):
+                f"WHERE c.review IS NULL AND c.method_id IN ({q})"):
         for r in store.q(sql, list(M.ids)):
             known.setdefault(r["method_id"], set()).add(r["flow_id"])
     nz = np.where(np.abs(g) > 1e-15 * (np.abs(g).max() or 1))[0] if len(g) else []
@@ -1233,6 +1674,40 @@ def check(store, db_id):
         for e in store.q("SELECT kind, target, amount, unit, source FROM custom_exchanges WHERE process_uuid=? AND "
                          "(source IS NULL OR source='')", (p["uuid"],)):
             out.append({"level": "info", "message": f"{p['name']}: an exchange of {e['amount']:g} {e['unit']} has no source."})
+    # plausibility: mass balance and orders of magnitude (warnings only: they can be right, but are often a unit slip)
+    for p in procs:
+        d = json.loads(p["data"])
+        outs = [(d["product"], d["amount"])] + [(c["product"], c["amount"]) for c in d.get("coproducts") or []]
+        out_kg = 0.0
+        for puid, amt in outs:
+            pr = store.one("SELECT data FROM custom_items WHERE uuid=?", (puid,))
+            f = unitconv.factor(json.loads(pr["data"])["unit"], "kg") if pr else None
+            if f is None:
+                out_kg = None
+                break
+            out_kg += amt * f
+        in_kg, ref_amt = 0.0, abs(d["amount"]) or 1.0
+        for e in store.q("SELECT kind, target, amount, unit, amount_ref, avoided FROM custom_exchanges WHERE "
+                         "process_uuid=?", (p["uuid"],)):
+            f = unitconv.factor(e["unit"], "kg")
+            if e["kind"] == "technosphere" and not e["avoided"] and f is not None:
+                tgt = str(e["target"])
+                sid = int(tgt) if tgt.isdigit() else target_activity(store, tgt)
+                sp_ = store.one("SELECT production FROM activities WHERE id=?", (sid,)) if sid else None
+                if sp_ and (sp_["production"] or 1) > 0:      # waste sent to treatment is not a material input
+                    in_kg += e["amount"] * f
+            if e["amount_ref"] and e["amount_ref"] > 1e4 * ref_amt:
+                out.append({"level": "warning", "message": f"{p['name']}: a line of {e['amount']:g} {e['unit']} is more "
+                                                           f"than 10,000 times the reference amount. Check its unit."})
+            elif e["amount_ref"] and 0 < e["amount_ref"] < 1e-9 * ref_amt:
+                out.append({"level": "info", "message": f"{p['name']}: a line of {e['amount']:g} {e['unit']} is below a "
+                                                        "billionth of the reference amount. Check its unit."})
+        if d["type"] != "treatment" and out_kg and in_kg:
+            ratio = in_kg / out_kg
+            if ratio < 0.5 or ratio > 20:
+                out.append({"level": "warning", "message": f"{p['name']}: {in_kg:g} kg of material inputs for {out_kg:g} kg "
+                                                           f"of products (ratio {ratio:.2g}). Check the amounts and units, "
+                                                           "or note why the mass balance differs."})
     # every process can be calculated: unit demand solved with a small residual
     try:
         calc.invalidate()
@@ -1273,7 +1748,7 @@ def check(store, db_id):
                                                    "method that flows without a factor have no effect."})
     for u in used:
         st = status.get(u["uuid"], [])
-        miss = st.count("missing")
+        miss = st.count("missing") + st.count("review")
         if miss:
             out.append({"level": "warning", "message": f"Custom flow '{u['name']}': no factor and no 'does not apply' "
                                                        f"decision in {miss} of {len(st)} impact categories. Results that "

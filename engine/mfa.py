@@ -198,8 +198,14 @@ def run(defn):
     worst = max(abs(r["balance_error"]) / max(1.0, abs(r["external_inflow"])) for r in rows)
     return {"years": years, "rows": rows,
             "processes": [{"id": p["id"], "name": p.get("name", p["id"]), "kind": "stock" if p.get("stock") else
-                           "sink" if p.get("sink") else "process",
-                           "throughput": thr[:, i].tolist(), "level": level[:, i].tolist()} for i, p in enumerate(procs)],
+                           "sink" if p.get("sink") else "process", "recycling": i in rec, "production": i == prod,
+                           "throughput": thr[:, i].tolist(), "level": level[:, i].tolist(),
+                           # what the process passes on inside the system (not to sinks): for a recycling process,
+                           # the recovered secondary material
+                           "output_to_system": [float(sum(F[t, i, j] for j in range(n) if not procs[j].get("sink")))
+                                                for t in range(ny)],
+                           "virgin_input": ([r_["virgin_inflow_to_production"] for r_ in rows] if i == prod else None)}
+                          for i, p in enumerate(procs)],
             "mass_balance_ok": worst < 1e-9, "max_balance_error": worst,
             "note": "Inflows interpolated linearly between the given years. Stocks retire their inflow by the lifetime "
                     "distribution, starting the year after entry; the stock is zero at the start. Loops within a year "
@@ -262,13 +268,21 @@ EXAMPLE = {
 
 # ---------------------------------------------------------------------------------------------- MFA linked to LCA
 def lca(store, defn, method_ids, links):
-    """Environmental impacts of the material system year by year.
+    """Environmental impacts of the material system year by year, in one calculation with the MFA.
 
     links: {mfa process id: {"kind": "activity" | "model", "id": dataset or model id, "factor": amount of the linked
-    reference product per unit of MFA throughput (e.g. 1 when both are in kg; 0.001 when the MFA is in kg and the
-    dataset in t)}}. Impact of a process in year t = throughput_t x factor x impact per unit of the linked dataset
-    (whole supply chain, from the engine) or model (per unit of its functional unit). Throughput of a stock is its
-    inflow, of a sink what it receives. Returns per year and category the total and the share of every process."""
+    reference product per unit of MFA material (e.g. 1 when both are in kg; 0.001 when the MFA is in kg and the
+    dataset in t), "basis": what the impact is counted on, "avoided": True for a credit, "substitution": ratio}}.
+
+    basis: "throughput" (default; a stock: its inflow, a sink: what it receives), "virgin_input" (production process
+    only: its input minus the recycled input, so that recycled material is not charged as primary material again),
+    "recovered" (a recycling process: the secondary material it passes on). A credit (avoided product, system
+    expansion) counts -quantity x factor x substitution x impact per unit, with the substitution ratio for quality
+    losses (1 = replaces primary material one to one).
+
+    Impact of a link in year t = quantity_t x factor x impact per unit of the linked dataset (whole supply chain) or
+    model (per unit of its functional unit). Results per year and category: by process, by role (primary supply,
+    production and use, losses, recycling, credits), gross, credits and net."""
     import calc
     res = run(defn)
     method_ids = [int(m) for m in method_ids or []]
@@ -276,49 +290,82 @@ def lca(store, defn, method_ids, links):
         raise ValueError("Pick impact categories in step 4 first.")
     if not links:
         raise ValueError("Link at least one MFA process to a dataset or a model.")
-    ids = [p["id"] for p in defn["processes"]]
+    procs = {p["id"]: p for p in res["processes"]}
     mc = calc.get_mc(store)
     M = calc.Methods(store, mc, method_ids)
-    unit = {}
-    for pid, ln in links.items():
-        if pid not in ids:
+    unit, qty, role = {}, {}, {}
+    for key, ln in links.items():
+        pid = ln.get("process", key)
+        if pid not in procs:
             raise ValueError(f"'{pid}' is not a process of the MFA system.")
         kind, ref = ln.get("kind", "activity"), int(ln["id"])
         f = float(ln.get("factor", 1.0))
+        avoided = bool(ln.get("avoided"))
+        sub = float(ln.get("substitution", 1.0)) if avoided else 1.0
+        if avoided and not 0 < sub <= 1:
+            raise ValueError("The substitution ratio of a credit lies between 0 and 1.")
         if kind == "activity":
             if ref not in mc.act_index:
                 raise ValueError(f"Dataset {ref} is not in the library.")
             h, _, _ = calc.impacts(mc, M, {ref: 1.0}, {}, [])
-            unit[pid] = np.asarray(h, dtype=float) * f
+            u = np.asarray(h, dtype=float)
         elif kind == "model":
             m = store.model(ref)
             if not m:
                 raise ValueError(f"Model {ref} does not exist.")
             r = calc.run(store, ref, method_ids)
-            unit[pid] = np.array([x["total"] for x in r["results"]]) / (m["amount"] or 1.0) * f
+            u = np.array([x["total"] for x in r["results"]]) / (m["amount"] or 1.0)
         else:
             raise ValueError("A link is to an 'activity' or a 'model'.")
-    thr = {p["id"]: p["throughput"] for p in res["processes"]}
+        basis = ln.get("basis") or "throughput"
+        p = procs[pid]
+        if basis == "throughput":
+            q = p["throughput"]
+        elif basis == "virgin_input":
+            if p["virgin_input"] is None:
+                raise ValueError(f"'virgin_input' applies to the production process only, not to '{pid}'.")
+            q = p["virgin_input"]
+        elif basis == "recovered":
+            q = p["output_to_system"]
+        else:
+            raise ValueError("The basis of a link is throughput, virgin_input or recovered.")
+        unit[key] = u * f * sub * (-1.0 if avoided else 1.0)
+        qty[key] = q
+        role[key] = ("credits" if avoided else "recycling" if p["recycling"] else "losses" if p["kind"] == "sink"
+                     else "primary supply" if basis == "virgin_input" else "production and use")
     cats = [{k: x[k] for k in ("id", "family", "category", "unit")} for x in M.rows]
     years = res["years"]
-    per_year, by_proc = [], {pid: np.zeros(len(cats)) for pid in unit}
+    roles = ["primary supply", "production and use", "recycling", "losses", "credits"]
+    per_year, by_proc = [], {k: np.zeros(len(cats)) for k in unit}
     for t, y in enumerate(years):
         tot = np.zeros(len(cats))
-        parts = {}
-        for pid, u in unit.items():
-            v = thr[pid][t] * u
+        parts, by_role = {}, {rl: np.zeros(len(cats)) for rl in roles}
+        for k, u in unit.items():
+            v = qty[k][t] * u
             tot += v
-            parts[pid] = v.tolist()
-            by_proc[pid] += v
-        per_year.append({"year": y, "total": tot.tolist(), "by_process": parts})
+            parts[k] = v.tolist()
+            by_proc[k] += v
+            by_role[role[k]] += v
+        per_year.append({"year": y, "total": tot.tolist(), "by_process": parts,
+                         "by_role": {rl: v.tolist() for rl, v in by_role.items()},
+                         "credits": by_role["credits"].tolist(), "gross": (tot - by_role["credits"]).tolist()})
     cum = sum((np.array(r["total"]) for r in per_year), np.zeros(len(cats)))
+    cum_cred = sum((np.array(r["credits"]) for r in per_year), np.zeros(len(cats)))
     return {"categories": cats, "years": years, "rows": per_year, "cumulative": cum.tolist(),
+            "cumulative_credits": cum_cred.tolist(), "cumulative_gross": (cum - cum_cred).tolist(),
             "cumulative_by_process": {k: v.tolist() for k, v in by_proc.items()},
-            "linked": {pid: {"kind": l.get("kind", "activity"), "id": int(l["id"]), "factor": float(l.get("factor", 1.0))}
-                       for pid, l in links.items()},
-            "unlinked_processes": [p for p in ids if p not in unit],
+            "cumulative_by_role": {rl: sum((np.array(r["by_role"][rl]) for r in per_year), np.zeros(len(cats))).tolist()
+                                   for rl in roles},
+            "linked": {k: {"process": l.get("process", k), "kind": l.get("kind", "activity"), "id": int(l["id"]),
+                           "factor": float(l.get("factor", 1.0)), "basis": l.get("basis") or "throughput",
+                           "avoided": bool(l.get("avoided")), "substitution": float(l.get("substitution", 1.0)),
+                           "role": role[k]} for k, l in links.items()},
+            "unlinked_processes": [p for p in procs if p not in {l.get("process", k) for k, l in links.items()}],
             "mfa": {"mass_balance_ok": res["mass_balance_ok"]},
-            "note": "Impact of a process in a year = its throughput x the factor x the impact per unit of the linked dataset "
-                    "(cradle-to-gate of that dataset, with today's background data) or model. Processes without a link add "
+            "note": "Impact of a link in a year = its quantity (throughput, virgin input of the production process, or "
+                    "recovered material of a recycling process) x the factor x the impact per unit of the linked dataset "
+                    "(cradle-to-gate, with today's background data) or model. Credits for recovered material count "
+                    "negative, scaled by the substitution ratio. Charging the production process on its virgin input "
+                    "keeps recycled material from being charged as primary material. Processes without a link add "
                     "nothing. Background data do not change over the years unless a prospective background scenario is "
-                    "used for the calculation."}
+                    "used."}

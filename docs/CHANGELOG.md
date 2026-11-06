@@ -1,8 +1,54 @@
 # Changelog
 
+## 1.7.0 (2026-11-06)
+
+Advanced environmental LCA, first part. Details, tests and limits: docs/quality/ACCEPTANCE_1.7.0.md.
+
+- **Life cycle costing per ISO 15686-5.** Residual value of the last purchase at the end of the study period (on
+  by default; it can be switched off), real price escalation per cost type, price uncertainty per line with a
+  Monte Carlo interval of the net present cost, and the ISO 15686-5 cost categories. Results that use a
+  replacement interval within a study period now include the residual value; switch it off to reproduce earlier
+  results.
+- **MFA integrated with LCA.** The production process can be charged on its virgin input only, recycling
+  processes on their throughput, and recovered material earns a credit with a substitution ratio. Results by
+  role (primary supply, production and use, recycling, losses, credits), gross and net, per year and cumulative.
+- **Social LCA subcategory assessment (Type I, UNEP 2020).** Stakeholder categories and subcategories, scores
+  against performance reference points from -2 to +2, activity-variable weighting, coverage, share of
+  site-specific data, hotspots and missing subcategories. The risk screening stays a screening.
+- **Allocation choices of a model, side by side.** Mass, economic, energy, physical, manual and no allocation.
+- **Factor package checks.** Imported AWARE, LANCA and USEtox packages are checked for completeness, units, ranges,
+  fallbacks and source, and shown in the Benchmark Centre as "Package checked" or with what is missing, never as
+  "Validated".
+- **Report.** The Word report has an annex with the Benchmark Centre table and the ISO 14044 critical review
+  checklist, checked automatically from the study.
+
 ## 1.6.2 (2026-11-06)
 
-Display corrections. Details: docs/quality/ACCEPTANCE_1.6.2.md.
+Scientific reliability release. Details, tests and limits: docs/quality/ACCEPTANCE_1.6.2.md.
+
+- **Corrected: factors carried forward after a flow change.** When a custom flow's compartment (or name,
+  subcompartment or CAS number) changed, the factors given for it stayed in use, so a factor for an emission to air
+  could apply to water. These factors are now put under review: not used, and the result marked incomplete, until
+  they are confirmed or corrected.
+- **Parameter uncertainty.** Parameters of your own data can have distributions; the full Monte Carlo draws them
+  and recalculates every formula in each iteration, with one shared draw per database parameter.
+- **Versions, undo and restore.** Every change of a process keeps the state before and after: undo (and redo),
+  restore any version, restore deleted processes. Each process lists the processes and the models of every
+  project that depend on it.
+- **Allocation.** Physical causality, economic allocation with currency and price year, and a comparison of the
+  results per unit of each product under every allocation method.
+- **Scientific Benchmark Centre** (Toolbox > Validation): all validation evidence in one table with reference,
+  result, differences, missing flows and status. Only checks that ran and passed count. New IPCC 2021 check:
+  14 gases reproduce the published AR6 GWP100 values.
+- **Model inventory in the diagram.** Move lines between stages (or to a new stage), change amounts, toggle
+  credits and remove lines by drawing.
+- **Recursive provenance.** The Excel workbook lists every dataset of the supply chain with database, version,
+  identifier, amount and direct contribution, and the Word report summarises it.
+- **Safeguards.** Mass balance and order-of-magnitude warnings in the database check; a decimal comma is
+  recognised and explained.
+- **Validation workflow.** On every change the tests run on Windows, macOS and Linux, Brightway is installed at the
+  validated commits and its comparison may not be skipped, and the validation suite and the IPCC check must pass.
+- The Toolbox tab "Social LCA" is now called "Social screening", which is what it does.
 
 - **Steadier screen.** The sticky header at the top of each step used a background blur. On some graphics drivers
   Chromium re-composited it every few seconds, which looked like a faint blink; the header is now opaque. The

@@ -1,0 +1,71 @@
+# Scientific validation on every push and pull request.
+#  - "tests": the full test suite, as users get it (Brightway tests skip when Brightway is absent).
+#  - "brightway": the same suite with Brightway installed from pinned commits. Here a skipped Brightway test is a
+#    failure (CYCLIA_REQUIRE_BRIGHTWAY=1), so the comparison with an independent implementation always runs.
+#  - "validation-suite": the 35 systems with exact answers and the IPCC 2021 check.
+name: Validation
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install engine requirements
+        run: python -m pip install -r engine/requirements.txt
+      - name: Test suite
+        working-directory: engine
+        run: python -m unittest discover -s tests -v
+
+  brightway:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install engine requirements and pinned Brightway
+        run: |
+          python -m pip install -r engine/requirements.txt
+          python -m pip install -r engine/tools/brightway-pins.txt
+      - name: Test suite with Brightway required
+        working-directory: engine
+        env:
+          CYCLIA_REQUIRE_BRIGHTWAY: "1"
+        run: python -m unittest discover -s tests -v
+
+  validation-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install engine requirements
+        run: python -m pip install -r engine/requirements.txt
+      - name: Validation suite and IPCC check
+        working-directory: engine
+        run: |
+          python - <<'PY'
+          import sys, trust, benchmark
+          v = trust.validation_suite()
+          print(v["passed"], "of", v["total"], "validation systems reproduced")
+          i = benchmark.ipcc_check()
+          print(i["verdict"])
+          sys.exit(0 if v["passed"] == v["total"] and i["passed"] else 1)
+          PY

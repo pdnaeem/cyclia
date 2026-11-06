@@ -31,11 +31,12 @@ CREATE TABLE IF NOT EXISTS lib.custom_exchanges (id INTEGER PRIMARY KEY, process
     author TEXT, created TEXT, revision INTEGER DEFAULT 1, formula TEXT, unit_factor REAL);
 CREATE INDEX IF NOT EXISTS lib.idx_custom_ex ON custom_exchanges(process_uuid);
 CREATE TABLE IF NOT EXISTS lib.custom_factors (method_id INTEGER, flow_uuid TEXT, status TEXT, value REAL,
-    value_entered REAL, unit_entered TEXT, source TEXT, comment TEXT, author TEXT, modified TEXT,
+    value_entered REAL, unit_entered TEXT, source TEXT, comment TEXT, author TEXT, modified TEXT, review TEXT,
     PRIMARY KEY(method_id, flow_uuid));
 CREATE TABLE IF NOT EXISTS lib.custom_history (id INTEGER PRIMARY KEY, item TEXT, kind TEXT, action TEXT,
     author TEXT, time TEXT, data TEXT);
 CREATE INDEX IF NOT EXISTS lib.idx_custom_hist ON custom_history(item);
+CREATE TABLE IF NOT EXISTS lib.benchmark_runs (id INTEGER PRIMARY KEY, kind TEXT, title TEXT, time TEXT, summary TEXT);
 CREATE TABLE IF NOT EXISTS lib.custom_units (name TEXT PRIMARY KEY, dimension TEXT, factor REAL, description TEXT,
     source TEXT, author TEXT, created TEXT);
 """
@@ -108,7 +109,7 @@ CREATE TABLE IF NOT EXISTS model_inputs (
     stage TEXT DEFAULT '', input_amount REAL, input_unit TEXT, avoided INTEGER DEFAULT 0,
     ref_db TEXT, ref_key TEXT, formula TEXT, year REAL DEFAULT 0, fixed TEXT, data_type TEXT DEFAULT '',
     source_ref TEXT DEFAULT '', data_year REAL, supplier TEXT DEFAULT '', verified INTEGER DEFAULT 0, unit_cost REAL, pef TEXT,
-    cost_type TEXT DEFAULT '', replace_every REAL);
+    cost_type TEXT DEFAULT '', replace_every REAL, cost_gsd REAL);
 CREATE INDEX IF NOT EXISTS idx_inputs_model ON model_inputs(model_id);
 CREATE TABLE IF NOT EXISTS parameters (
     id INTEGER PRIMARY KEY, model_id INTEGER, name TEXT, value REAL, formula TEXT, unit TEXT, comment TEXT,
@@ -131,7 +132,7 @@ PROJECT_MIGRATIONS = {
                      ("formula", "TEXT"), ("year", "REAL DEFAULT 0"), ("fixed", "TEXT"),
                      ("data_type", "TEXT DEFAULT ''"), ("source_ref", "TEXT DEFAULT ''"), ("data_year", "REAL"),
                      ("supplier", "TEXT DEFAULT ''"), ("verified", "INTEGER DEFAULT 0"), ("unit_cost", "REAL"), ("pef", "TEXT"),
-                     ("cost_type", "TEXT DEFAULT ''"), ("replace_every", "REAL")],
+                     ("cost_type", "TEXT DEFAULT ''"), ("replace_every", "REAL"), ("cost_gsd", "REAL")],
 }
 DB_META_COLUMNS = ("original_name", "release_date", "geography", "technology", "licence", "reference_period",
                    "data_reference", "source_path", "source_sha256", "importer_version", "import_report")
@@ -139,13 +140,15 @@ LIB_MIGRATIONS = {"tech": [("src_unlinked", "INTEGER")], "flow_mapping": [("s_uu
                   "activities": [("product_uuid", "TEXT")],
                   "unlinked": [("reason", "TEXT DEFAULT 'no producer'"), ("candidates", "TEXT")],
                   "databases": [(c, "TEXT") for c in DB_META_COLUMNS],
+                  "custom_factors": [("review", "TEXT")],
                   "custom_exchanges": [("author", "TEXT"), ("created", "TEXT"), ("revision", "INTEGER DEFAULT 1"),
                                        ("formula", "TEXT"), ("unit_factor", "REAL")],
                   "slca_data": [("raw_value", "TEXT"), ("raw_unit", "TEXT"), ("quality", "TEXT"), ("activity_unit", "TEXT")]}
 LEGACY_DATA_TABLES = ["databases", "activities", "activities_fts", "tech", "flows", "bio", "methods", "cfs", "nw"]
 INPUT_COLUMNS = ["id", "model_id", "kind", "ref_id", "amount", "label", "comment", "pedigree", "position", "stage",
                  "input_amount", "input_unit", "avoided", "ref_db", "ref_key", "formula", "year", "fixed", "data_type",
-                 "source_ref", "data_year", "supplier", "verified", "unit_cost", "pef", "cost_type", "replace_every"]
+                 "source_ref", "data_year", "supplier", "verified", "unit_cost", "pef", "cost_type", "replace_every",
+                 "cost_gsd"]
 UNCERTAINTY_TYPES = {0: "none", 1: "lognormal", 2: "normal", 3: "triangular", 4: "uniform"}
 
 
@@ -759,7 +762,7 @@ class ProjectStore:
     def update_input(self, input_id, fields):
         allowed = {"amount", "label", "comment", "stage", "input_amount", "input_unit", "avoided", "pedigree",
                    "formula", "year", "fixed", "ref_id", "ref_db", "ref_key", "data_type", "source_ref", "data_year",
-                   "supplier", "verified", "unit_cost", "pef", "cost_type", "replace_every"}
+                   "supplier", "verified", "unit_cost", "pef", "cost_type", "replace_every", "cost_gsd"}
         with self.lock:
             for k, v in fields.items():
                 if k not in allowed:
@@ -770,7 +773,7 @@ class ProjectStore:
                     v = 1 if v else 0
                 elif k == "pef":
                     v = json.dumps([min(5, max(1, int(x))) for x in v][:4]) if v else None
-                elif k in ("data_year", "unit_cost", "replace_every"):
+                elif k in ("data_year", "unit_cost", "replace_every", "cost_gsd"):
                     v = None if v in (None, "") else float(v)
                 elif k == "fixed":
                     v = json.dumps(v) if v else None

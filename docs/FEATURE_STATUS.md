@@ -1,6 +1,6 @@
 # Cyclia feature status
 
-Status of Cyclia 1.6.2, checked against the source code, the automated tests and the validation records. A feature
+Status of Cyclia 1.7.0, checked against the source code, the automated tests and the validation records. A feature
 counts as **validated** only when its calculation is compared with independent reference results. Interface
 elements alone do not count.
 
@@ -21,6 +21,7 @@ elements alone do not count.
 | Units and conversions | Validated | Unit families, conversion tests, unknown-unit check in the database check |
 | Parameters, formulas, scenarios | Implemented | Tests of formula evaluation and scenario switching |
 | Comparison with Brightway | Validated | Brightway's calculation library (bw2calc) builds and solves its own matrices; all results agree within 1e-6 (largest difference 4.4e-13 on a 3,000-dataset test database); runs in the app on any database and in every release build ([cross validation](CROSS_VALIDATION.md)) |
+| Scientific Benchmark Centre | Implemented | Every check with reference, result, differences, missing flows and status; not-run and not-available checks are never counted as validated |
 | Comparison with openLCA | Partial | Comparison kit with openLCA JSON-LD and an openLCA 2 script; the run with openLCA is still to be published |
 
 ## LCIA methods
@@ -28,13 +29,13 @@ elements alone do not count.
 | Method | Status | Evidence and limits |
 |---|---|---|
 | EF 3.1 with JRC normalisation and weighting | Validated | Factors from ecoinvent's LCIA implementation file or the JRC package; ecoinvent benchmark over 25 categories |
-| IPCC 2021 GWP100, EN 15804+A2 split | Implemented | Fossil, biogenic and land use change split tested; no published comparison of results yet |
+| IPCC 2021 GWP100, EN 15804+A2 split | Validated | 14 gases reproduce the published IPCC AR6 GWP100 values within 1e-12 in an independent check (Benchmark Centre, automated test); fossil, biogenic and land use change split tested |
 | ReCiPe 2016, CML-IA | Implemented | Read from the official factor files; the ecoinvent validation can now include every installed method of ecoinvent's results file; that run is still to be published |
 | Any method from a CSV table, flow mapping | Implemented | Missing-factor and unit checks per category |
 | Dynamic GWP | Validated | Validation system with an exact answer |
-| AWARE water scarcity (annual, monthly, GIS) | Implemented | Consumption = withdrawal minus return to fresh water, with the water balance and the part identified by outputs; hand-calculated reference tests. The factors are not bundled (licence) |
-| LANCA land use (SQI aggregation) | Partial | Occupation and transformation per indicator, unit checks (per m2 and per ha) and SQI aggregation tested by hand calculation; a check against the official LANCA factor package needs that package |
-| Toxicity (fate model, imported USEtox factors) | Partial | Screening factors from a multimedia fate model, clearly labelled; official USEtox 2 factors can be imported by CAS number, but no tests against the USEtox reference results yet |
+| AWARE water scarcity (annual, monthly, GIS) | Implemented | Consumption = withdrawal minus return to fresh water, with the water balance and the part identified by outputs; hand-calculated reference tests. The factors are not bundled (licence); an imported package is checked for completeness, world fallback, monthly sets, range and source. Not declared complete until checked against the official package's reference results |
+| LANCA land use (SQI aggregation) | Partial | Occupation and transformation per indicator, unit checks (per m2 and per ha) and SQI aggregation tested by hand calculation; an imported package is checked for all five indicators per land use, world fallback and source; a check of the values needs the official package |
+| Toxicity (fate model, imported USEtox factors) | Partial | Screening factors from a multimedia fate model, clearly labelled; official USEtox 2 factors can be imported by CAS number and are checked for CTUh/CTUe units, signs and compartments; no tests against the USEtox reference results yet |
 | IMPACT World+, biodiversity methods | Planned | No factors are invented; added only with official factor packages |
 
 ## Databases and interoperability
@@ -48,13 +49,20 @@ elements alone do not count.
 | Database explorer | Implemented | Filters, paging, unresolved-only view, export of selected datasets |
 | Database check per database | Implemented | Six-part check: integrity, units, flow coverage, LCIA compatibility, matrix, metadata |
 | Database version comparison and model migration | Implemented | Preview and undo |
-| Custom data entry (own databases, product and elementary flows, processes, exchanges, factors) | Implemented | Complete product system from an empty library; UUID, source, author and revision per item; unit validation and conversion within one dimension; ecoinvent compartments; CAS check digit; uncertainty and pedigree; custom methods; JSON export and import. Hand-calculated supply chain with waste treatment, avoided product and unit conversions reproduced exactly, worked example (47 tests) |
+| Custom data entry (own databases, product and elementary flows, processes, exchanges, factors) | Implemented | Complete product system from an empty library; UUID, source, author and revision per item; unit validation and conversion within one dimension; ecoinvent compartments; CAS check digit; uncertainty and pedigree; custom methods; JSON export and import. Hand-calculated supply chain with waste treatment, avoided product and unit conversions reproduced exactly, worked example (64 tests) |
 | Unknown factors | Implemented | Never taken as zero: a custom flow without a known factor, or any flow without one in a custom method (unless its scope says, with the reason, that such flows have no effect), marks the category incomplete in results, report, workbook and checks. Known means a factor exists or was recorded, zero included, or the category was recorded as not applying |
 | Editing and change history of custom data | Implemented | Products, flows, lines and factors editable; renames update datasets; flow edits rematch factors; every change logged with time and author |
 | Parameters and formulas in custom processes | Implemented | Database and process parameters, formulas in amounts; every change re-evaluated in one transaction and refused as a whole if a formula fails or turns negative; hand-calculated tests |
 | Multi-output custom processes | Validated | Mass, energy, economic and manual allocation, one dataset per output with scaled exchanges and uncertainty; hand calculation (economic 75/25 %, mass 1/3, 2/3) and conservation of the process's exchanges tested |
 | User-defined units | Implemented | Units in known dimensions or new dimensions with multiples; size locked once in use; kept through restart and export |
-| Supply chain diagram for custom data | Implemented | Drag to arrange, connect to add an input, click an arrow to edit; model flow diagram opens the clicked line |
+| Supply chain diagram for custom data | Implemented | Drag to arrange, connect to add an input, click an arrow to edit |
+| Model inventory editing in the diagram | Implemented | Move lines between stages or to a new stage, change amounts, toggle credits, remove lines, open a line |
+| Parameter uncertainty of custom data | Validated | Distributions drawn in the full Monte Carlo with formulas re-evaluated; analytic lognormal reference (median, 2.5 and 97.5 percentiles) and the effect of shared and independent draws tested |
+| Factor review after a flow change | Implemented | Own factors of a custom flow whose name, context or CAS number changes are not used until confirmed or corrected |
+| Versions, undo, restore, dependencies | Implemented | State before and after every change; undo and redo, restore any version or a deleted process; dependent processes and models of every project |
+| Physical, economic (currency, price year) allocation and comparison | Validated | Hand-calculated physical causality case; comparison reproduces the economic and mass hand calculations and conserves the process total |
+| Plausibility checks | Implemented | Mass balance and order-of-magnitude warnings, decimal comma hint |
+| Recursive provenance | Implemented | Every dataset of the supply chain in the Excel workbook and a Word annex; direct contributions add up to the total (tested) |
 | Duplicate dataset detection, comparison dashboard, supplier graph | Planned | |
 | Export to Brightway and openLCA; Python and R clients | Implemented | Brightway round-trip and openLCA JSON-LD export tests |
 
@@ -82,9 +90,12 @@ elements alone do not count.
 
 | Feature | Status | Evidence and limits |
 |---|---|---|
-| Social LCA | Partial | Screening of worker hours and risk hours per stakeholder with imported PSILCA, SOCA or own data, with hand-calculated tests of activity levels, waste treatment, credits and coverage; not a full social LCA with performance reference points |
-| Material flow analysis | Implemented | Dynamic stocks, lifetimes, recycling loops, collection rate, recycling efficiency and end-of-life recycling rate, Material Circularity Indicator (reference values of the Ellen MacArthur Foundation methodology), link to LCA models, visual builder |
-| Life cycle costing | Partial | Prices per line, discounting, cost types, replacements; residual value, escalation and cost uncertainty are planned |
+| Social LCA screening | Partial | Screening of worker hours and risk hours per stakeholder with imported PSILCA, SOCA or own data, with hand-calculated tests of activity levels, waste treatment, credits and coverage |
+| Social LCA subcategory assessment (Type I) | Implemented | UNEP 2020 stakeholder categories and subcategories, performance reference points on the -2 to +2 scale, activity-variable weighting, coverage, site-specific share, hotspots and missing subcategories; hand-calculated tests. Cyclia ships no social data; impact pathways (Type II) are not included |
+| Material flow analysis | Implemented | Dynamic stocks, lifetimes, recycling loops, collection rate, recycling efficiency and end-of-life recycling rate, Material Circularity Indicator (reference values of the Ellen MacArthur Foundation methodology), visual builder |
+| MFA integrated with LCA | Implemented | Impacts year by year from the MFA quantities: production charged on virgin input, recycling, losses, credits for recovered material with a substitution ratio, gross and net; tests that every part equals quantity x factor x unit impact |
+| Life cycle costing | Implemented | ISO 15686-5: prices per line, discounting, cost types including the ISO 15686-5 categories, replacements, residual value at the end of the study period, real price escalation per cost type, price uncertainty with a Monte Carlo interval; hand-calculated tests |
+| Allocation choices of a model | Implemented | Results under mass, economic, energy, physical, manual allocation and without allocation, side by side; each equal to a full calculation under that basis (tested) |
 
 ## Reports and declarations
 

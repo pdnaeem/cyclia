@@ -328,6 +328,7 @@ function watchJob(job, { onDone, quiet } = {}) {
         setTimeout(() => (box.hidden = true), ir ? 60000 : warn ? 30000 : 6000);
         if (onDone) await onDone(j);
       }
+      document.dispatchEvent(new CustomEvent("cyclia:job", { detail: j }));
       resolve(j);
     };
     tick();
@@ -484,6 +485,8 @@ function fillScope() {
   const sc = m.scope || {};
   SCOPE_FIELDS.forEach((k) => { if (f[k]) f[k].value = sc[k] ?? (f[k].tagName === "SELECT" ? f[k].options[0].value : (k === "horizon" ? 100 : "")); });
   f.dynamic.checked = !!sc.dynamic;
+  f.lcc_escalation.value = Object.entries(sc.lcc_escalation || {}).map(([k, v]) => `${k}=${v}`).join(", ");
+  f.lcc_residual.checked = sc.lcc_residual !== false;
   f.main_value.value = sc.alloc_basis ? (sc["main_" + sc.alloc_basis] ?? "") : "";
   renderCoproducts(sc.coproducts || []);
   toggleAlloc();
@@ -533,6 +536,13 @@ async function saveModelScope(extra = {}) {
   const scope = { ...((S.model && S.model.scope) || {}) };
   SCOPE_FIELDS.forEach((k) => (scope[k] = f[k].value.trim()));
   scope.dynamic = f.dynamic.checked;
+  scope.lcc_residual = f.lcc_residual.checked;
+  scope.lcc_escalation = {};
+  for (const part of f.lcc_escalation.value.split(",").map((x) => x.trim()).filter(Boolean)) {
+    const m = part.match(/^(.+?)\s*=\s*(-?[\d.]+)$/);
+    if (!m) throw new Error(`Price escalation: write each cost type as name=percent, e.g. maintenance=2 ("${part}").`);
+    scope.lcc_escalation[m[1].trim()] = Number(m[2]);
+  }
   scope.coproducts = readCoproducts();
   ["main_mass", "main_price", "main_energy", "main_physical"].forEach((k) => { if (k !== "main_mass") delete scope[k]; });
   if (scope.alloc_basis) scope["main_" + scope.alloc_basis] = f.main_value.value;
@@ -919,40 +929,122 @@ $("#btnUndo").addEventListener("click", (e) => guard(e.target, async () => {
 
 /* flow diagram: stages as columns flowing into the product */
 $("#btnDiagram").addEventListener("click", () => { $("#diagram").hidden = !$("#diagram").hidden; if (!$("#diagram").hidden) renderDiagram(); });
+/* Model flow diagram: an editor as well as a picture. Drag a line to another stage column (or to "new stage"),
+   click its amount to change it, click "credit" to make it an avoided product, x to remove it, and click the box
+   to open its row in the table. */
+const DG = { colW: 210, boxH: 44, gap: 10, top: 38, drag: null };
 function renderDiagram() {
   const m = S.model;
   if (!m || !m.inputs.length) { $("#diagram").innerHTML = '<p class="hint">Add lines to see the diagram.</p>'; return; }
   const groups = {};
-  m.inputs.forEach((i) => (groups[i.stage || "No stage"] = groups[i.stage || "No stage"] || []).push(i));
-  const names = Object.keys(groups).sort((a, b) => (a.toUpperCase().startsWith("D") - b.toUpperCase().startsWith("D")) || a.localeCompare(b));
-  const colW = 210, boxH = 30, gap = 8, top = 34;
-  const H = Math.max(...names.map((n) => groups[n].length)) * (boxH + gap) + top + 20;
-  const W = names.length * (colW + 30) + 220;
-  const prodY = H / 2 - 30;
-  let svg = `<svg viewBox="0 0 ${W} ${Math.max(H, 120)}" width="100%" role="img" aria-label="Flow diagram of the model">`;
-  names.forEach((n, c) => {
-    const x = c * (colW + 30);
-    svg += `<text x="${x}" y="18" font-size="12" font-weight="600" fill="var(--ink)">${esc(n.length > 30 ? n.slice(0, 29) + "…" : n)}</text>`;
+  m.inputs.forEach((i) => (groups[i.stage || ""] = groups[i.stage || ""] || []).push(i));
+  const names = Object.keys(groups).sort((a, b) => (a === "") - (b === "") || (a.toUpperCase().startsWith("D") - b.toUpperCase().startsWith("D")) || a.localeCompare(b));
+  const { colW, boxH, gap, top } = DG;
+  const cols = [...names, "\u0000new"];
+  const H = Math.max(...names.map((n) => groups[n].length), 1) * (boxH + gap) + top + 30;
+  const W = cols.length * (colW + 30) + 220;
+  const prodY = Math.max(top, H / 2 - 30);
+  DG.cols = cols; DG.W = W;
+  let svg = `<div class="dg-scroll"><svg id="dgSvg" viewBox="0 0 ${W} ${Math.max(H, 140)}" width="${W}" height="${Math.max(H, 140)}" role="img" aria-label="Flow diagram of the model" style="touch-action:none;user-select:none;max-width:none">`;
+  cols.forEach((n, c) => {
+    const x = c * (colW + 30), isNew = n === "\u0000new";
+    svg += `<rect class="dg-col" data-col="${c}" x="${x - 6}" y="24" width="${colW + 12}" height="${Math.max(H, 140) - 30}" rx="6" fill="${isNew ? "transparent" : "var(--sunken)"}" stroke="${isNew ? "var(--rule)" : "none"}" stroke-dasharray="${isNew ? "5 4" : ""}" opacity="${isNew ? 1 : .55}"/>`;
+    svg += `<text x="${x}" y="17" font-size="12" font-weight="600" fill="${isNew ? "var(--ink-soft)" : "var(--ink)"}">${esc(isNew ? "+ drop here for a new stage" : n === "" ? "No stage" : n.length > 30 ? n.slice(0, 29) + "…" : n)}</text>`;
+    if (isNew) return;
     groups[n].forEach((i, r) => {
-      const y = top + r * (boxH + gap);
-      const credit = i.avoided;
-      svg += `<g data-line="${i.id}" style="cursor:pointer"><title>Click to edit this line</title><rect x="${x}" y="${y}" width="${colW}" height="${boxH}" rx="4" fill="var(--panel)" stroke="${i.missing ? "var(--danger)" : credit ? "var(--neg)" : "var(--rule)"}"/>
-        <text x="${x + 8}" y="${y + 19}" font-size="11" fill="var(--ink)">${esc(((i.label || i.target.name) + "").slice(0, 30))}</text></g>
-        <path d="M${x + colW} ${y + boxH / 2} C ${W - 200} ${y + boxH / 2}, ${W - 230} ${prodY + 30}, ${W - 190} ${prodY + 30}" fill="none" stroke="${credit ? "var(--neg)" : "var(--spruce)"}" stroke-width="1" opacity=".45" ${credit ? 'stroke-dasharray="4 3"' : ""}/>`;
+      const y = top + r * (boxH + gap), credit = i.avoided;
+      const amt = i.formula ? `= ${i.formula}` : `${fmt(i.input_amount)} ${i.input_unit}`;
+      svg += `<g class="dg-box" data-line="${i.id}" transform="translate(${x},${y})" style="cursor:grab"><title>Drag to another stage, click to open the line</title>
+        <rect width="${colW}" height="${boxH}" rx="5" fill="var(--panel)" stroke="${i.missing ? "var(--danger)" : credit ? "var(--neg)" : "var(--rule-strong)"}"/>
+        <text x="8" y="17" font-size="11" fill="var(--ink)">${esc(((i.label || i.target.name) + "").slice(0, 31))}</text>
+        <text x="8" y="34" font-size="11" fill="var(--spruce)" data-amt="${i.id}" style="cursor:text;text-decoration:underline dotted">${esc(amt.slice(0, 22))}</text>
+        <text x="${colW - 58}" y="34" font-size="10" fill="${credit ? "var(--neg)" : "var(--ink-faint)"}" data-credit="${i.id}" style="cursor:pointer">${credit ? "credit ✓" : "credit"}</text>
+        <text x="${colW - 14}" y="15" font-size="13" fill="var(--ink-faint)" data-dgrm="${i.id}" style="cursor:pointer" aria-label="Remove">×</text></g>
+        <path d="M${x + colW} ${y + boxH / 2} C ${W - 200} ${y + boxH / 2}, ${W - 230} ${prodY + 30}, ${W - 190} ${prodY + 30}" fill="none" stroke="${credit ? "var(--neg)" : "var(--spruce)"}" stroke-width="1" opacity=".45" ${credit ? 'stroke-dasharray="4 3"' : ""} pointer-events="none"/>`;
     });
   });
   svg += `<rect x="${W - 190}" y="${prodY}" width="185" height="60" rx="6" fill="var(--spruce)"/>
     <text x="${W - 180}" y="${prodY + 25}" font-size="12" font-weight="600" fill="var(--panel)">${esc(m.name.slice(0, 26))}</text>
-    <text x="${W - 180}" y="${prodY + 44}" font-size="11" fill="var(--panel)">${esc(`${fmt(m.amount)} ${m.unit}`)}</text></svg>
-    <p class="hint">Dashed blue lines are credits (avoided products). Red boxes point to missing datasets. Click a box to edit its line.</p>`;
+    <text x="${W - 180}" y="${prodY + 44}" font-size="11" fill="var(--panel)">${esc(`${fmt(m.amount)} ${m.unit}`)}</text></svg></div>
+    <div class="row"><p class="hint grow">Drag a box to another stage to move the line there. Click an amount to change it, "credit" to make the line an avoided product, × to remove it, or the box to open its row. Dashed blue lines are credits; red boxes point to missing datasets.</p><button class="ghost" id="dgAdd">+ Add a line</button></div>`;
   $("#diagram").innerHTML = svg;
+  $("#diagram").style.position = "relative";
 }
-$("#diagram").addEventListener("click", (e) => {
-  const g = e.target.closest("[data-line]"); if (!g) return;
-  const row = $(`#invRows tr[data-id="${g.dataset.line}"]`); if (!row) return;
+function dgPoint(evt) {
+  const svg = $("#dgSvg"), pt = svg.createSVGPoint();
+  pt.x = evt.clientX; pt.y = evt.clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+function dgInline(evt, value, onSave, placeholder) {
+  $$(".dg-inline").forEach((x) => x.remove());
+  const box = $("#diagram").getBoundingClientRect();
+  const inp = document.createElement("input");
+  inp.className = "dg-inline"; inp.value = value; inp.placeholder = placeholder || "";
+  inp.style.cssText = `position:absolute;left:${Math.min(evt.clientX - box.left, box.width - 170)}px;top:${evt.clientY - box.top - 14}px;width:160px;z-index:5`;
+  $("#diagram").appendChild(inp); inp.focus(); inp.select();
+  let closed = false;
+  const done = (save) => { if (closed) return; closed = true; const v = inp.value.trim(); if (inp.isConnected) inp.remove(); if (save && v !== "") onSave(v); };
+  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") done(true); if (e.key === "Escape") done(false); });
+  // an empty field stays open when it loses the focus (the pointer release that opened it can take the focus
+  // away); it closes with Enter, Escape, or when it loses the focus with a value, which is then saved
+  inp.addEventListener("blur", () => { if (inp.value.trim() !== "") done(true); });
+}
+$("#diagram").addEventListener("pointerdown", (evt) => {
+  if (evt.target.closest("[data-amt],[data-credit],[data-dgrm]")) return;
+  const g = evt.target.closest(".dg-box"); if (!g) return;
+  const p = dgPoint(evt), tr = g.transform.baseVal.consolidate().matrix;
+  DG.drag = { g, id: Number(g.dataset.line), ox: p.x - tr.e, oy: p.y - tr.f, sx: p.x, sy: p.y, moved: false };
+  $("#dgSvg").setPointerCapture(evt.pointerId);
+});
+$("#diagram").addEventListener("pointermove", (evt) => {
+  const d = DG.drag; if (!d) return;
+  const p = dgPoint(evt);
+  if (Math.abs(p.x - d.sx) + Math.abs(p.y - d.sy) > 5) d.moved = true;
+  if (d.moved) {
+    d.g.setAttribute("transform", `translate(${p.x - d.ox},${p.y - d.oy})`); d.g.style.opacity = .8;
+    // near the edge of a wide diagram: scroll it, so that every column can be reached
+    const sc = $(".dg-scroll"), r = sc.getBoundingClientRect();
+    if (evt.clientX > r.right - 40) sc.scrollLeft += 24; else if (evt.clientX < r.left + 40) sc.scrollLeft -= 24;
+  }
+});
+$("#diagram").addEventListener("pointerup", (evt) => {
+  const d = DG.drag; DG.drag = null; if (!d) return;
+  if (!d.moved) { dgOpenRow(d.id); return; }
+  const p = dgPoint(evt), c = Math.floor((p.x + 15) / (DG.colW + 30));
+  const row = S.model.inputs.find((r) => r.id === d.id);
+  if (c < 0 || c >= DG.cols.length) { renderDiagram(); return; }
+  const target = DG.cols[c];
+  if (target === "\u0000new") {
+    renderDiagram();
+    dgInline(evt, "", (v) => guard(null, () => patchLine(d.id, { stage: v }, true)), "Name of the new stage");
+    return;
+  }
+  if ((row.stage || "") === target) { renderDiagram(); return; }
+  guard(null, () => patchLine(d.id, { stage: target }, true));
+});
+function dgOpenRow(id) {
+  const row = $(`#invRows tr[data-id="${id}"]`); if (!row) return;
   row.scrollIntoView({ behavior: "smooth", block: "center" });
   row.classList.add("flash"); setTimeout(() => row.classList.remove("flash"), 1600);
   const f = $("input, select", row); if (f) f.focus();
+}
+$("#diagram").addEventListener("click", (e) => {
+  const am = e.target.closest("[data-amt]"), cr = e.target.closest("[data-credit]"), rm = e.target.closest("[data-dgrm]");
+  if (e.target.closest("#dgAdd")) { $("#searchBox").scrollIntoView({ behavior: "smooth", block: "center" }); $("#searchBox").focus(); return; }
+  if (am) {
+    const row = S.model.inputs.find((r) => r.id === Number(am.dataset.amt));
+    if (row.formula) { dgOpenRow(row.id); toast("This amount is a formula: change it in the table.", true); return; }
+    dgInline(e, String(row.input_amount), (v) => {
+      const n = Number(v);
+      if (!(n >= 0) || v === "") { toast("Enter a positive amount (use a dot for decimals).", true); return; }
+      guard(null, () => patchLine(row.id, { input_amount: n, input_unit: row.input_unit }, true));
+    }, `amount in ${row.input_unit}`);
+  } else if (cr) {
+    const row = S.model.inputs.find((r) => r.id === Number(cr.dataset.credit));
+    guard(null, () => patchLine(row.id, { avoided: !row.avoided }, true));
+  } else if (rm) {
+    guard(null, async () => { await api("DELETE", "/api/inputs/" + rm.dataset.dgrm); await loadModel(S.model.id); S.result = null; renderInventory(); toast("Line removed."); });
+  }
 });
 
 async function exportTo(path, defaultName, ext, body = {}) {

@@ -1,6 +1,6 @@
 # Cyclia roadmap
 
-Version: 1.6.2. Author: Naeem Ur Rehman. This document lists the standards Cyclia follows, its features by LCA
+Version: 1.7.0. Author: Naeem Ur Rehman. This document lists the standards Cyclia follows, its features by LCA
 phase, how it compares with other LCA software, and where the plan for future work is. Other programs'
 capabilities are listed only where the vendor's own documentation describes them (sources at the end). The
 history of earlier releases is in [quality/DEVELOPMENT_HISTORY.md](quality/DEVELOPMENT_HISTORY.md).
@@ -64,7 +64,7 @@ database and method fingerprints.
 
 "Not documented" means the page reviewed did not describe it, not that the product lacks it.
 
-| Feature | Cyclia 1.6.2 | openLCA 2 | SimaPro Expert | Sphera LCA for Experts | Brightway / Activity Browser |
+| Feature | Cyclia 1.7.0 | openLCA 2 | SimaPro Expert | Sphera LCA for Experts | Brightway / Activity Browser |
 |---|---|---|---|---|---|
 | Monte Carlo | Yes, with Sobol, comparative probabilities, correlated parameters, convergence | Yes | Yes | Not documented | Yes, plus global sensitivity analysis |
 | Parameters and scenarios | Yes | Yes | Yes | Key parameters through an interface | Yes, with premise scenarios |

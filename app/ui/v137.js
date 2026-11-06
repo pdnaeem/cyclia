@@ -157,10 +157,18 @@
   /* ---------------- links to the LCA ---------------- */
   function links() {
     D.lca_links = D.lca_links || {};
-    $("#mfaLinks").innerHTML = D.processes.map((p) => { const l = D.lca_links[p.id];
-      return `<tr data-pid="${esc(p.id)}"><td>${esc(p.name || p.id)}</td><td>${l ? `${esc(l.label || (l.kind + " " + l.id))} <button class="ghost" data-unlinkmfa="${esc(p.id)}">Remove</button>` : `<input data-mfasearch placeholder="Search a dataset" size="24"><select data-mfamodel><option value="">or a model...</option>${((S.models || [])).map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join("")}</select><ul class="results" data-mfares></ul>`}</td>
-        <td class="num"><input data-mfafactor type="number" step="any" value="${l ? esc(l.factor) : 1}" size="6"></td><td></td></tr>`; }).join("");
+    const rec = D.recycling_processes || [];
+    // one row per process, and for each recycling process a second row: the credit for its recovered material
+    const rows = D.processes.flatMap((p) => [{ key: p.id, pid: p.id, name: p.name || p.id, credit: false },
+      ...(rec.includes(p.id) ? [{ key: p.id + ":credit", pid: p.id, name: `${p.name || p.id}: credit for the recovered material`, credit: true }] : [])]);
+    $("#mfaLinks").innerHTML = rows.map((x) => { const l = D.lca_links[x.key];
+      const bases = x.credit ? [["recovered", "recovered material"]] : [["throughput", "throughput"], ...(D.production_process === x.pid ? [["virgin_input", "virgin input only"]] : []), ...(rec.includes(x.pid) ? [["recovered", "recovered material"]] : [])];
+      return `<tr data-pid="${esc(x.key)}" data-proc="${esc(x.pid)}" data-credit="${x.credit ? 1 : ""}"><td>${esc(x.name)}</td><td>${l ? `${esc(l.label || (l.kind + " " + l.id))} <button class="ghost" data-unlinkmfa="${esc(x.key)}">Remove</button>` : `<input data-mfasearch placeholder="${x.credit ? "Primary material it replaces" : "Search a dataset"}" size="24">${x.credit ? "" : `<select data-mfamodel><option value="">or a model...</option>${((S.models || [])).map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join("")}</select>`}<ul class="results" data-mfares></ul>`}</td>
+        <td class="num"><input data-mfafactor type="number" step="any" value="${l ? esc(l.factor) : 1}" size="6"></td>
+        <td><select data-mfabasis>${bases.map(([v, t]) => `<option value="${v}" ${(l && l.basis || (x.credit ? "recovered" : D.production_process === x.pid ? "virgin_input" : "throughput")) === v ? "selected" : ""}>${t}</option>`).join("")}</select>${x.credit ? ` substitution <input data-mfasub type="number" step="any" min="0" max="1" value="${l && l.substitution != null ? esc(l.substitution) : 1}" size="4" title="1: replaces primary material one to one; lower for quality losses">` : ""}</td></tr>`; }).join("");
   }
+  const linkOf = (tr, extra) => ({ factor: Number($("[data-mfafactor]", tr).value || 1), basis: $("[data-mfabasis]", tr).value,
+    process: tr.dataset.proc, avoided: !!tr.dataset.credit, substitution: tr.dataset.credit ? Number(($("[data-mfasub]", tr) || {}).value || 1) : undefined, ...extra });
   $("#mfaLinks").addEventListener("input", async (e) => {
     const inp = e.target.closest("[data-mfasearch]"); if (!inp || inp.value.trim().length < 2) return;
     const tr = inp.closest("tr");
@@ -169,25 +177,27 @@
   });
   $("#mfaLinks").addEventListener("click", (e) => {
     const pk = e.target.closest("[data-mfapick]"), ul = e.target.closest("[data-unlinkmfa]");
-    if (pk) { const tr = pk.closest("tr"); D.lca_links[tr.dataset.pid] = { kind: "activity", id: Number(pk.dataset.mfapick), factor: Number($("[data-mfafactor]", tr).value || 1), label: pk.dataset.label }; refresh(); }
+    if (pk) { const tr = pk.closest("tr"); D.lca_links[tr.dataset.pid] = linkOf(tr, { kind: "activity", id: Number(pk.dataset.mfapick), label: pk.dataset.label }); refresh(); }
     if (ul) { delete D.lca_links[ul.dataset.unlinkmfa]; refresh(); }
   });
   $("#mfaLinks").addEventListener("change", (e) => {
     const tr = e.target.closest("tr"); if (!tr || !D) return;
-    if (e.target.matches("[data-mfamodel]") && e.target.value) { const m = (S.models || []).find((x) => String(x.id) === e.target.value); D.lca_links[tr.dataset.pid] = { kind: "model", id: Number(e.target.value), factor: Number($("[data-mfafactor]", tr).value || 1), label: "model: " + (m ? m.name : e.target.value) }; refresh(); }
-    if (e.target.matches("[data-mfafactor]") && D.lca_links[tr.dataset.pid]) { D.lca_links[tr.dataset.pid].factor = Number(e.target.value); write(); }
+    if (e.target.matches("[data-mfamodel]") && e.target.value) { const m = (S.models || []).find((x) => String(x.id) === e.target.value); D.lca_links[tr.dataset.pid] = linkOf(tr, { kind: "model", id: Number(e.target.value), label: "model: " + (m ? m.name : e.target.value) }); refresh(); }
+    const l = D.lca_links[tr.dataset.pid];
+    if (l && e.target.matches("[data-mfafactor],[data-mfabasis],[data-mfasub]")) { Object.assign(l, linkOf(tr, { kind: l.kind, id: l.id, label: l.label })); write(); }
   });
   $("#btnMfaLca").addEventListener("click", (e) => guard(e.target, async () => {
     if (!D) read();
     const mids = [...(S.selectedMethods || [])];
     if (!mids.length) throw new Error("Choose impact categories in step 4 first.");
-    const links = {}; Object.entries(D.lca_links || {}).forEach(([k, l]) => (links[k] = { kind: l.kind, id: l.id, factor: l.factor }));
+    const links = {}; Object.entries(D.lca_links || {}).forEach(([k, l]) => (links[k] = { kind: l.kind, id: l.id, factor: l.factor, basis: l.basis, process: l.process || k.split(":")[0], avoided: !!l.avoided, substitution: l.substitution }));
     const r = await api("POST", "/api/mfa/lca", { definition: D, method_ids: mids, links });
     const step = Math.max(1, Math.ceil(r.rows.length / 12));
     $("#mfaLcaOut").innerHTML = `<p class="hint">${esc(r.note)}${r.unlinked_processes.length ? ` Not linked: ${r.unlinked_processes.map(esc).join(", ")}.` : ""}</p>
       <div class="table-wrap"><table><thead><tr><th>Year</th>${r.categories.map((c) => `<th class="num">${esc(c.category)} <span class="hint">${esc(c.unit)}</span></th>`).join("")}</tr></thead><tbody>
       ${r.rows.filter((_, i) => i % step === 0 || i === r.rows.length - 1).map((x) => `<tr><td>${x.year}</td>${x.total.map((v) => `<td class="num">${fmt(v)}</td>`).join("")}</tr>`).join("")}
-      <tr><td><b>Cumulative</b></td>${r.cumulative.map((v) => `<td class="num"><b>${fmt(v)}</b></td>`).join("")}</tr></tbody></table></div>`;
+      <tr><td><b>Cumulative, net</b></td>${r.cumulative.map((v) => `<td class="num"><b>${fmt(v)}</b></td>`).join("")}</tr>
+      ${Object.entries(r.cumulative_by_role).filter(([, v]) => v.some((x) => x)).map(([k, v]) => `<tr><td class="hint">of which ${esc(k)}</td>${v.map((x) => `<td class="num">${fmt(x)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
   }));
 })();
 

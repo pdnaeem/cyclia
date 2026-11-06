@@ -321,7 +321,7 @@ changes α_g that best explain the gap, (ref_d - cyclia_d) = Σ_g α_g c_dg, are
 (weights 1 / |ref_d|), with the share of the gap variance explained. Land flows of the inventories without a
 factor, and raw factors that give one flow two different values, are listed.
 
-`engine/tests` holds 184 automated tests (1.3.7), including: a hand-calculated wall model; agreement with an
+`engine/tests` holds 305 automated tests (1.7.0), including: a hand-calculated wall model; agreement with an
 independent dense solution to 10⁻⁹; supply loops and waste treatment from ecoSpold2; unit conversion and
 waste flows from openLCA JSON-LD; ecoSpold1, SimaPro CSV and ILCD imports against hand calculations;
 cross-database linking and unlinking; flow mapping; regional factors; module D; co-product allocation;
@@ -422,8 +422,21 @@ starting point, not a marginal-supplier identification.
 
 Each costed line has a cost type (capital, operating, maintenance, replacement, end of life). With a study period
 T (step 2) and a replacement interval R on a line in year y₀, the line's cost occurs in years y₀ + kR for
-k = 0, 1, ... while y₀ + kR < T; the net present cost is Σ c / (1 + r)^(y₀ + kR). Results are given by line,
-stage and cost type.
+k = 0, 1, ... while y₀ + kR < T. Since 1.7.0 (ISO 15686-5):
+
+- **Price escalation.** Each purchase costs c (1 + e)^y, with e the real price escalation per year of the line's
+  cost type (or "all"), given in step 2.
+- **Net present cost.** It is Σ c (1 + e)^y / (1 + r)^y over the purchases.
+- **Residual value.** The last purchase, in year y_L, still has y_L + R − T years of service at the end of the study
+  period. With linear depreciation, its residual value −c (1 + e)^(y_L) (y_L + R − T)/R is credited in year T and
+  discounted by (1 + r)^T. It can be switched off in step 2.
+- **Price uncertainty.** A line with a geometric standard deviation g has every cost multiplied, in each of 2,000
+  Monte Carlo runs, by a lognormal factor with median 1 and σ = ln g. The 95 % interval of the net present cost is
+  reported.
+
+Cost types include the ISO 15686-5 categories: construction, operation, maintenance, end of life, non-construction,
+income and externalities. Results are given by line, stage and cost type. Tests: replacements and residual value
+(300 − 50), escalation with discounting, and the lognormal interval of the price, all by hand.
 
 ### 12.6 AWARE water scarcity (Toolbox > Regional methods)
 
@@ -581,6 +594,23 @@ boxes can be dragged; the JSON stays available. Linked to the LCA: impact of pro
 throughput_pt × factor_p × impact per unit of the linked dataset (from the engine, whole supply chain) or model (per
 unit of its functional unit). Stocks are counted by their inflow, sinks by what they receive. Background data are
 those of today unless a prospective background scenario is used.
+
+Since 1.7.0 a link is counted on one of three quantities:
+- **throughput** (the default);
+- the **virgin input** of the production process: its input minus the recycled input, so that recycled material
+  is not charged again as primary material;
+- the **recovered material** of a recycling process: what it passes on inside the system.
+
+A credit (system expansion) for the recovered material counts −quantity × factor × substitution ratio × impact
+per unit of the primary material it replaces. The substitution ratio is at most 1 and reflects quality losses.
+
+Results are given per year and cumulatively:
+- by process;
+- by role: primary supply, production and use, recycling, losses, credits;
+- as gross, credits and net.
+
+Test: every part equals the quantity of the MFA × factor × unit impact, and the virgin input equals the production
+input minus the recycled input.
 
 ### 14.6 Staging imports
 Format imports (ecoSpold2, openLCA JSON-LD, ecoSpold1, SimaPro CSV, ILCD) run into a separate staging library.
@@ -778,6 +808,94 @@ A user-defined unit belongs to a known dimension, with its factor to the base un
 factor 50), or it is the base unit of a new dimension (a seat), possibly with multiples (a row of 20 seats).
 Conversion follows section 17.2: only within one dimension. A unit in use cannot change its factor or dimension,
 because the stored amounts that were converted with it would no longer match their entries.
+
+### 17.12 Parameter uncertainty of custom data
+A parameter with a value can carry a distribution (lognormal with GSD > 1 around a positive value, normal,
+triangular, uniform; the value must lie within the bounds). In the full Monte Carlo, every iteration draws the
+parameters with a distribution: a database parameter once per iteration for all processes of the database (so a
+shared assumption is fully correlated), a process's own parameter separately. The formulas of every process are
+evaluated with the drawn values, and the change from the deterministic amount, converted to the reference unit and
+multiplied by the allocation share and sign of each dataset, is added to the technosphere and elementary entries
+before the solve. Amounts below zero are set to zero, as in the deterministic model. The exchange's own
+uncertainty, if any, is sampled as before around its deterministic value. Test: with k lognormal (median 1, GSD
+1.5) and emissions 2k and 3k in two processes, 4,000 iterations give a median of 5 and 2.5 and 97.5 percentiles of
+5 x 1.5^(-1.96) and 5 x 1.5^(1.96), within the sampling error.
+
+### 17.13 Factor review
+A characterisation factor characterises a substance in a context. When the name, compartment, subcompartment or
+CAS number of a custom flow changes, every factor recorded for it is set "under review": it is not used, so that a
+factor for an emission to air is not carried forward to water, and the factor counts as unknown (section 17.5)
+until it is confirmed or replaced. Factors that installed methods match by name and context are matched again
+with the new context.
+
+### 17.14 Versions, undo and dependencies
+Every change of a process stores the complete state before and after (record and lines). A restore writes a
+stored state back and recompiles; if the state no longer fits (a supplier was deleted), the line becomes an
+unresolved input. A restore is itself a recorded change, so undo after undo redoes. Dependencies are found by
+following the technosphere lines downstream (processes that use a process, directly or through others) and the
+model lines of every project that use any of their datasets.
+
+### 17.15 Physical and economic allocation, and the allocation comparison
+Physical causality uses a named physical property per unit of each product (v_i in section 17.9). Economic
+allocation records the currency and the year of the prices. For a process that does not use its own products
+(directly or through its supply chain), its total burden T = sum_i a_i I_i, with I_i the result per unit of output
+i, does not depend on the allocation, so the result per unit under method m is I_i,m = f_i,m T / a_i. The
+comparison applies this to every method whose values are available; with a loop through the process's own
+products it is refused rather than approximated.
+
+### 17.16 Plausibility checks
+The database check warns when the material inputs of a process (technosphere inputs in mass units, without waste
+sent to treatment) are below half or above twenty times the mass of its products, and when a line exceeds 10,000
+times the reference amount or lies below 10^-9 of it. Both are frequent signs of a unit slip (g entered as kg).
+They are warnings: a high ratio can be right, for example in mining.
+
+### 17.17 Recursive provenance
+For a model, the scaling vector s of the whole supply chain gives, for every dataset j with s_j != 0, the amount of
+its reference product per functional unit (s_j x production_j) and its direct contribution (C B)_kj s_j to each
+category. These direct contributions add up to the total. Each dataset is listed with its database, version,
+system model and identifier, and custom datasets with their source, author, revision and data quality.
+
+### 17.18 Benchmark Centre and the IPCC check
+The Benchmark Centre keeps the summary of every validation run (suite, Brightway, ecoinvent per method family,
+IPCC) with its time, Cyclia version and environment. A row is "Validated" only when its last run passed. For an
+ecoinvent benchmark, that means at least 95 % of results within 0.1 % and no category with fewer than 95 % within
+1 %. The IPCC check builds an empty library with one dataset per gas emitting 1 kg, installs the built-in method,
+and compares each result with GWP100 values transcribed separately from IPCC AR6 WG1 (2021), Tables 7.15 and
+7.SM.7: CO2, CH4 (fossil and non-fossil), N2O, SF6, NF3, CF4, C2F6 and HFC-23, -32, -125, -134a, -143a and -152a.
+The tolerance is 1e-12.
+
+### 17.19 Allocation choices of a model (1.7.0)
+The result of a model scales with the share of the main product. For each choice the scope has values for (mass,
+economic, energy, physical, manual) the result is the unallocated result x the share, and "no allocation" (system
+expansion with the credit lines as entered) is the unallocated result. A choice whose values are missing for a
+product is not shown with a number. Test: mass 10/3 and economic 7.5 of 10, both equal to a full calculation under
+that basis.
+
+### 17.20 Social LCA: subcategory assessment, Type I (1.7.0)
+Stakeholder categories and subcategories of the UNEP Guidelines for Social LCA (2020): workers, local community,
+value chain actors, consumers, society, children. Each row scores one organisation or process of the product system
+against a stated performance reference point on the reference scale -2 (very poor), -1 (risky), 0 (compliant),
++1 (progressive), +2 (ideal), with its indicator, evidence, data type and activity variable w (for example worker
+hours per functional unit). For a subcategory, the indicators of one organisation are averaged, and the
+subcategory score is sum_o w_o s_o / sum_o w_o. Coverage = sum_o w_o / W, with W the total activity variable of the
+product system that the user states. Scores are not aggregated across subcategories or stakeholders; the lowest
+score per stakeholder and the rows at -1 or -2 (hotspots) are reported. Subcategories with no row are listed as
+missing unless excluded with a reason. Mixed weight units are flagged. Cyclia ships no social data. Test: Fair
+salary (3 h at +1, 1 h at -2) = 0.25, coverage 50 %, site-specific share 75 %; Working hours with two indicators of
+one factory = -0.5.
+
+### 17.21 Factor package checks (1.7.0)
+Imported official packages are checked for structure before their results are relied on:
+- **AWARE:** a world (GLO) fallback, all three uses per location, complete monthly sets, the range 0.1 to 100, and a
+  named source.
+- **LANCA:** for every land use and location, the five indicators (erosion resistance, mechanical filtration,
+  physicochemical filtration, groundwater regeneration, biotic production) for occupation and both
+  transformations, a GLO fallback, and a named source.
+- **USEtox:** CTUh for human toxicity and CTUe for ecotoxicity, no negative factors, and factors for emissions to
+  air, water and soil.
+
+The status is "Package checked" or "Package incomplete", never "Validated": checking the factor values needs the
+reference results of the package itself.
 
 ### 17.11 Supply chain diagram
 The diagram shows custom processes and the library datasets they use, with one arrow per technosphere line. It

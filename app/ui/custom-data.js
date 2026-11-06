@@ -128,18 +128,37 @@
   }));
 
   // ------------------------------------------------------------------ parameter tables
+  const UT = { 0: "none", 1: "lognormal", 2: "normal", 3: "triangular", 4: "uniform" };
+  function uncOf(q) {
+    if (q.uncertainty) return q.uncertainty;
+    const t = UT[q.utype || 0];
+    q.uncertainty = t === "lognormal" ? { type: t, gsd: q.p1 } : t === "normal" ? { type: t, sd: q.p1 }
+      : t === "triangular" ? { type: t, min: q.p1, mode: q.p2, max: q.p3 } : t === "uniform" ? { type: t, min: q.p1, max: q.p2 } : { type: "none" };
+    return q.uncertainty;
+  }
+  function uncInputs(u) {
+    const n = (k, ph) => `<input data-pu="${k}" type="number" step="any" size="5" placeholder="${ph}" value="${esc(u[k] ?? "")}">`;
+    return u.type === "lognormal" ? n("gsd", "GSD") : u.type === "normal" ? n("sd", "SD") : u.type === "triangular" ? n("min", "min") + n("mode", "mode") + n("max", "max")
+      : u.type === "uniform" ? n("min", "min") + n("max", "max") : "";
+  }
   function paramTable(id, list) {
-    $("#" + id).innerHTML = (list.length ? `<thead><tr><th>Name</th><th>Value or formula</th><th>Comment</th><th></th></tr></thead>` : "") + "<tbody>" +
-      (list.length ? list.map((q, i) => `<tr data-pi="${i}"><td><input data-pf="name" value="${esc(q.name)}" size="12"></td>
-        <td><input data-pf="vf" value="${esc(q.formula ? q.formula : q.value ?? "")}" size="22" placeholder="0.8 or dough / (1 - loss)"></td>
-        <td><input data-pf="comment" value="${esc(q.comment || "")}" class="grow"></td><td><button class="ghost" data-pdel="${i}">Remove</button></td></tr>`).join("")
+    $("#" + id).innerHTML = (list.length ? `<thead><tr><th>Name</th><th>Value or formula</th><th>Uncertainty (Monte Carlo)</th><th>Comment</th><th></th></tr></thead>` : "") + "<tbody>" +
+      (list.length ? list.map((q, i) => { const u = uncOf(q); return `<tr data-pi="${i}"><td><input data-pf="name" value="${esc(q.name)}" size="12"></td>
+        <td><input data-pf="vf" value="${esc(q.formula ? q.formula : q.value ?? "")}" size="20" placeholder="0.8 or dough / (1 - loss)"></td>
+        <td><select data-pf="ut" ${q.formula ? "disabled title='A formula parameter follows the parameters it uses'" : ""}>${Object.values(UT).map((t) => opt(t, t === "none" ? "fixed" : t, t === u.type)).join("")}</select>${uncInputs(u)}</td>
+        <td><input data-pf="comment" value="${esc(q.comment || "")}" class="grow"></td><td><button class="ghost" data-pdel="${i}">Remove</button></td></tr>`; }).join("")
         : '<tr><td class="hint">No parameter yet.</td></tr>') + "</tbody>";
     const t = $("#" + id);
+    t.onchange = (e) => {
+      const r = e.target.closest("[data-pi]"); if (!r || e.target.dataset.pf !== "ut") return;
+      const q = list[Number(r.dataset.pi)]; q.uncertainty = { type: e.target.value }; paramTable(id, list);
+    };
     t.oninput = (e) => {
       const r = e.target.closest("[data-pi]"); if (!r) return;
       const q = list[Number(r.dataset.pi)], f = e.target.dataset.pf;
+      if (e.target.dataset.pu) { uncOf(q)[e.target.dataset.pu] = e.target.value === "" ? null : Number(e.target.value); return; }
       if (f === "vf") { const v = e.target.value.trim(); if (v !== "" && !Number.isNaN(Number(v))) { q.value = Number(v); q.formula = ""; } else { q.formula = v; q.value = null; } }
-      else q[f] = e.target.value;
+      else if (f !== "ut") q[f] = e.target.value;
     };
     t.onclick = (e) => { const b = e.target.closest("[data-pdel]"); if (b) { list.splice(Number(b.dataset.pdel), 1); paramTable(id, list); } };
   }
@@ -189,7 +208,8 @@
   function renderAlValues() {
     const m = $("#cdAlMethod").value, prods = C.data ? C.data.products : [];
     const outs = [$("#cdPrProduct").value, ...C.co.map((c) => c.product)].filter(Boolean);
-    const label = { mass: "kg per unit (only if the unit is not a mass unit)", energy: "MJ per unit (only if the unit is not an energy unit)", economic: "price per unit", manual: "share (0 to 1)" }[m];
+    const label = { mass: "kg per unit (only if the unit is not a mass unit)", energy: "MJ per unit (only if the unit is not an energy unit)", economic: "price per unit", physical: `${val("cdAlProp") || "property"} per unit`, manual: "share (0 to 1)" }[m];
+    $("#cdAlEco").hidden = m !== "economic"; $("#cdAlPhys").hidden = m !== "physical";
     $("#cdAlValues").innerHTML = C.co.length && m ? outs.map((u) => { const p = prods.find((x) => x.uuid === u);
       return `<div class="cd-co-row"><span class="grow">${esc(p ? p.name : "?")} (${esc(p ? p.data.unit : "")})</span><span class="hint">${label}</span><input data-av="${esc(u)}" type="number" step="any" size="8" value="${esc(C.alValues[u] ?? "")}"></div>`; }).join("") : "";
     const sh = procOf(C.proc) && procOf(C.proc).shares;
@@ -201,6 +221,17 @@
   $("#cdCoRows").addEventListener("click", (e) => { const b = e.target.closest("[data-codel]"); if (b) { C.co.splice(Number(b.dataset.codel), 1); renderCo(); } });
   $("#cdAlValues").addEventListener("input", (e) => { if (e.target.dataset.av) C.alValues[e.target.dataset.av] = e.target.value; });
   $("#cdAlMethod").addEventListener("change", renderAlValues);
+  $("#cdAlProp").addEventListener("input", renderAlValues);
+  $("#btnCdAlCmp").addEventListener("click", (e) => guard(e.target, async () => {
+    if (!C.proc) throw new Error("Choose a saved process first.");
+    const mids = [...new Set([...(S.selectedMethods || []), ...C.meta.methods.map((m) => m.id)])];
+    if (!mids.length) throw new Error("Choose impact categories in step 4 first.");
+    const r = await api("POST", "/api/custom/allocation-compare", { process: C.proc, method_ids: mids.slice(0, 6) });
+    const ms = r.methods;
+    const rows = r.comparison.flatMap((c) => c.available ? c.outputs.map((o, i) => `<tr${c.current ? ' class="ok"' : ""}><td>${i ? "" : esc(c.method) + (c.current ? " (saved)" : "")}</td><td>${esc(o.product)}</td><td class="num">${(o.share * 100).toPrecision(4)} %</td>${o.per_unit.map((v) => `<td class="num">${fmt(v)}</td>`).join("")}</tr>`)
+      : [`<tr><td>${esc(c.method)}</td><td colspan="${2 + ms.length}" class="hint">${esc(c.reason)}</td></tr>`]).join("");
+    $("#cdAlCmpOut").innerHTML = `<p class="hint">${esc(r.note)}</p><div class="table-wrap"><table><thead><tr><th>Method</th><th>Product</th><th class="num">Share</th>${ms.map((m) => `<th class="num">${esc(m.category)} (${esc(m.unit)} per unit)</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  }));
   $("#cdPrProduct").addEventListener("change", renderAlValues);
   $("#btnCdCoAdd").addEventListener("click", () => {
     const prods = (C.data ? C.data.products : []).filter((p) => p.uuid !== $("#cdPrProduct").value && !C.co.some((c) => c.product === p.uuid));
@@ -231,8 +262,12 @@
     $("#cdPrParamBox").open = C.prParams.length > 0;
     C.co = JSON.parse(JSON.stringify(d.coproducts || []));
     C.alValues = { ...((d.allocation || {}).values || {}) };
-    $("#cdAlMethod").value = (d.allocation || {}).method || "";
-    $("#cdAlSrc").value = (d.allocation || {}).source || "";
+    const al = d.allocation || {};
+    $("#cdAlMethod").value = al.method || "";
+    $("#cdAlSrc").value = al.source || "";
+    $("#cdAlCur").value = al.currency || ""; $("#cdAlYear").value = al.price_year || "";
+    $("#cdAlProp").value = al.property || ""; $("#cdAlPropUnit").value = al.property_unit || "";
+    $("#cdAlCmpOut").innerHTML = "";
     $("#cdCoBox").open = C.co.length > 0;
     renderCo();
     if (p) {
@@ -242,6 +277,12 @@
     renderExchanges(p);
     exchangeForm(null);
     $("#cdHistOut").innerHTML = "";
+    $("#cdDeps").innerHTML = "";
+    if (p) api("GET", `/api/custom/dependents?process=${encodeURIComponent(p.uuid)}`).then((d) => {
+      if (C.proc !== p.uuid) return;
+      $("#cdDeps").innerHTML = (d.processes.length || d.models.length) ? `<b>A change here also changes:</b> ${d.processes.length ? `${d.processes.length} process(es) that use it (${d.processes.slice(0, 6).map((x) => esc(x.name)).join(", ")}${d.processes.length > 6 ? ", …" : ""})` : ""}${d.processes.length && d.models.length ? "; " : ""}${d.models.length ? `models in ${d.models.map((m) => `${esc(m.project)} (${m.lines} line${m.lines > 1 ? "s" : ""})`).join(", ")}` : ""}. Recalculate those results after saving.`
+        : "No other process or model uses this process yet.";
+    }).catch(() => {});
   }
   $("#cdProc").addEventListener("change", (e) => { C.proc = e.target.value || null; fillProcForm(); });
   $("#btnCdProcNew").addEventListener("click", () => { C.proc = null; $("#cdProc").value = ""; fillProcForm(); $("#cdPrName").focus(); });
@@ -252,7 +293,8 @@
     const r = await api("POST", `/api/custom/${C.db}/process`, { uuid: C.proc || undefined, name: val("cdPrName"), product: $("#cdPrProduct").value,
       amount: num("cdPrAmount"), type: $("#cdPrType").value, location: val("cdPrLoc"), technology: val("cdPrTech"), time_period: val("cdPrTime"),
       data_type: $("#cdPrData").value, source: val("cdPrSrc"), comment: val("cdPrComment"), dq, parameters: C.prParams,
-      coproducts: C.co, allocation: C.co.length ? { method: $("#cdAlMethod").value, values: C.alValues, source: val("cdAlSrc") } : {} });
+      coproducts: C.co, allocation: C.co.length ? { method: $("#cdAlMethod").value, values: C.alValues, source: val("cdAlSrc"),
+        currency: val("cdAlCur"), price_year: num("cdAlYear"), property: val("cdAlProp"), property_unit: val("cdAlPropUnit") } : {} });
     toast(C.proc ? "Process saved." : "Process created. Now add its lines in step 5.");
     C.proc = r.uuid; await refreshAll();
     if (!procOf(C.proc).exchanges.length) $("#cdSec5").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -601,15 +643,18 @@
     if (!mids.length) { $("#cdFactors").innerHTML = empty(6, "Choose impact categories in step 4, or create your own method above."); return; }
     const r = await api("POST", "/api/custom/factors", { method_ids: mids });
     const lab = { value: "factor", not_applicable: "does not apply", outside_scope: "no effect (method scope)",
+      review: '<span class="warn">to review: the flow changed</span>',
       missing: '<span class="danger">unknown: give a factor or say why it does not apply</span>' };
     C.ftRows = r.rows;
     $("#cdFactors").innerHTML = r.rows.length ? `<thead><tr><th>Impact category</th><th>Flow</th><th>Status</th><th class="num">Factor</th><th>Source or reason</th><th></th></tr></thead><tbody>` +
       r.rows.map((x, i) => `<tr><td>${esc(x.family)} | ${esc(x.category)}</td><td>${esc(x.flow)} (${esc(x.compartment)})${x.custom_flow ? ", yours" : ""}</td><td>${lab[x.status]}</td>
-        <td class="num">${x.status === "value" ? `${fmt(x.value)} ${esc(x.method_unit)}/${esc(x.flow_unit)}` : ""}</td><td>${esc(x.source || x.comment || "")}</td>
-        <td>${x.source === "installed method" ? "" : `<button class="ghost" data-cdfedit="${i}">${x.status === "missing" ? "Decide" : "Edit"}</button>`}</td></tr>`).join("") + "</tbody>"
+        <td class="num">${x.status === "value" ? `${fmt(x.value)} ${esc(x.method_unit)}/${esc(x.flow_unit)}` : ""}</td><td>${esc(x.review || x.source || x.comment || "")}</td>
+        <td>${x.status === "review" ? `<button class="ghost" data-cdfok="${i}" title="The factor is still right for the changed flow">Confirm</button>` : ""}${x.source === "installed method" ? "" : `<button class="ghost" data-cdfedit="${i}">${x.status === "missing" ? "Decide" : x.status === "review" ? "Correct" : "Edit"}</button>`}</td></tr>`).join("") + "</tbody>"
       : empty(6, "No flow of your own yet.");
   }
   $("#cdFactors").addEventListener("click", (e) => {
+    const ok = e.target.closest("[data-cdfok]");
+    if (ok) { const x = C.ftRows[Number(ok.dataset.cdfok)]; guard(ok, async () => { await api("POST", "/api/custom/factor/confirm", { method_id: x.method_id, flow_uuid: x.flow_uuid }); toast("Factor confirmed."); await factorTable(); await loadDb(); }); return; }
     const b = e.target.closest("[data-cdfedit]"); if (!b) return;
     const x = C.ftRows[Number(b.dataset.cdfedit)];
     $("#cdFMethod").value = x.method_id; methodChanged();
@@ -658,13 +703,31 @@
     toast(`Added "${p.name}" to ${S.model.name}. Set its amount in step 3.`);
     go("inventory");
   }));
-  $("#btnCdHist").addEventListener("click", (e) => guard(e.target, async () => {
+  async function showHistory() {
     if (!C.proc) throw new Error("Choose a process in step 4 first.");
     const h = (await api("GET", `/api/custom/history?item=${encodeURIComponent(C.proc)}`)).history;
-    $("#cdHistOut").innerHTML = h.length ? `<table><thead><tr><th>Time (UTC)</th><th>Change</th><th>Author</th><th>Details</th></tr></thead><tbody>` +
-      h.map((x) => `<tr><td>${esc((x.time || "").replace("T", " ").slice(0, 19))}</td><td>${esc(x.action)}</td><td>${esc(x.author || "")}</td><td class="meta">${esc(x.data ? Object.entries(x.data).filter(([k, v]) => v !== null && v !== "" && typeof v !== "object").map(([k, v]) => `${k}: ${v}`).join("; ").slice(0, 220) : "")}</td></tr>`).join("") + "</tbody></table>"
+    $("#cdHistOut").innerHTML = h.length ? `<div class="table-wrap"><table><thead><tr><th>Time (UTC)</th><th>Change</th><th>What changed</th><th>Author</th><th>Restore</th></tr></thead><tbody>` +
+      h.map((x) => `<tr><td>${esc((x.time || "").replace("T", " ").slice(0, 19))}</td><td>${esc(x.action)}</td><td class="meta">${esc(x.diff || (x.data ? Object.entries(x.data).filter(([k, v]) => v !== null && v !== "" && typeof v !== "object").map(([k, v]) => `${k}: ${v}`).join("; ").slice(0, 200) : ""))}</td><td>${esc(x.author || "")}</td>
+        <td>${x.can_restore_before ? `<button class="ghost" data-rest="${x.id}" data-which="before" title="The state just before this change">before</button>` : ""}${x.can_restore_after ? `<button class="ghost" data-rest="${x.id}" data-which="after" title="The state just after this change">after</button>` : ""}</td></tr>`).join("") + "</tbody></table></div>"
       : '<p class="hint">No change recorded yet.</p>';
+  }
+  $("#btnCdHist").addEventListener("click", (e) => guard(e.target, showHistory));
+  $("#cdHistOut").addEventListener("click", (e) => { const b = e.target.closest("[data-rest]"); if (!b) return;
+    guard(b, async () => { await api("POST", "/api/custom/restore", { process: C.proc, history_id: Number(b.dataset.rest), which: b.dataset.which });
+      toast("Version restored. This can be undone too."); await loadDb(); await showHistory(); }); });
+  $("#btnCdUndo").addEventListener("click", (e) => guard(e.target, async () => {
+    if (!C.proc) throw new Error("Choose a process in step 4 first.");
+    await api("POST", "/api/custom/undo", { process: C.proc }); toast("Last change undone (press again to redo it)."); await loadDb();
+    if ($("#cdHistOut").innerHTML) await showHistory();
   }));
+  $("#btnCdDeleted").addEventListener("click", (e) => guard(e.target, async () => {
+    needDb();
+    const d = (await api("GET", `/api/custom/${C.db}/deleted`)).processes;
+    $("#cdHistOut").innerHTML = d.length ? `<p class="hint">Deleted processes of this database:</p><ul class="item-list">${d.map((x) => `<li><span class="grow">${esc(x.name)} <span class="meta">deleted ${esc((x.time || "").slice(0, 10))}</span></span><button data-undel="${esc(x.uuid)}" data-h="${x.history_id}">Restore</button></li>`).join("")}</ul>` : '<p class="hint">No deleted process to restore.</p>';
+  }));
+  $("#cdHistOut").addEventListener("click", (e) => { const b = e.target.closest("[data-undel]"); if (!b) return;
+    guard(b, async () => { await api("POST", "/api/custom/restore", { process: b.dataset.undel, history_id: Number(b.dataset.h), which: "before" });
+      C.proc = b.dataset.undel; toast("Process restored."); await refreshAll(); }); });
   $("#btnCdExample").addEventListener("click", (e) => guard(e.target, async () => {
     const r = await api("POST", "/api/custom/example", {});
     C.db = r.db_id; C.proc = r.process;
@@ -691,4 +754,88 @@
       guard(null, loadMeta);
     }
   };
+})();
+
+/* Scientific Benchmark Centre (Toolbox > Validation). */
+(function () {
+  const cls = { Validated: "ok", "Validated except some categories": "warn", Deviations: "danger", "Not run": "hint", "Not available": "hint", "Package checked": "ok", "Package incomplete": "warn" };
+  const sci = (v) => (v === null || v === undefined || v === "" ? "" : typeof v === "number" ? (v === 0 ? "0" : Math.abs(v) < 1e-3 || Math.abs(v) >= 1e5 ? v.toExponential(1) : fmt(v)) : esc(v));
+  async function load() {
+    if (!(S.status && S.status.project)) return;
+    const c = await api("GET", "/api/benchmark/centre");
+    $("#benchTable").innerHTML = `<thead><tr><th>Check</th><th>Reference</th><th>Reference result</th><th>Cyclia result</th><th class="num">Absolute difference</th><th class="num">Relative difference</th><th class="num">Maximum deviation</th><th>Missing flows</th><th>Status</th><th>Date</th><th>Note</th></tr></thead><tbody>` +
+      c.rows.map((r) => `<tr><td>${esc(r.check)}</td><td>${esc(r.reference)}</td><td>${esc(r.reference_result)}</td><td>${esc(r.cyclia_result)}</td><td class="num">${sci(r.absolute_difference)}</td><td class="num">${sci(r.relative_difference)}</td><td class="num">${sci(r.maximum_deviation)}</td><td>${esc(r.missing_flows)}</td><td class="${cls[r.status] || ""}"><b>${esc(r.status)}</b></td><td>${esc(r.date)}${r.cyclia_version ? `<br><span class="meta">Cyclia ${esc(r.cyclia_version)}</span>` : ""}</td><td class="meta">${esc(r.note)}</td></tr>`).join("") + "</tbody>";
+  }
+  window.loadBenchCentre = load;
+  $("#btnBenchRefresh").addEventListener("click", (e) => guard(e.target, load));
+  $("#btnBenchExport").addEventListener("click", (e) => guard(e.target, () => exportTo("/api/export/benchmark-centre", "Cyclia benchmark centre.xlsx", "xlsx")));
+  $("#btnBenchIpcc").addEventListener("click", (e) => guard(e.target, async () => {
+    const { job } = await api("POST", "/api/benchmark/ipcc", {});
+    const j = await watchJob(job);
+    if (j && j.result) toast(j.result.verdict, !j.result.passed);
+    await load();
+  }));
+  const _show = showToolTab;
+  showToolTab = function (t) { _show.apply(this, arguments); if (t === "valid") guard(null, load); };
+  // refresh when a check that records evidence finishes
+  document.addEventListener("cyclia:job", (e) => {
+    if (/Validation suite|Brightway|ecoinvent|IPCC/.test(e.detail.label || "") && !$("#tt-valid").hidden) guard(null, load);
+  });
+})();
+
+/* Model allocation: results under every choice (step 2). */
+(function () {
+  $("#btnAllocCmp").addEventListener("click", (e) => guard(e.target, async () => {
+    if (!S.model) throw new Error("Save the model first.");
+    const mids = [...(S.selectedMethods || [])];
+    if (!mids.length) throw new Error("Choose impact categories in step 4 first.");
+    await saveModelScope();
+    const r = await api("POST", "/api/allocation/compare", { model_id: S.model.id, method_ids: mids.slice(0, 6) });
+    $("#allocCmpOut").innerHTML = `<p class="hint">${esc(r.note)}</p><div class="table-wrap"><table><thead><tr><th>Choice</th><th class="num">Share of the main product</th>${r.methods.map((m) => `<th class="num">${esc(m.category)} (${esc(m.unit)})</th>`).join("")}</tr></thead><tbody>` +
+      r.rows.map((x) => x.available ? `<tr${x.current ? ' class="ok"' : ""}><td>${esc(x.choice)}${x.current ? " (chosen)" : ""}</td><td class="num">${(x.share * 100).toPrecision(4)} %</td>${(x.totals || []).map((v) => `<td class="num">${fmt(v)}</td>`).join("")}</tr>`
+        : `<tr><td>${esc(x.choice)}</td><td colspan="${1 + r.methods.length}" class="hint">${esc(x.reason)}</td></tr>`).join("") + "</tbody></table></div>";
+  }));
+})();
+
+/* Social LCA, Type I subcategory assessment (Toolbox > Social screening). */
+(function () {
+  let meta = null;
+  async function load() {
+    if (!S.model) { $("#t1Out").innerHTML = '<p class="hint">Open a model first.</p>'; return; }
+    const r = await api("GET", `/api/slca/type1?model_id=${S.model.id}`);
+    if (!meta) {
+      meta = r;
+      $("#t1Sh").innerHTML = Object.keys(r.categories).map((k) => `<option>${esc(k)}</option>`).join("");
+      $("#t1Dt").innerHTML = r.data_types.map((k) => `<option>${esc(k)}</option>`).join("");
+      fillSub();
+    }
+    if (r.total_weight) { $("#t1Total").value = r.total_weight; $("#t1TotalUnit").value = r.weight_unit; }
+    $("#t1Excl").value = (r.excluded || []).join("\n");
+    const pct = (v) => (v == null ? "-" : `${(v * 100).toFixed(0)} %`);
+    $("#t1Out").innerHTML = (r.warnings.length ? `<p class="warn">${r.warnings.map(esc).join(" ")}</p>` : "") +
+      `<p class="hint">${esc(r.note)}</p><p><b>${r.subcategories.length}</b> subcategories assessed, ${r.missing.length} not yet (${(r.completeness * 100).toFixed(0)} % complete).</p>` +
+      `<div class="table-wrap"><table><thead><tr><th>Stakeholder</th><th>Assessed</th><th class="num">Mean score</th><th class="num">Lowest</th><th>Not yet assessed</th></tr></thead><tbody>` +
+      r.by_stakeholder.map((s) => `<tr><td>${esc(s.stakeholder)}</td><td>${s.assessed} of ${s.of}</td><td class="num">${s.mean_score == null ? "-" : s.mean_score.toFixed(2)}</td><td class="num ${s.lowest != null && s.lowest <= -1 ? "danger" : ""}">${s.lowest == null ? "-" : s.lowest.toFixed(2)}</td><td class="meta">${s.missing.map(esc).join(", ")}</td></tr>`).join("") + "</tbody></table></div>" +
+      (r.subcategories.length ? `<div class="table-wrap"><table><thead><tr><th>Subcategory</th><th class="num">Score</th><th>Level</th><th class="num">Organisations</th><th class="num">Coverage</th><th class="num">Site-specific</th><th>Hotspots</th></tr></thead><tbody>` +
+        r.subcategories.map((x) => `<tr><td>${esc(x.stakeholder)}: ${esc(x.subcategory)}</td><td class="num ${x.score <= -1 ? "danger" : ""}">${x.score.toFixed(2)}</td><td>${esc(x.level)}</td><td class="num">${x.organisations}</td><td class="num">${pct(x.coverage)}</td><td class="num">${pct(x.primary_share)}</td><td class="meta">${x.hotspots.map((h) => `${esc(h.unit)} (${h.score}): ${esc(h.indicator)}`).join("; ")}</td></tr>`).join("") + "</tbody></table></div>" : "") +
+      (r.rows.length ? `<details><summary>${r.rows.length} assessment row(s)</summary><div class="table-wrap"><table><tbody>${r.rows.map((x) => `<tr><td>${esc(x.subcategory)}</td><td>${esc(x.unit)}</td><td>${esc(x.indicator)}</td><td class="num">${x.score}</td><td class="num">${fmt(x.weight)} ${esc(x.weight_unit)}</td><td>${esc(x.data_type)}</td><td class="meta">${esc(x.prp)}; ${esc(x.source)}</td><td><button class="ghost" data-t1del="${x.id}">Remove</button></td></tr>`).join("")}</tbody></table></div></details>` : "");
+  }
+  function fillSub() { $("#t1Sub").innerHTML = (meta.categories[$("#t1Sh").value] || []).map((k) => `<option>${esc(k)}</option>`).join(""); }
+  $("#t1Sh").addEventListener("change", fillSub);
+  $("#btnT1Add").addEventListener("click", (e) => guard(e.target, async () => {
+    if (!S.model) throw new Error("Open a model first.");
+    await api("POST", "/api/slca/type1/row", { model_id: S.model.id, stakeholder: $("#t1Sh").value, subcategory: $("#t1Sub").value,
+      unit: $("#t1Unit").value, indicator: $("#t1Ind").value, prp: $("#t1Prp").value, score: Number($("#t1Score").value),
+      weight: $("#t1W").value, weight_unit: $("#t1WU").value, data_type: $("#t1Dt").value, evidence: $("#t1Ev").value, source: $("#t1Src").value });
+    toast("Assessment added."); await load();
+  }));
+  $("#btnT1Scope").addEventListener("click", (e) => guard(e.target, async () => {
+    if (!S.model) throw new Error("Open a model first.");
+    await api("POST", "/api/slca/type1/scope", { model_id: S.model.id, total_weight: $("#t1Total").value, weight_unit: $("#t1TotalUnit").value, excluded: $("#t1Excl").value });
+    toast("Saved."); await load();
+  }));
+  $("#t1Out").addEventListener("click", (e) => { const b = e.target.closest("[data-t1del]"); if (!b) return;
+    guard(b, async () => { await api("POST", "/api/slca/type1/delete", { id: Number(b.dataset.t1del) }); await load(); }); });
+  const _show = showToolTab;
+  showToolTab = function (t) { _show.apply(this, arguments); if (t === "social") guard(null, load); };
 })();

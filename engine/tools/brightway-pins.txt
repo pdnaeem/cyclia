@@ -1,0 +1,6 @@
+# Brightway packages pinned to the exact commits Cyclia's cross validation was run with
+# (bw2calc 3.1.0, bw_processing 1.6, matrix_utils 0.9, stats_arrays 4.0). Used by the validation workflow.
+bw2calc @ git+https://github.com/brightway-lca/brightway2-calc@dcfc53c7076c41f630cd21ce9622a72de9597b32
+bw_processing @ git+https://github.com/brightway-lca/bw_processing@bdeb837310d431830aafd11e8a39ad4dd38c1370
+matrix_utils @ git+https://github.com/brightway-lca/matrix_utils@25ecb8cbb41db5d3aeb2394993ac9f6aa9a96160
+stats_arrays @ git+https://github.com/brightway-lca/stats_arrays@1a635093f56de572ff6dc31f8f957093947d867f

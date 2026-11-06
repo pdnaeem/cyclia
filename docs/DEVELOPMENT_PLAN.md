@@ -51,11 +51,74 @@ factor packages); the tools for them are in the app.
 | Item | Depends on | Acceptance criteria |
 |---|---|---|
 | Database explorer, complete | Explorer (done) | Characterisation factors, data quality, uncertainty and UUIDs per dataset; duplicate detection; supplier relationships |
-| Allocation manager | Allocation overview (done) | Side-by-side results for mass, economic, energy and system expansion, with the calculation shown |
+| Allocation manager | Custom co-products (done in 1.6.2) | Done for multi-output custom processes: mass, energy, economic (currency and price year), physical causality and manual shares, compared side by side. Still to do: the same comparison for model-level allocation and system expansion |
 | EPD programme profiles | Profiles (drafts) | Requirements checked against the current programme documents (EPD International GPI, IBU PCR Part A, INIES); reviewed by the operators where they agree |
 | Life cycle costing | LCC (done) | Residual value, price escalation per cost type, ISO 15686-5 categories, cost uncertainty |
-| Process graph editor | Custom process diagram (done in 1.6.1) | Model inventories edited by drawing as well, with co-products and avoided products, like the custom process diagram |
-| Reports and provenance | Report centre (done) | Every report states method versions, database versions, validation status, assumptions and limits, with a recursive provenance annex |
+| Process graph editor | Done in 1.6.2 | Custom processes and model inventories are edited in their diagrams (connect, move between stages, amounts, credits, removal) |
+| Reports and provenance | Recursive provenance (done in 1.6.2) | Done: every dataset of the supply chain with its database, version, identifier, amount, contribution and custom-data provenance (Excel, Word annex). Still to do: the Benchmark Centre summary and an automatic critical review checklist in the report |
+
+## Release 1.6.2: scientific reliability (done)
+
+| Item | Result |
+|---|---|
+| Custom factor invalidation | A custom flow whose name, compartment, subcompartment or CAS number changes has its own factors put under review; they are not used, and the result is incomplete, until confirmed or corrected |
+| Flow editing and dependencies | Every process shows the processes and the models (in every project) that depend on it |
+| Process versions, undo and restore | Every change keeps the state before and after; undo, redo by undoing the undo, restore any version, restore deleted processes |
+| Parameter uncertainty | Distributions on parameters of custom data, drawn in the full Monte Carlo; formulas evaluated per iteration; shared draws within a database |
+| Advanced allocation | Physical causality, economic with currency and price year, allocation sensitivity comparison |
+| Scientific Benchmark Centre | One table of all evidence with status rules; IPCC 2021 numerical check |
+| Input safeguards | Mass balance and order-of-magnitude warnings, decimal comma hint |
+| Recursive provenance | In the Excel workbook and the Word report |
+| Independent integration tests | Validation workflow with Brightway pinned to the validated commits; a skipped comparison fails |
+
+Still open from the P0 list, because they need software or licences that are not available to the project:
+- the EF 3.1 benchmark repeated on 1.6.2;
+- the ReCiPe 2016 and CML-IA benchmarks (with the ecoinvent licence);
+- the comparison with openLCA.
+
+The Benchmark Centre shows them as "Not run" until they are run.
+
+## Release 1.7.0: advanced environmental LCA
+
+Done in 1.7.0:
+- Enhanced LCC (ISO 15686-5);
+- MFA integrated with LCA (virgin input, recycling, losses, credits with substitution, gross and net);
+- Social LCA subcategory assessment, Type I;
+- allocation choices of a model side by side;
+- structure checks of the AWARE, LANCA and USEtox packages;
+- validation evidence and the review checklist in the report.
+
+Still open, with the reason:
+- **AWARE 2.0, LANCA and USEtox 2 declared complete.** This needs the official packages and their reference results,
+  which are distributed by their authors and are not available to the project. The calculations, imports and
+  package checks are ready.
+- **Social LCA Type II (impact pathways).**
+- **Advanced regionalisation.**
+- **Sobol indices with parameters of custom data.** This needs a new solve for every sample; the full Monte Carlo
+  already propagates these parameters.
+
+| Item | Acceptance criteria |
+|---|---|
+| AWARE 2.0 complete | Official factors with basin, country and monthly resolution; regional matching tested against the official package |
+| LANCA complete | Every applicable indicator with the official factors; reference results reproduced |
+| USEtox 2 | Official human toxicity and freshwater ecotoxicity factors, units and substance matching validated against the USEtox reference results |
+| Advanced regionalisation | Regionalised inventories and factors combined, with coverage reporting |
+| Full social LCA | Stakeholder categories (workers, local community, consumers, society, value chain actors), subcategories, primary and secondary data, PSILCA and SOCA integration, coverage and missing-data assessment, interpretation per UNEP 2020 and ISO 14075. Until then the module is called a screening |
+| Enhanced LCC | Residual value, price escalation per cost type, ISO 15686-5 categories, cost uncertainty |
+| MFA integrated with LCA | Inflows, stocks, losses, recycling, recovered and secondary materials and their impacts in one project model, not separate calculators |
+
+These methods are declared complete only when their official factors, units, geographical mapping and
+calculations are validated.
+
+## Release 1.8.0: professional platform (planned)
+
+The release will add:
+- advanced visual process modelling;
+- multi-user collaboration and collaborative professional review;
+- a supplier data portal;
+- advanced MFA and biodiversity (with an established, documented method);
+- prospective and dynamic LCA beyond climate;
+- scenario optimisation.
 
 ## Stage P2: advanced environmental and sustainability assessment
 

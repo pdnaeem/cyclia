@@ -288,14 +288,20 @@ class TestLccExtended(Base):
         b = self.st.add_input(m, "activity", self.find("concrete"), 1, stage="A1-A3")
         self.st.update_input(b, {"unit_cost": 50, "cost_type": "capex"})
         lc = calc.run(self.st, m, gwp(self.st))["lcc"]
-        self.assertAlmostEqual(lc["total"], 100 * 3 + 50)        # years 0, 25, 50 within 60 years
+        # years 0, 25, 50 within 60 years; since 1.7.0 (ISO 15686-5) the 15 of 25 years left of the last purchase are
+        # credited as residual value: -100 x 15 / 25 = -60
+        self.assertAlmostEqual(lc["total"], 100 * 3 - 60 + 50)
         types = {t["type"]: t["cost"] for t in lc["by_type"]}
-        self.assertEqual(types, {"replacement": 300.0, "capex": 50.0})
+        self.assertEqual(types, {"replacement": 240.0, "capex": 50.0})
         m2 = self.model("D", lcc_rate="3", lcc_period="60")
         a2 = self.st.add_input(m2, "activity", self.find("timber"), 1)
         self.st.update_input(a2, {"unit_cost": 100, "replace_every": 25})
         self.assertAlmostEqual(calc.run(self.st, m2, gwp(self.st))["lcc"]["total_discounted"],
-                               100 * (1 + 1.03 ** -25 + 1.03 ** -50))
+                               100 * (1 + 1.03 ** -25 + 1.03 ** -50) - 60 * 1.03 ** -60)
+        m3 = self.model("E", lcc_rate="0", lcc_period="60", lcc_residual=False)
+        a3 = self.st.add_input(m3, "activity", self.find("timber"), 1)
+        self.st.update_input(a3, {"unit_cost": 100, "replace_every": 25})
+        self.assertAlmostEqual(calc.run(self.st, m3, gwp(self.st))["lcc"]["total"], 300)   # as before 1.7.0
 
 
 # ---------------------------------------------------------------------------------------------- AWARE and LANCA

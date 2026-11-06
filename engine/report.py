@@ -178,7 +178,7 @@ def _footer(doc, version=""):
         r.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
 
 
-def word_report(path, model, result, databases, version=""):
+def word_report(path, model, result, databases, version="", provenance=None, evidence=None, review=None):
     s = model["scope"] or {}
     doc = Document()
     st = doc.styles["Normal"]
@@ -404,7 +404,12 @@ def word_report(path, model, result, databases, version=""):
         doc.add_heading("Life cycle costing", 3)
         doc.add_paragraph(f"Life cycle cost per functional unit: {lc['total']:,.2f} {lc['currency']}"
                           + (f"; net present cost {lc['total_discounted']:,.2f} {lc['currency']} at a discount rate of "
-                             f"{lc['rate_percent']:g} %" if lc["rate_percent"] else "") + ".")
+                             f"{lc['rate_percent']:g} %" if lc["rate_percent"] else "") + "."
+                          + (f" It includes a residual value of {lc['residual_value']:,.2f} {lc['currency']} at the end of the "
+                             f"{lc['study_period']:g}-year study period." if lc.get("residual_value") else "")
+                          + (f" With the price uncertainty, 95 % of the Monte Carlo runs give a net present cost between "
+                             f"{lc['uncertainty']['p2_5']:,.2f} and {lc['uncertainty']['p97_5']:,.2f} {lc['currency']}."
+                             if lc.get("uncertainty") else ""))
         _table(doc, ["Stage", f"Cost [{lc['currency']}]", f"Discounted [{lc['currency']}]"],
                [[b["stage"], f"{b['cost']:,.2f}", f"{b['discounted']:,.2f}"] for b in lc["by_stage"]], widths=[6, 4, 4])
         _note(doc, lc["note"])
@@ -442,6 +447,36 @@ def word_report(path, model, result, databases, version=""):
         _table(doc, ["Elementary flow", "Compartment", "Amount", "Unit"],
                [[x["name"], x["context"], fmt(x["amount"]), x["unit"]] for x in result["lci"][:60]], size=8)
         _note(doc, "The complete inventory is in the Excel export.")
+    if provenance and provenance.get("datasets"):
+        doc.add_heading("Annex B1. Background datasets and their provenance", 1)
+        pv = provenance
+        own = sum(1 for d in pv["datasets"] if d["custom"])
+        doc.add_paragraph(f"The supply chain contains {pv['n']:,} datasets from {len(pv['databases'])} database(s) "
+                          f"({', '.join(pv['databases'])}){f', {own} of them entered as custom data' if own else ''}. "
+                          "The Excel workbook lists every dataset with its database, version, system model, identifier, "
+                          "amount and direct contribution. The 25 largest contributions to the first category:")
+        _table(doc, ["Dataset", "Location", "Database", "Amount per FU", "Direct contribution", "Source"],
+               [[d["dataset"][:60], d["location"], f"{d['database']} {d['version'] or ''}".strip(),
+                 f"{fmt(d['amount'])} {d['unit']}", f"{fmt(d['direct'][0])} {pv['methods'][0]['unit']}",
+                 (d["source"] or "")[:40] + (f" (rev. {d['revision']}, {d['author']})" if d["custom"] else "")]
+                for d in pv["datasets"][:25]], size=7)
+    if evidence or review:
+        doc.add_heading("Annex B2. Validation evidence and critical review checklist", 1)
+    if evidence:
+        doc.add_paragraph("Scientific Benchmark Centre of the installation that produced this report. Only checks that "
+                          "ran with every result within tolerance are 'Validated'; 'Not run' and 'Not available' are not "
+                          "validation.")
+        _table(doc, ["Check", "Reference", "Status", "Max. relative difference", "Date"],
+               [[r["check"][:60], r["reference"][:50], r["status"],
+                 f"{r['relative_difference']:.1e}" if isinstance(r.get("relative_difference"), (int, float)) else "",
+                 r["date"]] for r in evidence["rows"]], size=7)
+    if review:
+        doc.add_paragraph(f"ISO 14044 critical review checklist, checked automatically from the study: "
+                          f"{review['met']} of {review['total']} items met. A reviewer confirms or corrects each item.")
+        _table(doc, ["Clause", "Item", "Automatic check", "Evidence", "Reviewer"],
+               [[r["clause"], r["text"][:70], r["auto"], (r["evidence"] or "")[:60],
+                 (r["reviewer_status"] + (": " + r["reviewer_comment"] if r["reviewer_comment"] else ""))[:40]]
+                for r in review["items"]], size=7)
     doc.add_heading("Annex C. References", 1)
     for ref in (authors.reference(version),"ISO 14040:2006 Environmental management. Life cycle assessment. Principles and framework.",
                 "ISO 14044:2006 Environmental management. Life cycle assessment. Requirements and guidelines. Amd 1:2017, "
@@ -528,7 +563,7 @@ def figures(folder, result):
     return out
 
 
-def excel_results(path, model, result, version=""):
+def excel_results(path, model, result, version="", provenance=None):
     wb = Workbook()
     hdr = Font(bold=True, color="FFFFFF")
     fill = PatternFill("solid", fgColor="2F5D50")
@@ -579,6 +614,18 @@ def excel_results(path, model, result, version=""):
         for r in result["results"]:
             ws.append([r["category"], r["total"], r.get("module_d", 0), r["unit"]])
 
+    if provenance and provenance.get("datasets"):
+        ws = wb.create_sheet("Provenance")
+        pv = provenance
+        ws.append([f"Every dataset in the supply chain ({pv['n']:,}), largest direct contribution to the first category "
+                   "first. Direct contribution: the dataset's own emissions and resources, characterised."])
+        header(ws, ["Dataset", "Reference product", "Location", "Database", "Version", "System model", "Identifier",
+                    "Amount per FU", "Unit"] + [f"Direct: {m['category']} ({m['unit']})" for m in pv["methods"]] +
+               ["Custom data", "Source", "Author", "Revision", "Changed", "PEF DQR (TeR,GeR,TiR,P)"])
+        for d in pv["datasets"]:
+            ws.append([d["dataset"], d["product"], d["location"], d["database"], d["version"], d["system_model"],
+                       d["identifier"], d["amount"], d["unit"]] + d["direct"] +
+                      ["yes" if d["custom"] else "", d["source"], d["author"], d["revision"], d["modified"], d["dq"]])
     fg = result.get("foreground") or []
     if fg:
         ws = wb.create_sheet("Supply-chain inventory")
@@ -617,9 +664,16 @@ def excel_results(path, model, result, version=""):
         ws = wb.create_sheet("LCC")
         ws.append([f"Life cycle cost per functional unit [{lc['currency']}]", lc["total"], "Discounted", lc["total_discounted"],
                    "Rate %", lc["rate_percent"]])
-        header(ws, ["Line", "Stage", "Year", f"Cost [{lc['currency']}]", f"Discounted [{lc['currency']}]", "Module D"])
+        if lc.get("uncertainty"):
+            u = lc["uncertainty"]
+            ws.append(["Net present cost, 95 % interval (price uncertainty)", u["p2_5"], u["p97_5"], "median", u["median"]])
+        header(ws, ["Line", "Stage", "Cost type", "Year", "Replacements", "Escalation % per year",
+                    f"Purchases [{lc['currency']}]", f"Residual value [{lc['currency']}]", f"Cost [{lc['currency']}]",
+                    f"Discounted [{lc['currency']}]", "Price GSD", "Module D"])
         for l in lc["lines"]:
-            ws.append([l["name"], l["stage"], l["year"], l["cost"], l["discounted"], "yes" if l["module_d"] else ""])
+            ws.append([l["name"], l["stage"], l.get("cost_type", ""), l["year"], l.get("replacements", 0),
+                       l.get("escalation_percent", 0), l.get("purchases", l["cost"]), l.get("residual_value", 0),
+                       l["cost"], l["discounted"], l.get("cost_gsd"), "yes" if l["module_d"] else ""])
     w = result.get("water")
     if w:
         ws = wb.create_sheet("Water")

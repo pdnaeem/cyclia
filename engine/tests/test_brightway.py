@@ -18,6 +18,10 @@ from importers import demo  # noqa: E402
 from store import Workspace  # noqa: E402
 
 HAVE_BW = brightway_check.available()
+# In the validation workflow Brightway is required: a missing Brightway is then a failure, not a skip, so that a
+# skipped comparison is never taken as a passed one.
+if os.environ.get("CYCLIA_REQUIRE_BRIGHTWAY") == "1" and not HAVE_BW:
+    raise ImportError("CYCLIA_REQUIRE_BRIGHTWAY=1 but Brightway (bw2calc) could not be imported.")
 
 
 class Base(unittest.TestCase):

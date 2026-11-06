@@ -1018,3 +1018,4 @@ tr.flash td { background: var(--ochre-weak); transition: background .3s; }
 #btnCdConnect.on { background: var(--ochre-weak); border-color: var(--ochre); }
 
 .table-wrap { position: relative; max-width: 100%; }
+.dg-scroll { overflow-x: auto; max-width: 100%; }

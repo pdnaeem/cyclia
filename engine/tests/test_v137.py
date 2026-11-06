@@ -223,6 +223,42 @@ class TestMfaLca(Base):
         with self.assertRaises(ValueError):
             mfa.lca(self.st, mfa.EXAMPLE, mids, {"nope": {"kind": "activity", "id": steel}})
 
+    def test_virgin_input_recycling_and_credits(self):
+        """Production charged on its virgin input only, recycling on its throughput, a credit for the recovered
+        material with substitution 0.8: every part equals quantity x factor x unit impact, and net = gross + credits."""
+        tutorial.install(self.st)
+        steel = self.st.search_activities("reinforcing steel")[0]["id"]
+        mids = [m["id"] for m in self.st.methods() if m["category"] == "climate change"]
+        ex = dict(mfa.EXAMPLE)
+        rec = ex["recycling_processes"][0]
+        links = {"prod": {"kind": "activity", "id": steel, "basis": "virgin_input"},
+                 "rec": {"process": rec, "kind": "activity", "id": steel, "factor": 0.1},
+                 "credit": {"process": rec, "kind": "activity", "id": steel, "basis": "recovered", "avoided": True,
+                            "substitution": 0.8}}
+        r = mfa.lca(self.st, ex, mids, links)
+        run = mfa.run(ex)
+        P = {p["id"]: p for p in run["processes"]}
+        mc = calc.get_mc(self.st)
+        unit = calc.impacts(mc, calc.Methods(self.st, mc, mids), {steel: 1.0}, {}, [])[0][0]
+        t = 15
+        virgin = P["prod"]["virgin_input"][t]
+        self.assertAlmostEqual(virgin, run["rows"][t]["virgin_inflow_to_production"])
+        exp_prod = virgin * unit
+        exp_rec = P[rec]["throughput"][t] * 0.1 * unit
+        exp_cred = -P[rec]["output_to_system"][t] * 0.8 * unit
+        row = r["rows"][t]
+        self.assertAlmostEqual(row["by_process"]["prod"][0], exp_prod, places=9)
+        self.assertAlmostEqual(row["by_process"]["rec"][0], exp_rec, places=9)
+        self.assertAlmostEqual(row["credits"][0], exp_cred, places=9)
+        self.assertAlmostEqual(row["total"][0], exp_prod + exp_rec + exp_cred, places=9)
+        self.assertAlmostEqual(row["by_role"]["primary supply"][0], exp_prod, places=9)
+        self.assertLess(virgin, P["prod"]["throughput"][t])            # recycled input is not charged as primary
+        with self.assertRaises(ValueError):
+            mfa.lca(self.st, ex, mids, {"x": {"process": rec, "kind": "activity", "id": steel, "basis": "virgin_input"}})
+        with self.assertRaises(ValueError):
+            mfa.lca(self.st, ex, mids, {"x": {"process": rec, "kind": "activity", "id": steel, "avoided": True,
+                                              "substitution": 1.5}})
+
 
 # ---------------------------------------------------------------------------------------------- staging
 class TestStaging(Base):

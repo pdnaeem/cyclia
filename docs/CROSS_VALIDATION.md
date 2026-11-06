@@ -58,7 +58,10 @@ The synthetic database (`engine/tests/bench_db.py`, fixed seed) has the structur
 
 Its numbers describe no real product.
 
-The automated tests run this comparison on every release build (Windows, macOS and Linux), together with a test
+The validation workflow (`.github/workflows/validation.yml`) installs Brightway at the exact commits this
+comparison was run with (`engine/tools/brightway-pins.txt`) and runs these tests on every change; there a skipped
+Brightway test is a failure, so a comparison that did not run is never reported as passed. The automated tests also
+run this comparison on every release build (Windows, macOS and Linux), together with a test
 that changes one exchange on Brightway's side and checks that the difference is reported.
 
 ### Finding
