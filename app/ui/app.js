@@ -397,7 +397,7 @@ $("#eiVersion").addEventListener("change", fillEiModels);
 $("#btnEiInstall").addEventListener("click", (e) => guard(e.target, async () => {
   const validate = $("#eiValidate").checked;
   const { job } = await api("POST", "/api/ecoinvent/install", { username: $("#eiUser").value, password: $("#eiPass").value,
-    version: $("#eiVersion").value, system_model: $("#eiModel").value, validate, sample: Number($("#eiSample").value), inventories: $("#eiInventories").checked });
+    version: $("#eiVersion").value, system_model: $("#eiModel").value, validate, sample: Number($("#eiSample").value), inventories: $("#eiInventories").checked, all_methods: $("#eiAllMethods").checked });
   await watchJob(job, { onDone: async (j) => {
     S.result = null; await refreshStatus();
     const b = j.result && j.result.benchmark;
@@ -406,7 +406,7 @@ $("#btnEiInstall").addEventListener("click", (e) => guard(e.target, async () => 
 }));
 $("#btnEiValidate").addEventListener("click", (e) => guard(e.target, async () => {
   const { job } = await api("POST", "/api/ecoinvent/validate", { username: $("#eiUser").value, password: $("#eiPass").value,
-    version: $("#eiVersion").value, system_model: $("#eiModel").value, sample: Number($("#eiSample").value), inventories: $("#eiInventories").checked });
+    version: $("#eiVersion").value, system_model: $("#eiModel").value, sample: Number($("#eiSample").value), inventories: $("#eiInventories").checked, all_methods: $("#eiAllMethods").checked });
   $("#eiValOut").innerHTML = '<p class="hint">Downloading ecoinvent\'s results and comparing; progress is shown at the bottom left.</p>';
   const fin = await watchJob(job, { quiet: true, onDone: async (j) => renderBench(j.result, $("#eiValOut")) });
   if (fin && fin.status === "error") $("#eiValOut").innerHTML = `<p class="danger">${esc(fin.error)}</p>`;
@@ -1368,20 +1368,26 @@ $("#btnCompare").addEventListener("click", (e) => guard(e.target, async () => {
 $("#btnCompareMc").addEventListener("click", (e) => guard(e.target, async () => {
   const ids = compareIds();
   const iters = Math.min(5000, Math.max(20, Number($("#mcN").value) || 500));
-  const { job } = await api("POST", "/api/uncertainty", { model_ids: ids, method_ids: [...S.selectedMethods], iterations: iters, scenario: $("#scenarioSel").value || null, ...bgBody() });
+  const { job } = await api("POST", "/api/uncertainty", { model_ids: ids, method_ids: [...S.selectedMethods], iterations: iters, confidence: Number($("#cmpConf").value), scenario: $("#scenarioSel").value || null, ...bgBody() });
   const out = $("#compareMcOut");
   out.hidden = false; out.innerHTML = '<p class="hint">Running the comparative Monte Carlo; progress is shown at the bottom left.</p>';
   watchJob(job, { quiet: true, onDone: async (j) => {
     const r = j.result;
-    const verdict = (v, a, b) => v == null ? "no difference" : v >= 0.95 ? `${esc(a)} lower (${(100 * v).toFixed(0)} %)` : v <= 0.05 ? `${esc(b)} lower (${(100 * (1 - v)).toFixed(0)} %)` : `not distinguishable (${(100 * v).toFixed(0)} %)`;
+    const pc = (x) => (100 * x).toFixed(1) + " %";
+    const verdict = (c, a, b) => {
+      if (c.result === "no_difference") return "no difference";
+      const p = `P = ${pc(c.p_a_lower)}<br><span class="hint">${pc(c.interval[0])} to ${pc(c.interval[1])}</span>`;
+      const head = { a_lower: `<b>${esc(a)} lower</b>`, b_lower: `<b>${esc(b)} lower</b>`, more_iterations: '<span class="warn">run more iterations</span>', not_distinguishable: "not distinguishable" }[c.result];
+      return `${head}<br>${p}`;
+    };
     const conv = r.models.every((m) => m.methods.every((x) => x.converged));
     out.innerHTML = `<h2>Comparative Monte Carlo (${r.iterations} iterations)</h2><p class="hint">${esc(r.note)}</p>
       ${S.compareStatus && S.compareStatus !== "valid" ? '<p class="danger">The comparison checks did not pass (see above): treat these probabilities as a screening result.</p>' : ""}
       ${conv ? "" : '<p class="danger">Not all results have converged: run more iterations before drawing conclusions.</p>'}
       <div class="table-wrap"><table class="prob-table"><thead><tr><th>Comparison</th>${r.methods.map((m) => `<th class="num">${esc(m.category)}</th>`).join("")}</tr></thead><tbody>` +
-      r.pairs.map((p) => `<tr><td>${esc(p.a)} vs ${esc(p.b)}<br><span class="hint">probability that ${esc(p.a)} is lower</span></td>${p.p_a_lower.map((v) => `<td class="num">${verdict(v, p.a, p.b)}</td>`).join("")}</tr>` +
+      r.pairs.map((p) => `<tr><td>${esc(p.a)} vs ${esc(p.b)}<br><span class="hint">probability that ${esc(p.a)} is lower</span></td>${p.p_a_lower.map((v, k) => `<td class="num" title="${esc(p.conclusions[k].text.replace(/\bA\b/g, p.a).replace(/\bB\b/g, p.b))}">${verdict(p.conclusions[k], p.a, p.b)}</td>`).join("")}</tr>` +
         `<tr><td class="hint">95 % interval of the difference ${esc(p.a)} minus ${esc(p.b)}</td>${p.diff_p2_5.map((lo, k) => `<td class="num hint">${fmt(lo)} to ${fmt(p.diff_p97_5[k])}</td>`).join("")}</tr>`).join("") +
-      "</tbody></table></div><p class=\"hint\">A difference counts as robust here when one alternative is lower in at least 95 % of the runs (the difference interval then excludes zero on that side).</p>" +
+      `</tbody></table></div><p class="hint">P is the share of the ${r.iterations} paired runs in which the first alternative is lower, with the 95 % interval of that estimate. An alternative is called lower when the whole interval lies at or above the chosen confidence (${pc(r.confidence)}); when only the estimate does, more iterations are needed. The conclusion uses each category's own uncertainty, not a fixed percentage difference.</p>` +
       `<div class="table-wrap"><table><thead><tr><th>Model</th>${r.methods.map((m) => `<th class="num">${esc(m.category)} 95% interval</th>`).join("")}</tr></thead><tbody>` +
       r.models.map((m) => `<tr><td>${esc(m.name)}</td>${m.methods.map((s) => `<td class="num">${fmt(s.p2_5)} to ${fmt(s.p97_5)}</td>`).join("")}</tr>`).join("") + "</tbody></table></div>";
     toast("Comparative Monte Carlo finished.");

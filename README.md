@@ -64,8 +64,9 @@ Cyclia checks its own calculations against independent references:
 | Comparison with ecoinvent's published LCIA results (EF 3.1, cut-off, 100 datasets, 25 categories) | **100 % of 2,500 results within 0.1 %**, median deviation 3.9e-07 % ([report](docs/VALIDATION_ECOINVENT.md)) |
 | Validation suite of 35 product systems with exact known answers | Run it in the app (Toolbox > Validation) and attach the report to your study |
 | Independent second calculation (rebuilt matrices, different solver) | Built in ([cross validation](docs/CROSS_VALIDATION.md)) |
+| Comparison with Brightway (bw2calc) on the same database | All results within 1e-6, largest difference 1.4e-12; runs in the app on any database ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Characterisation factors compared with openLCA, Brightway or CSV factor sets | Flow by flow, with the effect of every difference |
-| Automated tests of the calculation engine | 203 tests, run on Windows, macOS and Linux before every release |
+| Automated tests of the calculation engine | 227 tests, run on Windows, macOS and Linux before every release |
 
 The status of every feature, including what is not validated yet, is listed in
 [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md).
@@ -165,7 +166,7 @@ and to check for updates.
 
 If Cyclia helps your research, please cite it:
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.4.2)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.5.0)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [CITATION.cff](CITATION.cff). In the app,

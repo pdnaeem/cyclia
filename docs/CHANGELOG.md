@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.5.0 (2026-11-06)
+
+Stage P0 of the development plan: scientific correctness and reliability. Details, tests and limits:
+docs/quality/ACCEPTANCE_1.5.0.md.
+
+- **Comparison with Brightway** (Toolbox > Validation): Brightway's calculation library builds, solves and
+  characterises its own matrices from any installed database, ecoinvent included, and every result is compared
+  with Cyclia's. Demo, tutorial and synthetic databases of 3,000 and 10,000 datasets agree within 1e-6 (largest
+  difference 1.4e-12). The release builds include Brightway and run these tests on Windows, macOS and Linux.
+- **Comparison kit**: standalone Brightway script `run_bw2calc.py`. Both Brightway scripts now calculate treatment
+  datasets for one unit of waste treated (a demand of -1); before, their sign was opposite to Cyclia's.
+- **Comparative LCA**: a conclusion per category from the paired Monte Carlo probability and its sampling error
+  (Wilson interval) at 90, 95 or 99 % confidence: A lower, B lower, run more iterations, not distinguishable or no
+  difference. Replaces a fixed 95 % share without sampling error.
+- **Social LCA screening**: waste sent to a treatment dataset was reported as an avoided product and left out of
+  the worker hours; corrected. Credits inside the supply chain are reported as avoided. Processes with different
+  worker hours per unit in their data rows are listed.
+- **MFA**: the end-of-life recycling rate and the collection rate counted production and imported scrap;
+  end-of-life material is now traced through collection and sorting. Collection rate and recycling efficiency are
+  reported and used in the MCI.
+- **AWARE**: the water balance shows which part of the consumption is identified by an output flow; the result
+  note describes the monthly and GIS factors correctly.
+- **ecoinvent validation**: option to validate every installed method of ecoinvent's results (ReCiPe 2016, CML-IA,
+  IPCC and others), not only EF 3.1.
+- Reference tests with analytic or hand-calculated values for comparative probabilities, nested uncertainty and
+  data quality, AWARE, LANCA and SQI, social screening, MFA rates and MCI; unique interface ids are tested.
+- 227 automated tests (24 new).
+
 ## 1.4.2 (2026-11-06)
 
 Documentation, website and in-app wording.

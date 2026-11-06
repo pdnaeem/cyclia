@@ -513,9 +513,16 @@ def aware(store, model_id):
     water_abs = sum(how_share.values())
     tot_abs = water_abs or 1.0
     top.sort(key=lambda x: -abs(x["impact"]))
+    # water balance (WULCA): consumption = withdrawal - return to fresh water. The part of it that is reported as an
+    # output (evaporation, discharge to the sea, release to soil) is identified; the rest is water that leaves with
+    # the products or is not reported (no output flow), which databases often leave open
+    identified = balance["evaporated"] + balance["to_sea"] + balance["to_soil"]
+    consumption_flows = balance["withdrawal"] - balance["returned"]
     return {"method": "AWARE", "unit": "m3 world-eq", "source": src, "demo": src.startswith("demo"),
             "total": total, "consumption_m3": cons_total, "water_assessed_m3": water_abs, "empty": water_abs <= 0,
             "water_balance_m3": balance, "background_use": bg_default,
+            "consumption_from_flows_m3": consumption_flows, "consumption_identified_m3": identified,
+            "consumption_not_identified_m3": consumption_flows - identified,
             "site": site or "GLO", "site_from_gis": gis, "monthly_used": monthly_used,
             "monthly_factors_available": bool(monthly),
             "completeness": {k: v / tot_abs for k, v in how_share.items()},
@@ -527,11 +534,12 @@ def aware(store, model_id):
             "note": "Water consumption per process = water taken from nature minus water returned to fresh water at the process "
                     "location (m3). Evaporation, discharge to the sea and water released to soil are consumption (no "
                     "credit), as defined by WULCA. Process location for the supply chain; the model's own water flows at "
-                    "the AWARE location given for the model (site or watershed), else the study geography. Type of use: "
-                    "irrigation processes agricultural; other supply-chain processes non-agricultural (or 'unknown' if "
-                    "chosen); the model's own water use as chosen. Fallbacks: country of a sub-national code, then the "
-                    "global factor. Monthly factors and GIS watershed lookup are not supported. EPD lines carry no water "
-                    "inventory."}
+                    "the AWARE location given for the model (site or watershed, or found from its coordinates when watershed "
+                    "shapes are imported), else the study geography. Type of use: irrigation processes agricultural; other "
+                    "supply-chain processes non-agricultural (or 'unknown' if chosen); the model's own water use as "
+                    "chosen. The model's own water use takes monthly factors when the months of use are given and monthly "
+                    "factors are imported; the supply chain uses annual factors. Fallbacks: country of a sub-national "
+                    "code, then the global factor. EPD lines carry no water inventory."}
 
 
 # ---------------------------------------------------------------------------------------------- LANCA

@@ -188,7 +188,7 @@ def build(store, db_id, method_ids, path, version=""):
         z.writestr("cyclia_results.csv", _csv(res, ["key", "name", "location", "category", "indicator", "value"]))
         z.writestr("openlca/database.zip", jl)
         z.writestr("openlca/method_id.txt", ids["method"])
-        for fn in ("run_brightway.py", "run_openlca.py", "check_matrices.py", "compare.py", "README.md"):
+        for fn in ("run_brightway.py", "run_bw2calc.py", "run_openlca.py", "check_matrices.py", "compare.py", "README.md"):
             with open(os.path.join(here, fn), encoding="utf-8") as fh:
                 z.writestr(fn, fh.read())
         z.writestr("kit.json", json.dumps({"cyclia": version, "database": db["name"], "database_version": db["version"],

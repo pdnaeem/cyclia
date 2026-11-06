@@ -100,8 +100,9 @@ def _assign(acts, data):
 def assess(store, model_id, factors=None):
     """Worker hours and risk hours per functional unit.
 
-    Activity level of a process = |s_i x production_i| with s solved for the demand alone; the avoided products
-    (negative demand) are solved separately, their hours are reported separately and are NOT netted against or
+    Activity level of a process = |s_i x production_i| (output, or waste treated by a treatment dataset), with s
+    solved for the lines used alone; a process runs when s_i > 0 and is avoided when s_i < 0. The avoided products
+    (lines marked avoided) are solved separately, their hours are reported separately and are NOT netted against or
     added to the totals.
     Coverage: worker hours are only known for processes with data, so the share of the supply chain's worker hours
     with data cannot be known unless every process has an activity variable. Cyclia therefore reports
@@ -119,13 +120,20 @@ def assess(store, model_id, factors=None):
         raise ValueError("This model has no inputs yet.")
     acts_d, flows, fixed = {}, {}, []
     calc.expand(ctx, int(model_id), 1.0, acts_d, flows, fixed, keep=lambda i: not calc.is_module_d(m["scope"], i["stage"]))
-    f = calc.demand_vector(mc, acts_d)
-    # the demand and the avoided products (negative demand) are solved separately, so a credit never reduces the
-    # worker hours of a process that the product system really uses (e.g. electricity shared by both chains)
-    f_pos, f_neg = np.clip(f, 0, None), np.clip(-f, 0, None)
+    # the lines used and the avoided products (negative line amounts) are solved separately, so a credit never
+    # reduces the worker hours of a process that the product system really uses (e.g. electricity shared by both
+    # chains). The split is by the sign of the line amount, not of the demand vector: waste sent to treatment is a
+    # positive line with a negative demand (the treatment dataset's reference amount is negative).
+    f_pos = calc.demand_vector(mc, {a: v for a, v in acts_d.items() if v > 0})
+    f_neg = calc.demand_vector(mc, {a: -v for a, v in acts_d.items() if v < 0})
     s_pos = mc.solve(f_pos) if f_pos.any() else np.zeros(mc.n)
     s_neg = mc.solve(f_neg) if f_neg.any() else np.zeros(mc.n)
-    lv_pos, lv_neg = np.abs(s_pos * mc.diag), np.abs(s_neg * mc.diag)
+    # activity level = |scaling x reference amount| (output, or waste treated for a treatment dataset whose reference
+    # amount is negative). The sign of the scaling says whether the process runs (positive) or is avoided by a credit
+    # inside the supply chain (negative, e.g. recycling with system expansion)
+    a_pos, a_neg = np.abs(s_pos * mc.diag), np.abs(s_neg * mc.diag)
+    lv_pos = a_pos * (s_pos > 0) + a_neg * (s_neg < 0)
+    lv_neg = a_pos * (s_pos < 0) + a_neg * (s_neg > 0)
     tiny = 1e-15 * (max(lv_pos.max(initial=0), lv_neg.max(initial=0)) or 1)
     idx = [int(i) for i in np.nonzero((lv_pos > tiny) | (lv_neg > tiny))[0]]
     acts = store.q(f"SELECT id, key, name, location FROM activities WHERE id IN ({','.join(str(int(mc.act_ids[i])) for i in idx) or '0'})")
@@ -133,7 +141,7 @@ def assess(store, model_id, factors=None):
     default = [r for r in data if r["match"].strip() == "*"]
     assign = _assign(acts, [r for r in data if r["match"].strip() != "*"])
     hours_data, hours_est, hours_avoided = 0.0, 0.0, 0.0
-    ind, proc, no_data, avoided = {}, [], [], []
+    ind, proc, no_data, avoided, inconsistent = {}, [], [], [], []
     n_running = n_with_data = 0
     for i in idx:
         aid = int(mc.act_ids[i])
@@ -153,6 +161,9 @@ def assess(store, model_id, factors=None):
                 hours_est += rec["estimated_hours"]
             no_data.append(rec)
             continue
+        whs = {float(r["worker_hours"]) for r in rows}
+        if len(whs) > 1:
+            inconsistent.append({"process": a["name"], "location": a["location"], "worker_hours": sorted(whs)})
         h = float(lv_pos[i] * rows[0]["worker_hours"])
         n_running += 1
         n_with_data += 1
@@ -187,6 +198,7 @@ def assess(store, model_id, factors=None):
             "indicators": sorted(ind.values(), key=lambda x: (STAKEHOLDERS.index(x["stakeholder"]), x["indicator"])),
             "hotspots": proc[:20], "processes_without_data": no_data[:30], "n_without_data": len(no_data),
             "n_processes": n_running, "n_with_data": n_with_data, "risk_factors": rf, "sources": src,
+            "inconsistent_activity_variables": inconsistent[:30],
             "demo": any(x.startswith("demo") for x in src), "has_epd_lines": bool(fixed),
             "label": "Social LCA risk screening (not a full social LCA)",
             "note": "Worker hours per functional unit = activity level of each process x its worker hours per unit. Risk "

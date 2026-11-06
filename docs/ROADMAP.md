@@ -1,6 +1,6 @@
 # Cyclia roadmap
 
-Version: 1.4.2. Author: Naeem Ur Rehman. This document lists the standards Cyclia follows, its features by LCA
+Version: 1.5.0. Author: Naeem Ur Rehman. This document lists the standards Cyclia follows, its features by LCA
 phase, how it compares with other LCA software, and where the plan for future work is. Other programs'
 capabilities are listed only where the vendor's own documentation describes them (sources at the end). The
 history of earlier releases is in [quality/DEVELOPMENT_HISTORY.md](quality/DEVELOPMENT_HISTORY.md).
@@ -64,7 +64,7 @@ database and method fingerprints.
 
 "Not documented" means the page reviewed did not describe it, not that the product lacks it.
 
-| Feature | Cyclia 1.4.2 | openLCA 2 | SimaPro Expert | Sphera LCA for Experts | Brightway / Activity Browser |
+| Feature | Cyclia 1.5.0 | openLCA 2 | SimaPro Expert | Sphera LCA for Experts | Brightway / Activity Browser |
 |---|---|---|---|---|---|
 | Monte Carlo | Yes, with Sobol, comparative probabilities, correlated parameters, convergence | Yes | Yes | Not documented | Yes, plus global sensitivity analysis |
 | Parameters and scenarios | Yes | Yes | Yes | Key parameters through an interface | Yes, with premise scenarios |
@@ -77,7 +77,7 @@ database and method fingerprints.
 | Multi-user | No | Collaboration Server | Multi-user version with central database | Sharing with stakeholders | Not documented |
 | Hotspots and burden shifting | Automatic findings | Contribution analysis | Weak-point analysis | Hotspots and burden shifting described | Contribution analysis |
 | Database version comparison | Yes | Not documented | Not documented | Not documented | Not documented |
-| Validation against reference results | Built-in suite, independent cross-check, ecoinvent benchmark, factor matching against openLCA, Brightway or CSV | Not documented | Not documented | Not documented | Not documented |
+| Validation against reference results | Built-in suite, comparison with Brightway on any database, independent cross-check, ecoinvent benchmark with inventory check, factor matching against openLCA, Brightway or CSV | Not documented | Not documented | Not documented | Not documented |
 | Prebuilt models | Sector templates | Not documented | Not documented | 1,000 prebuilt models | Not documented |
 | Price | Free, open source | Free, open source | Commercial | Commercial | Free, open source |
 

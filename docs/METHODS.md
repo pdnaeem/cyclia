@@ -460,9 +460,12 @@ workflow.
 
 This is a **risk screening**, not a full social LCA. Activity variable: worker hours per unit of each process's
 reference product, with a risk level per social indicator and stakeholder category (UNEP 2020 Guidelines, ISO 14075:2024: workers, local community, society,
-consumers, value chain actors, children). Worker hours per functional unit = activity level of each process (|s × the diagonal of A|, with s solved for the
-demand alone; avoided products are solved separately, reported separately and neither added nor netted) × worker
-hours per unit. Risk hours = hours × factor of the risk level (no risk 0, very low 0.01,
+consumers, value chain actors, children). Worker hours per functional unit = activity level of each process (|s × the diagonal of A|: its output, or the
+waste it treats) × worker hours per unit. s is solved for the lines used alone; a process runs when s > 0 and is
+avoided when s < 0 (a credit inside the supply chain). Lines marked as avoided products are solved separately,
+reported separately and neither added nor netted. A treatment dataset that receives waste runs (s > 0) although
+its reference amount is negative (corrected in 1.5.0: it was counted as avoided). When the rows of one process
+give different worker hours per unit, the first is used and the process is listed. Risk hours = hours × factor of the risk level (no risk 0, very low 0.01,
 low 0.1, medium 1, high 10, very high 100; editable). Each process takes the most specific data row: the longest
 matching name fragment, a row for its location before a row without location. Process coverage = processes with data / processes in the supply chain. Worker hours of processes without data
 are unknown, so a worker-hour coverage is only given when the table has a default row (match `*`) that estimates
@@ -480,12 +483,15 @@ F(a − 0.5), with age 1 taking F(1.5), so nothing retires in the year of entry)
 (share at age a = F(a) − F(a − 1), age 1 taking F(1)). Retirements that fall after the last year of the study are
 not counted; over a long enough horizon every inflow retires (tested to 1e-9). Flows within a year, including recycling back
 to production, are solved as x = (I − Tᵀ)⁻¹ u; a loop with no exit raises an error. Every year is checked for
-mass balance (external inflow = change in stocks + flows to sinks). Indicators per year: end-of-life recycling
-rate (recycled output / end-of-life outflow), recycled content and recirculated inflow share (both: recycled
+mass balance (external inflow = change in stocks + flows to sinks). Indicators per year: collection rate
+C_R (end-of-life outflow that reaches the recycling processes within the year, traced through collection and
+sorting with r = Tr over the transfer coefficients, over the end-of-life outflow), recycling efficiency E_C
+(recycled output / input of the recycling processes), end-of-life recycling rate C_R × E_C (production scrap
+and imported scrap sent to recycling are not end-of-life material and are not counted; corrected in 1.5.0),
+recycled content and recirculated inflow share (both: recycled
 input to the production process / total input to the production process; before 1.3.6 the inflow share was
 divided by all external inflows of the system), the outflow share recirculated, and the MCI of that year computed
-from the MFA (F_R = recycled content, C_R = input to recycling / end-of-life outflow, E_C = recycled output /
-input to recycling). In the spirit of ISO 59020:2024, not a complete ISO 59020 assessment.
+from the MFA (F_R = recycled content, C_R = collection rate, E_C = recycling efficiency). In the spirit of ISO 59020:2024, not a complete ISO 59020 assessment.
 
 The **Material Circularity Indicator** (Ellen MacArthur Foundation and Granta Design 2015, technical cycle):
 V = M(1 − F_R − F_U); W₀ = M(1 − C_R − C_U); W_C = M(1 − E_C)C_R; W_F = M(1 − E_F)F_R / E_F;
@@ -642,6 +648,44 @@ are found by a graph search over the exchanges (a dataset is reached when it sup
 not depend on the amounts. This removes round-off of the sparse solve where the exact value is zero and keeps every
 value in the supply chain. The EPD check (module table against result) measures the gap relative to the sum of the
 absolute stage contributions.
+
+## 16. Stage P0 of the development plan (1.5.0)
+
+### 16.1 Comparison with Brightway
+Toolbox > Validation > Compare with Brightway calculates the datasets of one database with Brightway's calculation
+library (bw2calc). Brightway builds its own matrices from the database's exchange lists (bw_processing
+datapackages, technosphere inputs flipped), solves and characterises them. Cyclia's result of one unit of each
+reference product is compared; a treatment dataset is calculated for one unit of waste treated, a demand of -1 in
+Brightway. Relative difference |a - b| / max(|a|, |b|), with results that cancel to about zero measured against
+1e-9 of the category's largest result; agreement below 1e-6. Results: docs/CROSS_VALIDATION.md.
+
+### 16.2 Conclusions of a comparative Monte Carlo
+For two alternatives A and B and one category, the n paired runs give P = share of runs with A < B. Its sampling
+error is the 95 % Wilson score interval [lo, hi]. With the chosen confidence c (90, 95 or 99 %):
+- A is lower when lo ≥ c;
+- B is lower when hi ≤ 1 - c;
+- more iterations are needed when P itself passes (P ≥ c or P ≤ 1 - c) but its interval does not;
+- otherwise the alternatives are not distinguishable at that confidence.
+
+Identical results in every run give "no difference". The rule uses each category's own distribution and the Monte
+Carlo sampling error, not a fixed percentage. A comparison is a comparative assertion only when the comparison
+checks pass (functional equivalence, boundaries, allocation, data quality, system models) and the categories
+concluded on have a conclusion; otherwise it is a screening comparison. Tested against the analytic probability
+of two lognormal alternatives, Phi(ln(b/a) / sqrt(s_A^2 + s_B^2)).
+
+### 16.3 Nested uncertainty and data quality
+A nested model's line factors multiply along the path (exp(s1 Z1 + s2 Z2) for two levels), so a two-level chain
+is lognormal with log standard deviation sqrt(s1^2 + s2^2). The data quality of a path takes the worst score of its
+chain and is weighted by its share of the absolute impact. Both are tested against these hand calculations.
+
+### 16.4 AWARE water balance
+Besides consumption (withdrawal minus return to fresh water), the result reports which part of the consumption is
+identified by an output flow (evaporation, discharge to the sea, release to soil) and which part has none (water
+that leaves with the products or is not reported by the data).
+
+### 16.5 Validation of ReCiPe 2016, CML-IA and other methods
+The ecoinvent validation can compare every installed method that ecoinvent's results file contains (option
+"Validate every installed method"), not only EF 3.1.
 
 ## References
 

@@ -1,7 +1,7 @@
 {
   "name": "cyclia",
   "productName": "Cyclia",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "Cyclia: free, open-source life cycle assessment (LCA) software. ISO 14040/14044, ecoinvent, EPD, carbon footprint, Monte Carlo and LCC, without programming. Created by Naeem Ur Rehman.",
   "author": {
     "name": "Naeem Ur Rehman",

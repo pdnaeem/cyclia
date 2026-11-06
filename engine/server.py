@@ -30,6 +30,7 @@ import epd_profiles  # noqa: E402
 import factormatch  # noqa: E402
 import ilcd_epd  # noqa: E402
 import compare_kit  # noqa: E402
+import brightway_check  # noqa: E402
 import lci_check  # noqa: E402,F401  (used by trust; imported here so the packaged engine includes it)
 import staging  # noqa: E402
 import mfa  # noqa: E402
@@ -52,7 +53,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.4.2"
+VERSION = "1.5.0"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -514,12 +515,13 @@ def ei_install(st, body, q):
         if validate:
             res["benchmark"] = _ei_validate(st, store, user, pw, version, model, name, sample,
                                             lambda pc, m: progress(70 + pc * 0.3, m),
-                                            inventories=bool(body.get("inventories", True)))
+                                            inventories=bool(body.get("inventories", True)),
+                                            all_methods=bool(body.get("all_methods")))
         return res
     return _import_job(st, f"Install {name}", job)
 
 
-def _ei_validate(st, store, user, pw, version, model, db_name, sample, progress, inventories=True):
+def _ei_validate(st, store, user, pw, version, model, db_name, sample, progress, inventories=True, all_methods=False):
     """Download ecoinvent's own LCIA results and compare Cyclia with them. With inventories, ecoinvent's cumulative
     LCI is downloaded too and the gap of each result is split into an inventory part and a factor part.
     Never fails the installation."""
@@ -532,7 +534,9 @@ def _ei_validate(st, store, user, pw, version, model, db_name, sample, progress,
                                                               lambda pc, m: progress(20 + pc * 0.2, m))
             except Exception as e:
                 lci_error = str(e)
-        st.last_bench = trust.benchmark_ecoinvent(store, path, trust.preferred_family(store), sample,
+        # all_methods: every method of ecoinvent's results file that is installed (EF, ReCiPe, CML, IPCC and others),
+        # otherwise EF 3.1 when installed
+        st.last_bench = trust.benchmark_ecoinvent(store, path, "" if all_methods else trust.preferred_family(store), sample,
                                                   progress=lambda pc, m: progress(40 + pc * 0.6, m), db_name=db_name,
                                                   lci_path=lci)
         if lci_error:
@@ -557,7 +561,7 @@ def ei_validate(st, body, q):
 
     def job(progress, cancelled):
         r = _ei_validate(st, store, user, pw, version, model, db_name, int(body.get("sample") or 100), progress,
-                         inventories=bool(body.get("inventories", True)))
+                         inventories=bool(body.get("inventories", True)), all_methods=bool(body.get("all_methods")))
         if r.get("error"):
             raise ValueError(r["error"])
         return r
@@ -1223,7 +1227,8 @@ def uncertainty(st, body, q):
 
     def job(progress, cancelled):
         try:
-            out = calc.full_mc(store, ids, mids, iterations, progress=progress, cancelled=cancelled, scenario=scen, bg=bg)
+            out = calc.full_mc(store, ids, mids, iterations, progress=progress, cancelled=cancelled, scenario=scen, bg=bg,
+                               confidence=float(body.get("confidence") or 0.95))
         except calc.LCAError as e:
             raise ValueError(str(e))
         for m in out["models"]:
@@ -2327,6 +2332,44 @@ def factor_match(st, body, q):
         st.last_factor_match = res
         return res
     return {"job": st.start_job("Factor matching validation", job, exclusive=False)}
+
+
+@route("GET", "/api/brightway/status")
+def brightway_status(st, body, q):
+    if not brightway_check.available():
+        return {"available": False}
+    return {"available": True, **brightway_check.versions()}
+
+
+@route("POST", "/api/brightway/compare")
+def brightway_compare(st, body, q):
+    db = _need(body, "db_id")[0]
+    mids = [int(x) for x in (body.get("method_ids") or [])]
+    if not mids:
+        raise ApiError("Choose the impact categories in step 4 first.")
+    if not brightway_check.available():
+        raise ApiError("Brightway (bw2calc) is not available in this installation.")
+    sample = int(body.get("sample") or 0)
+    store = st.store
+
+    def job(progress, cancelled):
+        try:
+            st.last_bw = brightway_check.compare(store, int(db), mids, sample, progress=progress)
+        except ValueError as e:
+            raise ApiError(str(e))
+        return st.last_bw
+    return {"job": st.start_job("Comparison with Brightway", job, exclusive=False)}
+
+
+@route("POST", "/api/export/brightway-check")
+def export_brightway_check(st, body, q):
+    res = getattr(st, "last_bw", None)
+    if not res:
+        raise ApiError("Run the comparison with Brightway first.")
+    path = _export_path(st, body, {"name": "Cyclia compared with Brightway"}, "xlsx")
+    _writable(path)
+    brightway_check.excel(path, res)
+    return {"path": path, "file": os.path.basename(path)}
 
 
 @route("POST", "/api/export/compare-kit")

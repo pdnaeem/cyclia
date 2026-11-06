@@ -4,7 +4,8 @@
     python run_brightway.py
 
 Builds a project 'cyclia-comparison' with the databases 'cyclia-biosphere' and 'cyclia-technosphere' and one method
-per category, then calculates one unit of the reference product of every dataset. Technosphere exchanges are written
+per category, then calculates one unit of the reference product of every dataset (one unit of waste treated for treatment datasets,
+a demand of -1 in Brightway because their production is negative). Technosphere exchanges are written
 with the amounts of data/technosphere.csv (Brightway subtracts technosphere inputs, as Cyclia does) and production
 with the dataset's production amount (negative for waste treatment).
 """
@@ -56,12 +57,14 @@ with open(os.path.join(HERE, "results_brightway.csv"), "w", newline="", encoding
     w.writerow(["key", "name", "location", "category", "indicator", "value"])
     for a in acts:
         act = db.get(a["key"])
+        # one unit of the reference product; for waste treatment (negative production) one unit treated = -1
+        unit = -1 if float(a["production"] or 1.0) < 0 else 1
         for m, key in mkeys:
             try:   # Brightway 2.5
-                fu, data_objs, _ = bd.prepare_lca_inputs({act: 1}, method=key)
+                fu, data_objs, _ = bd.prepare_lca_inputs({act: unit}, method=key)
                 lca = bc.LCA(fu, data_objs=data_objs)
             except AttributeError:   # Brightway 2.4
-                lca = bc.LCA({act: 1}, key)
+                lca = bc.LCA({act: unit}, key)
             lca.lci()
             lca.lcia()
             w.writerow([a["key"], a["name"], a["location"], m["category"], m["indicator"], repr(float(lca.score))])

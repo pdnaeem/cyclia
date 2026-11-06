@@ -224,8 +224,32 @@
   const _show = showToolTab;
   showToolTab = function (t) {
     _show.apply(this, arguments);
-    if (t === "valid") $("#kitDb").innerHTML = ((S.status && S.status.databases) || []).map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join("");
+    if (t === "valid") {
+      const opts = ((S.status && S.status.databases) || []).map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join("");
+      $("#kitDb").innerHTML = opts;
+      $("#bwCmpDb").innerHTML = opts;
+      api("GET", "/api/brightway/status").then((s) => {
+        $("#btnBwCmp").disabled = !s.available;
+        $("#bwCmpStatus").textContent = s.available ? `Brightway calculation library: bw2calc ${s.bw2calc}, bw_processing ${s.bw_processing}.`
+          : "Brightway's calculation library is not included in this installation. Use the comparison kit below instead.";
+      }).catch(() => {});
+    }
   };
+  $("#btnBwCmp").addEventListener("click", (e) => guard(e.target, async () => {
+    const mids = [...(S.selectedMethods || [])];
+    if (!mids.length) throw new Error("Choose the impact categories in step 4 first.");
+    const { job } = await api("POST", "/api/brightway/compare", { db_id: Number($("#bwCmpDb").value), method_ids: mids, sample: Number($("#bwCmpSample").value) });
+    const j = await watchJob(job, { quiet: true });
+    if (!j || j.status !== "done" || !j.result) return;
+    const r = j.result;
+    $("#btnBwCmpExport").disabled = false;
+    const e6 = (x) => Number(x).toExponential(1);
+    $("#bwCmpOut").innerHTML = `<p class="${r.passed ? "ok" : "danger"}"><b>${esc(r.verdict)}</b></p>
+      <p class="hint">${esc(r.database)}${r.database_version ? " " + esc(r.database_version) : ""}${r.system_model ? ", " + esc(r.system_model) : ""}: ${r.datasets.toLocaleString("en-US")} of ${r.datasets_in_database.toLocaleString("en-US")} datasets. ${esc(r.scope)}</p>
+      <div class="table-wrap"><table><thead><tr><th>Category</th><th>Unit</th><th class="num">Results</th><th class="num">Agree</th><th class="num">Median difference</th><th class="num">Largest</th></tr></thead><tbody>
+      ${r.by_category.map((c) => `<tr><td>${esc(c.category)}</td><td>${esc(c.unit)}</td><td class="num">${c.results}</td><td class="num">${c.agree}</td><td class="num">${e6(c.median)}</td><td class="num">${e6(c.max)}</td></tr>`).join("")}</tbody></table></div>`;
+  }));
+  $("#btnBwCmpExport").addEventListener("click", (e) => guard(e.target, () => exportTo("/api/export/brightway-check", "Cyclia compared with Brightway.xlsx", "xlsx", {})));
   $("#btnKit").addEventListener("click", (e) => guard(e.target, async () => {
     const mids = [...(S.selectedMethods || [])];
     if (!mids.length) throw new Error("Choose the impact categories in step 4 first.");

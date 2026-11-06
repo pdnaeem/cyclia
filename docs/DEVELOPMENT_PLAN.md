@@ -32,14 +32,18 @@ release are in the [changelog](CHANGELOG.md).
 
 ## Stage P0: scientific correctness and reliability
 
-| Item | Depends on | Acceptance criteria |
+Status after release 1.5.0. Items marked "open" need software or data that only the user has (openLCA, licensed
+factor packages); the tools for them are in the app.
+
+| Item | Status | Result and what remains |
 |---|---|---|
-| Published openLCA and Brightway comparison | Comparison kit (done) | The same database and EF 3.1 calculated in openLCA 2 and Brightway 2.5; deviations per category published in [CROSS_VALIDATION.md](CROSS_VALIDATION.md) |
-| Validation of ReCiPe 2016 and CML-IA | Official factor files | Results for reference datasets compared with the method developers' published values or with openLCA using the same factors |
-| Comparative LCA validation | Monte Carlo (done) | Comparative assertions use paired Monte Carlo probabilities per category, with the equivalence checks reported. A descriptive comparison is labelled as descriptive |
-| Nested uncertainty and data quality | Hierarchical Monte Carlo (done) | Uncertainty and DQR of nested models propagated and checked against hand-calculated two-level systems |
-| Water and land use calculations | AWARE and LANCA import (done) | AWARE: withdrawal, consumption, return flows and evaporation classified per the AWARE 2.0 guidance. LANCA: all indicators of the official package tested against its documentation |
-| Social LCA and MFA calculations | Existing modules | Worker-hour coverage, activity-variable scaling and missing-data coverage tested on reference cases. MCI denominators documented and tested |
+| Comparison with Brightway | Done | Real Brightway (bw2calc) in the app and in every release build; all results agree within 1e-6 ([cross validation](CROSS_VALIDATION.md)) |
+| Comparison with openLCA | Open | Kit with openLCA JSON-LD and an openLCA 2 script; the run needs openLCA 2 on a desktop computer |
+| Validation of ReCiPe 2016 and CML-IA | Open | The ecoinvent validation now covers every installed method of ecoinvent's results file; the run needs the ecoinvent licence |
+| Comparative LCA validation | Done | Conclusions per category from the paired Monte Carlo probability and its sampling error at a chosen confidence; analytic reference test |
+| Nested uncertainty and data quality | Done | Analytic two-level lognormal and hand-calculated nested DQR tests; no defect found |
+| Water and land use calculations | Done, factors open | AWARE water balance with identified and unidentified consumption; LANCA and SQI by hand calculation. A check against the official LANCA and AWARE packages needs those packages |
+| Social LCA and MFA calculations | Done | Two defects corrected: waste sent to treatment was counted as an avoided product in the social screening, and the end-of-life recycling and collection rates counted production and imported scrap. Hand-calculated tests, MCI reference values |
 
 ## Stage P1: professional LCA maturity
 

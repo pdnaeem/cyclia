@@ -1122,8 +1122,54 @@ def foreground_mc(store, model_id, lines, method_ids, overrides, iterations=1000
             "note": note + " Background database uncertainty is not included in this run."}
 
 
+def wilson(k, n, z=1.959963984540054):
+    """Wilson score interval of a proportion k/n (95 % by default): the Monte Carlo sampling uncertainty of an
+    estimated probability."""
+    if n <= 0:
+        return (0.0, 1.0)
+    p = k / n
+    den = 1 + z * z / n
+    mid = (p + z * z / (2 * n)) / den
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den
+    return (max(0.0, mid - half), min(1.0, mid + half))
+
+
+def compare_conclusion(a, b, confidence=0.95):
+    """Conclusion of a paired comparison of two Monte Carlo samples of one category (lower is better).
+
+    P = share of runs in which A is lower than B, with its 95 % Wilson interval (sampling error of the estimate).
+    A is lower with the chosen confidence when the whole interval of P lies at or above that confidence; B is lower
+    when it lies at or below 1 - confidence. When the estimate passes the confidence but its interval does not,
+    more iterations are needed. Otherwise the alternatives are not distinguishable at that confidence. The rule uses
+    each category's own distribution, not a fixed percentage difference."""
+    a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    n = a.size
+    scale = max(np.abs(a).max(), np.abs(b).max()) if n else 0.0
+    diff = a - b
+    if n == 0 or scale == 0 or np.all(np.abs(diff) <= 1e-9 * scale):
+        return {"result": "no_difference", "p_a_lower": None, "interval": None, "confidence": confidence,
+                "text": "No difference: the alternatives give the same result in every run."}
+    k = int((diff < 0).sum())
+    p = k / n
+    lo, hi = wilson(k, n)
+    q_lo, q_hi = float(np.quantile(diff, 1 - confidence)), float(np.quantile(diff, confidence))
+    pc = f"P(A lower) = {100 * p:.1f} % (95 % interval of the estimate {100 * lo:.1f} to {100 * hi:.1f} %)"
+    if lo >= confidence:
+        res, txt = "a_lower", f"A is lower with at least {100 * confidence:g} % confidence. {pc}."
+    elif hi <= 1 - confidence:
+        res, txt = "b_lower", f"B is lower with at least {100 * confidence:g} % confidence. {pc}."
+    elif p >= confidence or p <= 1 - confidence:
+        res, txt = "more_iterations", (f"The estimate points to {'A' if p >= confidence else 'B'} being lower, but the "
+                                       f"sampling error is still too large for {100 * confidence:g} % confidence: run "
+                                       f"more iterations. {pc}.")
+    else:
+        res, txt = "not_distinguishable", f"Not distinguishable at {100 * confidence:g} % confidence. {pc}."
+    return {"result": res, "p_a_lower": p, "interval": [lo, hi], "confidence": confidence,
+            "difference_one_sided": [q_lo, q_hi], "text": txt}
+
+
 def full_mc(store, model_ids, method_ids, iterations=200, seed=42, progress=lambda *a: None,
-            cancelled=lambda: False, scenario=None, bg=None):
+            cancelled=lambda: False, scenario=None, bg=None, confidence=0.95):
     """Monte Carlo over background exchange uncertainty, the data quality of every foreground line at every level of
     nesting, and all parameter distributions. Compared models share the random background in each iteration, and
     any line or parameter they have in common (e.g. the same sub-model) keeps one draw, so comparisons are paired."""
@@ -1192,14 +1238,15 @@ def full_mc(store, model_ids, method_ids, iterations=200, seed=42, progress=lamb
            "methods": [{k: r[k] for k in ("id", "family", "category", "indicator", "unit")} for r in M.rows],
            "n_parameters": len(var_list), "n_shared_lines": sum(1 for _ in shared)}
     if len(prepared) > 1:
-        def p_lower(a, b):
-            scale = max(np.abs(a).max(), np.abs(b).max())
-            diff = a - b
-            if scale == 0 or np.all(np.abs(diff) <= 1e-9 * scale):
-                return None
-            return float((diff < 0).mean())
+        confidence = float(confidence)
+        if not 0.5 < confidence < 1:
+            raise LCAError("The confidence level must be between 50 % and 100 %.")
+        out["confidence"] = confidence
+        concl = {(i, j): [compare_conclusion(res[i, :, k], res[j, :, k], confidence) for k in range(len(method_ids))]
+                 for i in range(len(prepared)) for j in range(i + 1, len(prepared))}
         out["pairs"] = [{"a": prepared[i][0]["name"], "b": prepared[j][0]["name"],
-                         "p_a_lower": [p_lower(res[i, :, k], res[j, :, k]) for k in range(len(method_ids))],
+                         "p_a_lower": [c["p_a_lower"] for c in concl[(i, j)]],
+                         "conclusions": concl[(i, j)],
                          "diff_p2_5": [float(np.percentile(res[i, :, k] - res[j, :, k], 2.5)) for k in range(len(method_ids))],
                          "diff_p97_5": [float(np.percentile(res[i, :, k] - res[j, :, k], 97.5)) for k in range(len(method_ids))]}
                         for i in range(len(prepared)) for j in range(i + 1, len(prepared))]

@@ -35,8 +35,8 @@ Settings > General > Social preview: upload `.github/social-preview.png`.
 
 Settings > General > Features: tick **Discussions**. The app's user guide and `SUPPORT.md` link to it.
 
-## Release title for 1.4.2
+## Release title for 1.5.0
 
-Cyclia 1.4.2: clearer messages, documentation website and feature status
+Cyclia 1.5.0: comparison with Brightway, statistical comparative LCA, corrected social LCA and MFA rates
 
-Paste the text of `docs/releases/RELEASE_NOTES_v1.4.2.md` as the release description.
+Paste the text of `docs/releases/RELEASE_NOTES_v1.5.0.md` as the release description.

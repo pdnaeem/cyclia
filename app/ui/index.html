@@ -91,6 +91,7 @@
             </div>
             <div id="eiInstallRow" hidden>
               <label class="inline"><input type="checkbox" id="eiValidate" checked> Then validate Cyclia against ecoinvent's own LCIA results (recommended; a few extra minutes)</label>
+              <label class="inline"><input type="checkbox" id="eiAllMethods"> Validate every installed method of ecoinvent's results (EF 3.1, ReCiPe 2016, CML-IA, IPCC and others), not only EF 3.1</label>
               <label class="inline"><input type="checkbox" id="eiInventories" checked> Compare inventories too (downloads ecoinvent's cumulative LCI, a large file; tells an inventory difference from a factor difference)</label>
               <label class="inline">Datasets to compare <select id="eiSample"><option value="100">100</option><option value="500">500</option><option value="0">all</option></select></label>
               <div class="row"><button class="primary" id="btnEiInstall">Download, connect and validate</button>
@@ -587,7 +588,7 @@
             <div id="compareModels" class="checks"></div>
             <label>Functional equivalence <button type="button" class="q" data-help="functional equivalence" aria-label="Help">?</button><textarea id="compareEquiv" rows="2" placeholder="Both walls give 1 m2 with U = 0.25 W/m2K and a service life of 60 years, with the same fire class and the same maintenance."></textarea></label>
             <p class="hint">Cyclia checks functional units, boundaries, stages, allocation, approach, geography, period, background data and data quality. Without an equivalence statement, or when the checks find differences, the result is a screening comparison, not a comparative assertion.</p>
-            <div class="row"><button class="primary" id="btnCompare">Compare</button><button id="btnCompareMc">Comparative Monte Carlo</button><span class="hint">Uses the categories and scenario chosen in step 4.</span></div>
+            <div class="row"><button class="primary" id="btnCompare">Compare</button><button id="btnCompareMc">Comparative Monte Carlo</button><label class="inline">Confidence <select id="cmpConf"><option value="0.9">90 %</option><option value="0.95" selected>95 %</option><option value="0.99">99 %</option></select></label><span class="hint">Uses the categories and scenario chosen in step 4.</span></div>
           </div>
           <div class="block" id="compareOut" hidden></div>
           <div class="block" id="compareMcOut" hidden></div>
@@ -711,6 +712,13 @@
           <div class="row"><input id="fmResPath" class="grow" placeholder="Optional: full path of the other tool's results (CSV)"><button data-pick="file" data-target="fmResPath" data-ext="csv">Browse</button></div>
           <div class="row"><button class="primary" id="btnFm">Compare factors</button><button id="btnFmExport" disabled>Save report (Excel)</button></div>
           <div id="fmOut"></div>
+        </div>
+        <div class="block">
+          <h2>Compare with Brightway</h2>
+          <p class="hint">Calculates the datasets of one database with Brightway's calculation library (bw2calc) and compares every result with Cyclia's, for the categories chosen in step 4. Brightway builds its own matrices from the database's exchanges, solves them and characterises the inventory, so the comparison checks Cyclia's calculation against an independent, widely used program. It works with any installed database, ecoinvent included, and nothing leaves your computer.</p>
+          <div class="row"><select id="bwCmpDb"></select><label class="inline">Datasets <select id="bwCmpSample"><option value="100">100 (random sample)</option><option value="1000">1,000</option><option value="0">All</option></select></label><button class="primary" id="btnBwCmp">Compare with Brightway</button><button id="btnBwCmpExport" disabled>Save report (Excel)</button></div>
+          <p class="hint" id="bwCmpStatus"></p>
+          <div id="bwCmpOut"></div>
         </div>
         <div class="block">
           <h2>Comparison kit for Brightway and openLCA</h2>
