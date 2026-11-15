@@ -907,6 +907,109 @@ Integrity (finite amounts and parameters, valid links), inputs without a supplie
 solved with a residual below 1e-8, processes without exchanges, missing sources and data quality ratings, and
 the number of impact categories without a factor decision per custom flow.
 
+## 18. Professional platform (1.8.0)
+
+### 18.1 Sobol indices with parameters of custom data
+The parameters of custom data change entries of the technosphere matrix A and the elementary matrix B. A new
+factorisation for every one of the n (d + 2) Saltelli evaluations would be too slow on a large library, so the
+change is applied as a low-rank update. The parameterised entries sit in a few columns K of A (the processes that
+use the parameters). With A' = A - D E_K' (D: the changes, E_K: unit columns of K) the Sherman-Morrison-Woodbury
+identity gives s' = s + Z W (I - Z_K W)^-1 s_K, where Z = A^-1 [e_r] for the rows r of the changed entries
+(computed once), W the matrix of the changes and s_K the rows K of the unchanged solution. The impact per unit of
+each leaf is then Q s' + C dB s'. The result is exact up to round-off.
+
+Tests:
+- With q in a technosphere amount (q^2 kg of a supplier that emits 2q), the update reproduces 0.5 + 2 q^3 for q =
+  0.5, 2 and 3 to 1e-10.
+- f = L (2 k1 + 3 k2), with L the lognormal factor of the model line (sigma s) and k1, k2 independent lognormal
+  (GSD 1.5). With m = E k and v = Var k: Var f = e^(2s^2) (13 v + 25 m^2) - e^(s^2) 25 m^2, S1(k_i) =
+  e^(s^2) c_i^2 v / Var f and ST(k_i) = e^(2s^2) c_i^2 v / Var f. The estimates are within 0.04 at n = 4096,
+  for independent parameters and for one shared database parameter.
+
+### 18.2 Supplier data requests
+A request workbook lists the lines of a custom process with the unit Cyclia expects and the reference amount they
+refer to. A hidden sheet holds the request identifier and the revision of every line at the time of the request.
+Reading a response writes nothing and gives one of these outcomes per line:
+- **change:** a number in a unit of the same kind;
+- **not answered:** an empty amount;
+- **error:** not a number, an incompatible unit, a range that does not contain the amount, or a range without an
+  amount;
+- **conflict:** the line was changed or deleted in Cyclia after the request.
+
+Applying writes only the changes, with source "Supplier data: company, contact, date of the data (Cyclia request
+n)".
+- A lowest and highest plausible value become a triangular distribution (min, amount, max).
+- Otherwise a lognormal or pedigree spread of the line is kept. Both are relative, so they stay valid for a new
+  amount. A normal standard deviation is absolute and is not carried over.
+- Items the supplier adds on the "Other items" sheet are listed and never linked automatically.
+- A decimal comma is read as a decimal point.
+
+Test: the reference system of 17 (2.70 kg CO2-eq) with CO2 1.8 kg and the solvent at 12 000 mg (range 8 000 to
+15 000 mg) gives 1.8 + 0.5 + 0.2 + 0.06 - 0.05 = 2.51.
+
+### 18.3 Collaborative critical review
+Review comments follow ISO 14044 6 and ISO/TS 14071. A comment is about the study, an inventory line or an item of
+the ISO 14044 checklist, and has:
+- a severity: critical, major, minor or editorial;
+- a status: open, answered, resolved or withdrawn.
+
+Only the reviewer raises, resolves or withdraws comments; the practitioner's answer marks a comment as answered.
+
+Review files carry the comments with their unique identifiers. Merging a file:
+- adds the comments that are new;
+- updates a comment changed on the other side when that change is later than the local one, and keeps the
+  replaced state in the comment's history;
+- keeps the local comment when it is newer.
+
+Merging the same file twice changes nothing.
+
+A fingerprint (SHA-256 of the inputs, parameters and scope of the model, without the review notes) shows whether
+both sides look at the same model. The review closes only when no critical or major comment is open or answered.
+The closing statement stores the fingerprint, so a later change of the model is shown. The Word report contains
+the statement and Annex B3 with every comment and answer.
+
+### 18.4 Optimisation of discrete choices
+For lines j of a model with alternatives a, the total of a combination is T0 + sum_j (u_a q_a - u_j q_j) sign_j f,
+with:
+- u the impact per unit of a dataset or sub-model;
+- q the amount in the dataset's unit;
+- f the allocation share.
+
+All combinations are evaluated, up to 200 000. The best combination minimises the objective (a category or the
+purchase cost) under limits, which are absolute or relative to the current total. The Pareto set uses the
+objective and the limited dimensions, or all categories (and the cost) when there is no limit. It is found in one
+pass over the combinations sorted lexicographically, because a later point cannot dominate an earlier one.
+
+The purchase cost is the sum over the model's lines that carry a cost per unit of cost x amount x sign x f. It is
+offered only when every alternative has a cost.
+
+An alternative whose unit is not of the same kind as the line's is reported, because the amounts may not fulfil the
+same function. The result is deterministic; close combinations are saved as models and compared with the
+comparative Monte Carlo.
+
+Test (hand calculation, six combinations):
+- minimising climate change with toxicity at most 10 gives 3.5;
+- with toxicity no worse than now, 4.5;
+- minimising cost with climate change at most 5 gives 5.0;
+- the Pareto set over climate change and toxicity is {(2.5, 20), (3.5, 8), (4.5, 2)};
+- the saved combination recalculates to the same totals.
+
+### 18.5 Regionalised factors: country fallback and coverage
+A regionalised factor applies to the elementary flows of a process at the factor's location:
+- When the method has no factor for a sub-national location (CA-QC), the factor of its country (CA) is used, as in
+  the AWARE and LANCA modules. Until 1.7.0 the generic factor was used there.
+- Otherwise the generic factor is used.
+
+For each category with regional factors, the result reports the share of the impact of the regionalised flows (in
+absolute value) characterised with the exact location, with the country, or with the generic factor, and the
+locations that fell back to the generic factor. A message appears when that share exceeds 5 %, and the Word
+report has a table.
+
+Test: 1 m3 at location XX (factor 10) and 0.001 m3 elsewhere (generic 1):
+- exact share 10/10.001;
+- the same with XX-01 through the country;
+- with location YY the total is 1.001, all generic.
+
 ## References
 
 Andreasi Bassi S., Biganzoli F., Ferrara N., Amadei A., Valente A., Sala S., Ardente F. (2023) Updated characterisation and normalisation factors for the Environmental Footprint 3.1 method. JRC130796, Publications Office of the European Union.

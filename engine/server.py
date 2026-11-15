@@ -33,6 +33,9 @@ import compare_kit  # noqa: E402
 import brightway_check  # noqa: E402
 import custom_data  # noqa: E402
 import slca_type1  # noqa: E402
+import supplier  # noqa: E402
+import choices  # noqa: E402
+import review as review_mod  # noqa: E402  (server.py has a route function named review)
 import benchmark as bench_mod  # noqa: E402  (server.py has a route function named benchmark)
 import lci_check  # noqa: E402,F401  (used by trust; imported here so the packaged engine includes it)
 import staging  # noqa: E402
@@ -56,7 +59,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -1315,8 +1318,12 @@ def export_word(st, body, q):
         review = standards.review_checklist(model, res)
     except Exception:   # noqa: BLE001
         review = None
+    try:
+        comments = review_mod.summary(st.store, model["id"])
+    except Exception:   # noqa: BLE001
+        comments = None
     report.word_report(path, model, res, st.store.databases(), VERSION, provenance=_prov(st, body), evidence=evidence,
-                       review=review)
+                       review=review, comments=comments)
     return {"path": path, "file": os.path.basename(path)}
 
 
@@ -3082,6 +3089,123 @@ def default_data_dir():
     else:
         base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
     return os.path.join(base, APP)
+
+
+# ------------------------------------------------------------------------------------------- supplier data (1.8.0)
+def _sup(fn, *a, **k):
+    try:
+        return fn(*a, **k)
+    except (supplier.SupplierError, custom_data.CustomDataError) as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/supplier/request")
+def supplier_request(st, body, q):
+    _cd_free(st)
+    uid, name = _need(body, "process_uuid", "supplier")
+    it = _sup(custom_data._item, st.store, uid, "process")
+    path = _export_path(st, body, {"name": f"Data request {it['name']} {name}"}, "xlsx")
+    _writable(path)
+    rid = _sup(supplier.request_workbook, st.store, uid, path, name, body.get("contact") or "",
+               bool(body.get("include_current")), str(body.get("message") or "")[:2000])
+    return {"path": path, "file": os.path.basename(path), "request": rid}
+
+
+@route("POST", "/api/supplier/preview")
+def supplier_preview(st, body, q):
+    (path,) = _need(body, "path")
+    return _sup(supplier.read_response, st.store, _check_path(path))
+
+
+@route("POST", "/api/supplier/apply")
+def supplier_apply(st, body, q):
+    _cd_free(st)
+    (path,) = _need(body, "path")
+    r = _sup(supplier.apply_response, st.store, _check_path(path), str(body.get("author") or "")[:200])
+    calc.invalidate()
+    return r
+
+
+@route("GET", "/api/supplier/requests")
+def supplier_requests(st, body, q):
+    return {"requests": supplier.requests(st.store, (q.get("process") or [None])[0])}
+
+
+# ------------------------------------------------------------------------------------- critical review (1.8.0)
+def _rv(fn, *a, **k):
+    try:
+        return fn(*a, **k)
+    except review_mod.ReviewError as e:
+        raise ApiError(str(e))
+
+
+@route("GET", r"/api/models/(\d+)/review-comments")
+def review_comments(st, body, q, mid):
+    return _rv(review_mod.summary, st.store, int(mid))
+
+
+@route("POST", r"/api/models/(\d+)/review-comments")
+def review_comment_add(st, body, q, mid):
+    _rv(review_mod.add, st.store, int(mid), {**body, "author": body.get("author") or st.author})
+    return _rv(review_mod.summary, st.store, int(mid))
+
+
+@route("POST", r"/api/review-comments/([\w-]+)/status")
+def review_comment_status(st, body, q, uid):
+    _rv(review_mod.set_status, st.store, uid, body.get("status"), body.get("author") or st.author, body.get("role"))
+    return {"ok": True}
+
+
+@route("POST", r"/api/models/(\d+)/review/close")
+def review_close(st, body, q, mid):
+    return _rv(review_mod.close, st.store, int(mid), body.get("reviewer") or st.author, body.get("statement"))
+
+
+@route("POST", r"/api/models/(\d+)/review/reopen")
+def review_reopen(st, body, q, mid):
+    review_mod.reopen(st.store, int(mid))
+    return {"ok": True}
+
+
+@route("POST", r"/api/models/(\d+)/review/export")
+def review_file_export(st, body, q, mid):
+    model = st.store.model(int(mid))
+    if not model:
+        raise ApiError("Model not found.", 404)
+    path = _export_path(st, body, dict(model, name=f"{model['name']} review"), "json")
+    _writable(path)
+    r = _rv(review_mod.export_file, st.store, int(mid), path, st.author)
+    return {"path": path, "file": os.path.basename(path), **r}
+
+
+@route("POST", r"/api/models/(\d+)/review/import")
+def review_file_import(st, body, q, mid):
+    (path,) = _need(body, "path")
+    return _rv(review_mod.import_file, st.store, int(mid), _check_path(path))
+
+
+# ------------------------------------------------------------------------------------ scenario optimisation (1.8.0)
+def _opt(fn, *a, **k):
+    try:
+        return fn(*a, **k)
+    except (choices.OptimiseError, calc.LCAError) as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/choices/optimise")
+def choices_run(st, body, q):
+    mid, mids, slots = _need(body, "model_id", "method_ids", "slots")
+    return _opt(choices.optimise, st.store, int(mid), [int(x) for x in mids], slots, body.get("objective") or {},
+                body.get("constraints") or [], int(body["scenario"]) if body.get("scenario") else None, _bg(body))
+
+
+@route("POST", "/api/choices/apply")
+def choices_apply(st, body, q):
+    mid, mids, slots = _need(body, "model_id", "method_ids", "slots")
+    nid = _opt(choices.apply, st.store, int(mid), [int(x) for x in mids], slots, body.get("choice") or {},
+               str(body.get("name") or "")[:200] or None,
+               int(body["scenario"]) if body.get("scenario") else None, _bg(body))
+    return {"model_id": nid}
 
 
 def main():

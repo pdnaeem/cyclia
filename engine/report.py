@@ -178,7 +178,8 @@ def _footer(doc, version=""):
         r.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
 
 
-def word_report(path, model, result, databases, version="", provenance=None, evidence=None, review=None):
+def word_report(path, model, result, databases, version="", provenance=None, evidence=None, review=None,
+                comments=None):
     s = model["scope"] or {}
     doc = Document()
     st = doc.styles["Normal"]
@@ -387,6 +388,16 @@ def word_report(path, model, result, databases, version="", provenance=None, evi
         _table(doc, ["Category", "Flow", "Compartment", "Amount"],
                [[r["category"], f["name"], f["context"], f"{fmt(f['amount'])} {f['unit']}"]
                 for r in gaps for f in r["factor_gaps"]["flows"][:10]], size=8)
+    rc = result.get("regional_coverage") or []
+    if rc:
+        doc.add_paragraph("Regionalised characterisation factors: share of the impact of the regionalised flows "
+                          "characterised with the factor of the process location, of the country of a sub-national "
+                          "location, or with the generic factor because the method gives none for the location:")
+        _table(doc, ["Category", "Exact location", "Country", "Generic", "Locations with the generic factor"],
+               [[x["category"], f"{100 * (x['exact'] or 0):.1f} %", f"{100 * (x['country'] or 0):.1f} %",
+                 f"{100 * (x['generic'] or 0):.1f} %",
+                 ", ".join(f"{g['location']} ({100 * g['share']:.0f} %)" for g in x["generic_locations"][:6])]
+                for x in rc], size=8)
     ps = result.get("parameter_sensitivity") or []
     if ps:
         doc.add_paragraph(f"Parameter sensitivity: change of each category when one parameter changes by ±{pct:g} %.")
@@ -423,9 +434,20 @@ def word_report(path, model, result, databases, version="", provenance=None, evi
     doc.add_paragraph("Limitations: " + (s.get("limitations") or "state the limitations of data and method here."))
     doc.add_paragraph("Recommendations: " + (s.get("recommendations") or "state the recommendations here."))
 
-    if s.get("review") or (s.get("comparative") or "").startswith("Yes"):
+    cl = (comments or {}).get("closure")
+    if s.get("review") or (s.get("comparative") or "").startswith("Yes") or cl or (comments or {}).get("threads"):
         doc.add_heading("5. Critical review", 1)
-        doc.add_paragraph(s.get("review") or "A critical review is required (ISO 14044 6.3) but not yet documented.")
+        doc.add_paragraph(s.get("review") or ("" if cl else
+                                              "A critical review is required (ISO 14044 6.3) but not yet documented."))
+        if cl:
+            doc.add_paragraph(f"Review closed on {cl['date']} by {cl['reviewer']}: {cl['statement']}")
+            if not comments.get("closure_current"):
+                doc.add_paragraph("The model has changed since the review was closed; the statement refers to an "
+                                  "earlier state of the model.").italic = True
+        if comments and comments.get("threads"):
+            n = len(comments["threads"])
+            doc.add_paragraph(f"{n} review comment(s); {comments['blocking']} critical or major comment(s) not resolved. "
+                              "Annex B3 lists every comment with its answer and status.")
 
     doc.add_heading("Annex A. Methods text for a manuscript", 1)
     doc.add_paragraph(methods_paragraph(model, result, databases, version))
@@ -477,6 +499,12 @@ def word_report(path, model, result, databases, version="", provenance=None, evi
                [[r["clause"], r["text"][:70], r["auto"], (r["evidence"] or "")[:60],
                  (r["reviewer_status"] + (": " + r["reviewer_comment"] if r["reviewer_comment"] else ""))[:40]]
                 for r in review["items"]], size=7)
+    if comments and comments.get("threads"):
+        doc.add_heading("Annex B3. Critical review comments and answers", 1)
+        _table(doc, ["Severity", "On", "Comment", "Answer", "Status"],
+               [[t["severity"], (t["target_label"] or "")[:40], f"{t['text'][:300]} ({t['author']})",
+                 " / ".join(f"{r['text'][:200]} ({r['author']})" for r in t["replies"])[:400], t["status"]]
+                for t in comments["threads"]], widths=[1.6, 3.0, 5.4, 5.4, 1.6], size=7)
     doc.add_heading("Annex C. References", 1)
     for ref in (authors.reference(version),"ISO 14040:2006 Environmental management. Life cycle assessment. Principles and framework.",
                 "ISO 14044:2006 Environmental management. Life cycle assessment. Requirements and guidelines. Amd 1:2017, "

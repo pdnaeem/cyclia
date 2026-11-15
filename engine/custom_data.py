@@ -759,8 +759,18 @@ def mc_plan(store, mc):
     if not groups:
         return None
 
-    def deltas(rng):
-        draws = {}
+    def _key(g, lvl, name):
+        return (g["db"], None, name) if lvl == "db" else (g["db"], g["process"], name)
+
+    # every parameter with a distribution, once, in the order of first use (database parameters shared)
+    keyq = {}
+    for g in groups:
+        for name, (lvl, q) in g["params"].items():
+            if not q.get("formula") and (q.get("utype") or 0) > 0:
+                keyq.setdefault(_key(g, lvl, name), q)
+
+    def deltas_for(draws):
+        """Change of the entries for given parameter values {key: value}; missing keys keep their value."""
         rows = {"A": ([], [], []), "B": ([], [], [])}
         for g in groups:
             vals = []
@@ -768,13 +778,8 @@ def mc_plan(store, mc):
                 if q.get("formula"):
                     vals.append({"name": name, "formula": q["formula"]})
                     continue
-                if (q.get("utype") or 0) > 0:
-                    key = (g["db"], None, name) if lvl == "db" else (g["db"], g["process"], name)
-                    if key not in draws:
-                        draws[key] = float(calc.sample_param(rng, q))
-                    vals.append({"name": name, "value": draws[key]})
-                else:
-                    vals.append({"name": name, "value": q["value"]})
+                k = _key(g, lvl, name)
+                vals.append({"name": name, "value": draws[k] if k in draws else q["value"]})
             try:
                 env = fm.resolve(vals)
             except fm.FormulaError:
@@ -795,10 +800,22 @@ def mc_plan(store, mc):
                     rows[m][2].append(c * dv)
         return rows
 
-    keys = {(g["db"], None if lvl == "db" else g["process"], name) for g in groups
-            for name, (lvl, q) in g["params"].items() if (q.get("utype") or 0) > 0}
-    return {"deltas": deltas, "n_parameters": len(keys),
-            "n_lines": sum(len(g["entries"]) for g in groups)}
+    def deltas(rng):
+        return deltas_for({k: float(calc.sample_param(rng, q)) for k, q in keyq.items()})
+
+    names = {}
+    for g in groups:
+        it = store.one("SELECT name FROM custom_items WHERE uuid=?", (g["process"],))
+        db = store.one("SELECT name FROM databases WHERE id=?", (g["db"],))
+        for name, (lvl, q) in g["params"].items():
+            k = _key(g, lvl, name)
+            if k in keyq and k not in names:
+                names[k] = name + " (" + ((db["name"] if db else "database") if lvl == "db" else
+                                          (it["name"] if it else "process")) + ")"
+    pos = {"A": sorted({(i, j) for g in groups for _, _, ents in g["entries"] for m, i, j, _ in ents if m == "A"}),
+           "B": sorted({(i, j) for g in groups for _, _, ents in g["entries"] for m, i, j, _ in ents if m == "B"})}
+    return {"deltas": deltas, "deltas_for": deltas_for, "parameters": list(keyq.items()), "labels": names,
+            "positions": pos, "n_parameters": len(keyq), "n_lines": sum(len(g["entries"]) for g in groups)}
 
 
 # ----------------------------------------------------------------------------------------------- allocation

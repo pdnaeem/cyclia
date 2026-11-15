@@ -745,6 +745,8 @@
     go("tools"); showToolTab("custom");
   });
 
+  window.cdCurrent = () => ({ proc: C.proc, db: C.db });
+  window.cdReload = () => refreshAll();
   uncFields();
   const _show = showToolTab;
   showToolTab = function (t) {
@@ -754,6 +756,53 @@
       guard(null, loadMeta);
     }
   };
+})();
+
+/* Supplier data requests (Your own data, step 5). */
+(function () {
+  const v = (id) => ($("#" + id).value || "").trim();
+  const n = (x) => (x === null || x === undefined ? "" : fmt(x));
+  function cur() { const c = window.cdCurrent ? window.cdCurrent() : {}; if (!c.proc) throw new Error("Choose or save a process in step 4 first."); return c.proc; }
+  async function list() {
+    let uid; try { uid = cur(); } catch (e) { $("#cdSupList").innerHTML = ""; return; }
+    const r = await api("GET", "/api/supplier/requests?process=" + encodeURIComponent(uid));
+    $("#cdSupList").innerHTML = r.requests.length ? `<div class="table-wrap"><table><thead><tr><th>Request</th><th>Supplier</th><th>Sent</th><th>Status</th><th>Result</th></tr></thead><tbody>` +
+      r.requests.map((q) => `<tr><td>${q.id}</td><td>${esc(q.supplier)}</td><td>${esc((q.created || "").slice(0, 10))}</td><td>${esc(q.status)}${q.received ? " " + esc(q.received.slice(0, 10)) : ""}</td><td>${q.result ? `${q.result.applied} applied, ${q.result.unanswered} not answered, ${q.result.conflicts.length} conflicts, ${q.result.errors.length} errors, ${q.result.extra.length} extra items` : ""}</td></tr>`).join("") + "</tbody></table></div>" : "";
+  }
+  function preview(p, applied) {
+    const sec = (title, rows, head, f) => rows.length ? `<h4>${title}</h4><div class="table-wrap"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map(f).join("")}</tbody></table></div>` : "";
+    $("#cdSupOut").innerHTML = `<p class="hint">${esc(applied ? `Applied: ${applied.applied} line(s). Source recorded: ${applied.source}.` : p.note)}</p>` +
+      `<p><b>${esc(p.supplier.company)}</b>${p.supplier.contact ? ", " + esc(p.supplier.contact) : ""}${p.supplier.date ? ", data of " + esc(p.supplier.date) : ""}${p.supplier.period ? ", period " + esc(p.supplier.period) : ""}</p>` +
+      sec("Changes", p.changes, ["Row", "Item", "Now", "Supplier", "Range", "How obtained", "Comment"], (c) => `<tr><td>${c.row}</td><td>${esc(c.item)}</td><td class="num">${c.old_formula ? "= " + esc(c.old_formula) : n(c.old) + " " + esc(c.old_unit)}</td><td class="num"><b>${n(c.amount)} ${esc(c.unit)}</b></td><td>${c.min !== null ? n(c.min) + " to " + n(c.max) : ""}</td><td>${esc(c.how)}</td><td>${esc(c.comment)}</td></tr>`) +
+      sec("Errors (left unchanged)", p.errors, ["Row", "Item", "Problem"], (x) => `<tr><td>${x.row}</td><td>${esc(x.item)}</td><td class="danger">${esc(x.error)}</td></tr>`) +
+      sec("Conflicts (left unchanged)", p.conflicts, ["Row", "Item", "Reason"], (x) => `<tr><td>${x.row}</td><td>${esc(x.item)}</td><td class="warn">${esc(x.reason)}</td></tr>`) +
+      sec("Not answered", p.unanswered, ["Row", "Item"], (x) => `<tr><td>${x.row}</td><td>${esc(x.item)}</td></tr>`) +
+      sec("Items the supplier added (model them yourself)", p.extra, ["Type", "Description", "Amount", "Unit", "Comment"], (x) => `<tr><td>${esc(x.type)}</td><td>${esc(x.description)}</td><td>${esc(x.amount)}</td><td>${esc(x.unit)}</td><td>${esc(x.comment)}</td></tr>`) +
+      (!applied && p.changes.length ? `<div class="row"><button class="primary" id="btnCdSupApply">Apply ${p.changes.length} change(s)</button></div>` : "");
+  }
+  $("#btnCdSupReq").addEventListener("click", (e) => guard(e.target, async () => {
+    const uid = cur();
+    if (!v("cdSupName")) throw new Error("Give the supplier's name.");
+    await exportTo("/api/supplier/request", `Data request ${v("cdSupName").replace(/[^\w\- ]+/g, "")}.xlsx`, "xlsx",
+      { process_uuid: uid, supplier: v("cdSupName"), contact: v("cdSupContact"), include_current: $("#cdSupCur").checked, message: v("cdSupMsg") });
+    await list();
+  }));
+  $("#btnCdSupRead").addEventListener("click", (e) => guard(e.target, async () => {
+    if (!v("cdSupPath")) throw new Error("Choose the returned file.");
+    preview(await api("POST", "/api/supplier/preview", { path: v("cdSupPath") }));
+  }));
+  $("#cdSupOut").addEventListener("click", (e) => {
+    if (!e.target.closest("#btnCdSupApply")) return;
+    guard(e.target, async () => {
+      const p = await api("POST", "/api/supplier/preview", { path: v("cdSupPath") });
+      const r = await api("POST", "/api/supplier/apply", { path: v("cdSupPath"), author: v("cdSupContact") });
+      preview(p, r);
+      toast(`${r.applied} line(s) updated from the supplier's data.`);
+      if (window.cdReload) await window.cdReload();
+      await list();
+    });
+  });
+  $("#cdSupBox").addEventListener("toggle", () => { if ($("#cdSupBox").open) guard(null, list); });
 })();
 
 /* Scientific Benchmark Centre (Toolbox > Validation). */

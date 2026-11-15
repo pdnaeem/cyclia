@@ -235,21 +235,44 @@ class Methods:
                     self.C[i, j] += r["value"]
         self.Q = (sp.csr_matrix(self.C) @ mc.B).toarray() if mc.n else np.zeros((k, 0))
         self.regional = 0
+        self.regional_fallback = 0
+        self.reg_entries = None
         reg = store.q(f"SELECT method_id, flow_id, location, value FROM cfs_regional WHERE method_id IN "
                       f"({','.join('?' * k)})", self.ids) if k and regional else []
         if reg:
+            # 1.8.0: a process at a sub-national location (e.g. CA-QC) without its own factor takes the factor of its
+            # country (CA) when there is one, as in the AWARE and LANCA modules; otherwise the generic factor.
             Bc = mc.B.tocsr()
             loc_of = mc.act_loc
+            table = {}
             for r in reg:
-                i = self.ids.index(r["method_id"])
                 f = mc.flow_index.get(r["flow_id"])
                 if f is None:
                     continue
+                table.setdefault((self.ids.index(r["method_id"]), f), {})[str(r["location"]).upper()] = float(r["value"])
+            ei, ej, eb, ev, ek = [], [], [], [], []
+            for (i, f), locs in table.items():
                 start, end = Bc.indptr[f], Bc.indptr[f + 1]
                 for j, b in zip(Bc.indices[start:end], Bc.data[start:end]):
-                    if loc_of[j] == str(r["location"]).upper():
-                        self.Q[i, j] += (r["value"] - self.C[i, f]) * b
+                    loc = loc_of[j]
+                    if loc in locs:
+                        v, kind = locs[loc], 0
                         self.regional += 1
+                    elif "-" in loc and loc.split("-", 1)[0] in locs:
+                        v, kind = locs[loc.split("-", 1)[0]], 1
+                        self.regional_fallback += 1
+                    else:
+                        v, kind = self.C[i, f], 2
+                    if kind < 2:
+                        self.Q[i, j] += (v - self.C[i, f]) * b
+                    ei.append(i)
+                    ej.append(j)
+                    eb.append(b)
+                    ev.append(v)
+                    ek.append(kind)
+            self._loc = loc_of
+            self.reg_entries = (np.array(ei, dtype=np.int64), np.array(ej, dtype=np.int64), np.array(eb, float),
+                                np.array(ev, float), np.array(ek, dtype=np.int8))
         for i, m in enumerate(self.rows):
             m["n_matched"] = int(np.count_nonzero(self.C[i]))
         # site-specific factors replace the generic factor for the model's own (foreground) emissions only
@@ -271,6 +294,32 @@ class Methods:
                         self.site.append({"category": x["category"], "flow": x["flow_name"], "generic": float(self.C[i, j]),
                                           "site": float(x["value"]), "note": x["note"]})
                         self.Cd[i, j] = x["value"]
+
+    def regional_coverage(self, s):
+        """For each category with regional factors: the impact of its regionalised flows split by the factor used
+        (the factor of the process location, of its country, or the generic factor because the location has none),
+        and the locations that fell back to the generic factor."""
+        if self.reg_entries is None:
+            return []
+        ei, ej, eb, ev, ek = self.reg_entries
+        contrib = ev * eb * s[ej]
+        out = []
+        for i, m in enumerate(self.rows):
+            sel = ei == i
+            if not sel.any():
+                continue
+            tot = float(np.abs(contrib[sel]).sum())
+            parts = [float(np.abs(contrib[sel & (ek == kk)]).sum()) for kk in (0, 1, 2)]
+            miss = {}
+            for j, c in zip(ej[sel & (ek == 2)], contrib[sel & (ek == 2)]):
+                if c:
+                    miss[self._loc[j] or "unknown"] = miss.get(self._loc[j] or "unknown", 0.0) + abs(float(c))
+            out.append({"method_id": m["id"], "category": m["category"],
+                        "exact": parts[0] / tot if tot else None, "country": parts[1] / tot if tot else None,
+                        "generic": parts[2] / tot if tot else None,
+                        "generic_locations": sorted(({"location": k, "share": v / tot} for k, v in miss.items()),
+                                                    key=lambda x: -x["share"])[:15] if tot else []})
+        return out
 
     def fixed_vector(self, fixed):
         """EPD / fixed impact values per unit, matched to the selected categories by method key."""
@@ -824,6 +873,7 @@ def run(store, model_id, method_ids, top=12, mc_iterations=0, sensitivity_pct=10
            "parameter_sensitivity": param_sens, "lci": lci, "uncharacterised": uncharacterised,
            "factor_gaps": sum(1 for gp in gaps if gp),
            "has_module_d": any(l["module_d"] for l in lines), "regional_factors_used": M.regional,
+           "regional_country_fallbacks": M.regional_fallback, "regional_coverage": M.regional_coverage(s) if M.reg_entries is not None else [],
            "site_factors": M.site, "toxicity_coverage": tox_cov,
            "background": {"name": getattr(mc, "bg_name", None), "kind": getattr(mc, "bg_kind", None),
                           "changes": getattr(mc, "bg_report", [])} if getattr(mc, "bg_name", None) else None}
@@ -1390,6 +1440,55 @@ def full_mc(store, model_ids, method_ids, iterations=200, seed=42, progress=lamb
 
 
 # ============================================================================ global sensitivity (Sobol)
+def _custom_shift(mc, M, ctx, T, cplan):
+    """Change of the impact per unit of every leaf caused by new values of the parameters of custom data, without a
+    new factorisation: the parameterised entries sit in a few columns K of A, so A' = A - D E_K' and, by the
+    Sherman-Morrison-Woodbury identity, s' = s + Z W (I - Z_K W)^-1 s_K, where Z = A^-1 [e_r] for the rows r of the
+    changed entries and W holds the changes. Elementary entries change B: the term C dB s' is added. Exact up to
+    round-off; the test compares it with a direct solve."""
+    posA, posB = cplan["positions"]["A"], cplan["positions"]["B"]
+    R = sorted({i for i, _ in posA})
+    K = sorted({j for _, j in posA})
+    KB = sorted({j for _, j in posB})
+    U = sorted(set(K) | set(KB))
+    ri = {r: x for x, r in enumerate(R)}
+    ki = {k: x for x, k in enumerate(K)}
+    ui = {u: x for x, u in enumerate(U)}
+    S = np.zeros((mc.n, len(T["leaves"])))
+    for l, lf in enumerate(T["leaves"]):
+        a, _, _ = line_unit_demand(ctx, lf["inp"])
+        if a:
+            S[:, l] = mc.solve(demand_vector(mc, a))
+    Z = np.zeros((mc.n, len(R)))
+    for x, r in enumerate(R):
+        e = np.zeros(mc.n)
+        e[r] = 1.0
+        Z[:, x] = mc.lu.solve(e)
+    QZ = M.Q @ Z if len(R) else np.zeros((len(M.rows), 0))
+    S_U, Z_U, Z_K, S_K = S[U], Z[U], Z[K], S[K]
+    Ccsc = sp.csc_matrix(M.C)
+    ccol = {f: Ccsc[:, f].toarray().ravel() for f in {f for f, _ in posB}}
+
+    def shift(draws):
+        dl = cplan["deltas_for"](draws)
+        W = np.zeros((len(R), len(K)))
+        for i, j, v in zip(*dl["A"]):
+            W[ri[i], ki[j]] += v
+        if len(K) and W.any():
+            X = np.linalg.solve(np.eye(len(K)) - Z_K @ W, S_K)
+            dS_U = Z_U @ W @ X
+            out = QZ @ W @ X
+        else:
+            dS_U = np.zeros_like(S_U)
+            out = np.zeros((len(M.rows), S.shape[1]))
+        sU = S_U + dS_U
+        for f, j, v in zip(*dl["B"]):
+            out = out + np.outer(ccol[f] * v, sU[ui[j]])
+        return out.T              # leaves x methods
+
+    return shift
+
+
 def sobol(store, model_id, method_ids, n=512, seed=7, scenario=None, bg=None):
     """First-order and total Sobol indices (Saltelli 2010, Jansen 1999) for the uncertain inputs of a model: the
     amount of every line at every level of nesting (lognormal from its data-quality score) and every parameter
@@ -1408,7 +1507,15 @@ def sobol(store, model_id, method_ids, n=512, seed=7, scenario=None, bg=None):
     units_ = hier.leaf_units(ctx0, mc, M, T)
     var_list = hier.variables(ctx0, T["models"])
     nl = len(T["lines"])
-    d = nl + len(var_list)
+    try:
+        import custom_data
+        cplan = custom_data.mc_plan(store, mc)
+    except Exception:
+        cplan = None
+    cpars = cplan["parameters"] if cplan else []
+    shift = _custom_shift(mc, M, ctx0, T, cplan) if cpars else None
+    nv = len(var_list)
+    d = nl + nv + len(cpars)
     if d == 0:
         raise LCAError("Nothing is uncertain: add lines or parameter distributions first.")
     n = int(max(64, min(n, 4096)))
@@ -1432,7 +1539,15 @@ def sobol(store, model_id, method_ids, n=512, seed=7, scenario=None, bg=None):
                 amt[r] = hier.path_amounts(ctx, T)
         else:
             amt = np.tile(base_amt, (U.shape[0], 1))
-        return (amt * hier.path_multipliers(T, mult)) @ units_
+        w = amt * hier.path_multipliers(T, mult)
+        if not shift:
+            return w @ units_
+        cv = [np.asarray(_ppf_param(q, np.clip(U[:, nl + nv + j], 1e-9, 1 - 1e-9)), dtype=float)
+              for j, (_, q) in enumerate(cpars)]
+        out = np.zeros((U.shape[0], units_.shape[1]))
+        for r in range(U.shape[0]):
+            out[r] = w[r] @ (units_ + shift({k: cv[j][r] for j, (k, _) in enumerate(cpars)}))
+        return out
     fA, fB = evaluate(A), evaluate(Bm)
     f0 = np.mean(np.vstack([fA, fB]), axis=0)  # centre outputs: the estimators are biased when |mean| >> sd
     fA, fB = fA - f0, fB - f0
@@ -1453,10 +1568,13 @@ def sobol(store, model_id, method_ids, n=512, seed=7, scenario=None, bg=None):
     for v in var_list:
         names.append("parameter: " + v["p"]["name"] + (f" (in {mnames.get(v['key'][1], '')})" if v["key"][0] == "m" and
                                                        v["key"][1] != model_id else ""))
+    for k, _ in cpars:
+        names.append("parameter of your data: " + cplan["labels"].get(k, k[2]))
     return {"n": n, "factors": names, "methods": [{k: r[k] for k in ("id", "category", "unit")} for r in M.rows],
             "S1": np.clip(S1, 0, 1).tolist(), "ST": np.clip(ST, 0, 1).tolist(),
             "note": f"Sobol indices from {n * (d + 2):,} model evaluations over {nl} lines (all levels) and "
-                    f"{len(var_list)} parameters. S1: share of variance from a factor alone; ST: including its "
+                    f"{len(var_list)} parameters" + (f" and {len(cpars)} parameter(s) of your own data (the supply "
+                    "chain solved again for each of their values)" if cpars else "") + ". S1: share of variance from a factor alone; ST: including its "
                     f"interactions. Background uncertainty is held fixed.{note_corr}"}
 
 
@@ -1964,6 +2082,13 @@ def checks(store, model_id, method_ids, result=None):
                 add("warning", "impact", f"{t['category']}: {t['n_missing']} of {t['n_emitted']} emitted substances have no "
                                          "toxicity factor, so the result is incomplete. See Inventory results > Toxicity "
                                          "coverage; build screening factors in Toolbox > Chemicals if needed.")
+        for x in result.get("regional_coverage") or []:
+            if x["generic"] and x["generic"] > 0.05:
+                locs = ", ".join(f"{g['location']} ({100 * g['share']:.0f} %)" for g in x["generic_locations"][:5])
+                add("info", "impact", f"{x['category']}: {100 * x['generic']:.0f} % of the regionalised flows' impact "
+                                      f"uses the generic factor because the method has no factor for the process "
+                                      f"location ({locs}). Exact location {100 * (x['exact'] or 0):.0f} %, country of a "
+                                      f"sub-national location {100 * (x['country'] or 0):.0f} %.")
         for x in result.get("site_factors") or []:
             add("info", "impact", f"Site-specific factor used for {x['flow']} in {x['category']} ({x['site']:.4g} instead of "
                                   f"the generic {x['generic']:.4g}); it applies to the model's own emissions only.")

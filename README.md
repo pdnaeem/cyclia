@@ -67,7 +67,7 @@ Cyclia checks its own calculations against independent references:
 | Independent second calculation (rebuilt matrices, different solver) | Built in ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Comparison with Brightway (bw2calc) on the same database | All results within 1e-6, largest difference 1.4e-12; runs in the app on any database ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Characterisation factors compared with openLCA, Brightway or CSV factor sets | Flow by flow, with the effect of every difference |
-| Automated tests of the calculation engine | 305 tests (1.7.0), run on Windows, macOS and Linux for every change. A separate workflow installs Brightway at pinned versions and fails if its comparison tests are skipped |
+| Automated tests of the calculation engine | 327 tests (1.8.0), run on Windows, macOS and Linux for every change. A separate workflow installs Brightway at pinned versions and fails if its comparison tests are skipped |
 | Scientific Benchmark Centre | In the app (Toolbox > Validation): every check with its reference, result, differences and status; a check that did not run is never shown as validated |
 
 The status of every feature, including what is not validated yet, is listed in
@@ -92,6 +92,8 @@ The status of every feature, including what is not validated yet, is listed in
   co-products with allocation, units of your own, and a supply chain diagram you draw by connecting boxes. Unique identifiers, sources
   and change history for every item, unit checks, a worked example, and a step-by-step guide. A flow without a
   known factor marks the result incomplete; it is never counted as zero
+- **Supplier data requests**: an Excel file per process for your supplier; the answers are checked and shown
+  before they are applied, with the supplier and date recorded as the source
 
 **Modelling**
 - Parameters, formulas and scenarios; allocation by mass, economic value, energy or physical relation; system
@@ -105,11 +107,14 @@ The status of every feature, including what is not validated yet, is listed in
 **Interpretation**
 - Contribution analysis by input, process, elementary flow and life cycle stage; supply chain tree and Sankey
   diagram
-- Monte Carlo uncertainty with the pedigree matrix and correlated parameters, Sobol sensitivity indices and a
-  convergence check, through every nested model
+- Monte Carlo uncertainty with the pedigree matrix and correlated parameters, Sobol sensitivity indices (including
+  the parameters of your own data) and a convergence check, through every nested model
+- Optimisation of choices: alternative materials, suppliers or energy sources for some lines, the best
+  combination within limits on other categories or cost, and the Pareto set
 - Key findings in plain language, burden-shifting alerts, and data quality per result (pedigree indicator and
   PEF DQR, kept apart)
-- Water scarcity (AWARE) and land use (LANCA) per process location with imported official factors
+- Water scarcity (AWARE) and land use (LANCA) per process location with imported official factors; regionalised
+  factors of any method with country fallback and a coverage report
 - Life cycle costing with discounting and replacements, next to the environmental results
 - Material flow analysis with stocks, lifetimes and the Material Circularity Indicator
 - Social LCA: screening of worker hours and risk hours with PSILCA, SOCA or your own data, and a subcategory
@@ -122,6 +127,8 @@ The status of every feature, including what is not validated yet, is listed in
 - EPD per ISO 14025:2026 and EN 15804+A2 with layouts for EPD International, IBU and INIES (labelled as drafts
   until verified), and ILCD+EPD XML for ÖKOBAUDAT and the InData network
 - ISO 14067 carbon footprint report, GHG Protocol workbook, PEF most relevant results, critical review checklist
+- Critical review between reviewer and practitioner: comments with severity, answers, review files merged without
+  duplicates, a closing statement and every comment in the report
 - Export to Brightway and openLCA; Python and R clients; reproducibility bundles with fingerprints
 
 **Teaching**
@@ -179,7 +186,7 @@ and to check for updates.
 
 If Cyclia helps your research, please cite it:
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.7.0)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.8.0)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [CITATION.cff](CITATION.cff). In the app,

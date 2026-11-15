@@ -1019,3 +1019,8 @@ tr.flash td { background: var(--ochre-weak); transition: background .3s; }
 
 .table-wrap { position: relative; max-width: 100%; }
 .dg-scroll { overflow-x: auto; max-width: 100%; }
+
+/* 1.8.0: review threads */
+.rv-thread { border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.rv-thread p { margin: 4px 0; }
+.rv-reply { margin-left: 18px !important; padding-left: 8px; border-left: 3px solid var(--rule); }

@@ -33,6 +33,8 @@ window.GLOSSARY = {
   "LCI": "Life cycle inventory: the list of all elementary flows of the system per functional unit.",
   "LCIA": "Life cycle impact assessment: converting the inventory into impact category results with characterisation factors.",
   "contribution analysis": "Showing how much each input, process or elementary flow adds to a result, to find hotspots.",
+  "scenario optimisation": "Exhaustive search over alternatives you give for some lines of a model (other datasets, suppliers or sub-models): the combination with the lowest value of one category or of the cost, within limits on the others, and the Pareto set of combinations that no other improves in every respect. Results are deterministic; check close cases with the comparative Monte Carlo.",
+  "review comments": "Comments of a critical reviewer on the study, a line or a checklist item, each with a severity (critical, major, minor, editorial) and a status. The practitioner answers; only the reviewer resolves or withdraws. Review files are exchanged and merged, so both sides keep one complete record.",
   "critical review": "An independent check that a study follows ISO 14040/44. Required by ISO 14044 6.3 for comparative assertions disclosed to the public.",
   "flow mapping": "A table saying which elementary flow names in one nomenclature equal those in another, so a method written for one database can characterise another.",
   "EPD": "Environmental Product Declaration: published LCA results of a product per declared unit, by EN 15804 module. Enter its values as an EPD line when no dataset exists.",

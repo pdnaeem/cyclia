@@ -682,6 +682,17 @@
         <div class="row head-row"><h2 class="grow">Critical review <button class="q" data-help="critical review" aria-label="Help">?</button></h2><button id="btnReviewLoad">Open checklist</button><button id="btnReviewSave">Save reviewer notes</button><button id="btnReviewExport">Export checklist (Excel)</button></div>
         <p class="hint">The ISO 14044 requirements with what Cyclia can check automatically. The reviewer adds a status and a comment per item; notes are stored in the model.</p>
         <div id="reviewOut"></div>
+        <div id="rvBlock">
+          <h3>Review comments <button class="q" data-help="review comments" aria-label="Help">?</button></h3>
+          <p class="hint">For a review by someone on another computer: send them the project (Projects, Export). The reviewer opens it, raises comments here and sends back a review file; you answer and send yours back. Each side merges the other's file, so nothing is lost or counted twice. The review closes only when no critical or major comment is left unresolved.</p>
+          <div class="row"><label class="inline">I am<select id="rvRole"><option value="practitioner">the practitioner</option><option value="reviewer">the reviewer</option></select></label><span class="hint grow" id="rvSummary"></span>
+            <button id="btnRvExport">Write review file</button><input id="rvPath" placeholder="Review file (.json) received" size="24"><button data-pick="file" data-target="rvPath" data-ext="json">Browse</button><button id="btnRvImport">Merge it</button></div>
+          <div class="row" id="rvNew"><select id="rvSev"><option value="critical">critical</option><option value="major">major</option><option value="minor" selected>minor</option><option value="editorial">editorial</option></select><select id="rvTarget" class="grow"></select></div>
+          <div class="row" id="rvNew2"><input id="rvText" class="grow" placeholder="Comment"><button class="primary" id="btnRvAdd">Add comment</button></div>
+          <div id="rvList"></div>
+          <div class="row" id="rvCloseRow"><input id="rvStatement" class="grow" placeholder="Review statement (when closing)"><button id="btnRvClose">Close the review</button><button class="ghost" id="btnRvReopen" hidden>Reopen</button></div>
+          <p class="hint" id="rvClosure"></p>
+        </div>
       </div>
       <div class="block">
         <h2>Share, reproduce, exchange</h2>
@@ -707,7 +718,7 @@
         <button data-tt="chem">Chemicals and site factors</button><button data-tt="tpl">Templates</button>
         <button data-tt="code">Python, R and other software</button><button data-tt="teach">Teaching</button>
         <button data-tt="dbs">Database versions</button><button data-tt="dash">Project overview</button><button data-tt="alloc">Allocation</button>
-        <button data-tt="regional">Regional methods</button><button data-tt="social">Social screening</button><button data-tt="mfa">Material flows</button><button data-tt="explore">Database explorer</button>
+        <button data-tt="regional">Regional methods</button><button data-tt="social">Social screening</button><button data-tt="mfa">Material flows</button><button data-tt="choices">Optimise choices</button><button data-tt="explore">Database explorer</button>
       </div>
       <div class="tt" id="tt-valid">
         <div class="block" id="benchCentre">
@@ -900,6 +911,19 @@
           <div class="row"><button class="primary" id="btnMci">Calculate MCI</button><span id="mciOut"></span></div>
         </div>
       </div>
+      <div class="tt" id="tt-choices" hidden>
+        <div class="block">
+          <h2>Optimise choices <button class="q" data-help="scenario optimisation" aria-label="Help">?</button></h2>
+          <p class="hint">Which supplier, material or energy source gives the lowest impact, without making another category (or the cost) worse than you accept? Pick lines of the open model, give their alternatives, choose what to minimise and the limits. Cyclia evaluates every combination exactly (up to 200 000) and shows the best one and the Pareto set: the combinations that no other beats in every respect at once. To move parameters within a range instead, use Optimisation and trade-offs in step 5.</p>
+          <div class="row"><select id="chLine" class="grow" aria-label="Line of the model"></select><button id="btnChAddLine">Add this line as a choice</button></div>
+          <div id="chSlots"></div>
+          <h3>Goal</h3>
+          <div class="row"><label class="inline">Minimise<select id="chObj"></select></label></div>
+          <div id="chLims"></div>
+          <div class="row"><button class="ghost" id="btnChAddLim">Add a limit</button><button class="primary" id="btnChRun">Find the best combination</button></div>
+          <div id="chOut"></div>
+        </div>
+      </div>
       <div class="tt" id="tt-explore" hidden>
         <div class="block">
           <h2>Database explorer</h2>
@@ -1010,6 +1034,14 @@
               <span id="cdXUncFields"></span></div>
             <div class="row"><input id="cdXSrc" class="grow" placeholder="Source"><input id="cdXComment" class="grow" placeholder="Comment"><button class="primary" id="btnCdX">Add</button><button class="ghost" id="btnCdXCancel" hidden>Cancel</button></div>
           </div>
+          <details class="cd-sup" id="cdSupBox"><summary>Ask a supplier for these amounts</summary>
+            <p class="hint">Cyclia writes an Excel file with the lines above. The supplier fills in the amounts (with a range if known) and sends it back. You see every change before it is applied, with the supplier and date recorded as the source. Lines you change in the meantime are not overwritten, and items the supplier adds are listed for you to model.</p>
+            <div class="row"><input id="cdSupName" class="grow" placeholder="Supplier (company)"><input id="cdSupContact" placeholder="Your name"><label class="inline"><input type="checkbox" id="cdSupCur"> show my current values</label><button id="btnCdSupReq">Write the request</button></div>
+            <div class="row"><input id="cdSupMsg" class="grow" placeholder="Message to the supplier (optional)"></div>
+            <div class="row"><input id="cdSupPath" class="grow" placeholder="Full path of the returned .xlsx file"><button data-pick="file" data-target="cdSupPath" data-ext="xlsx">Browse</button><button id="btnCdSupRead">Check the answers</button></div>
+            <div id="cdSupOut"></div>
+            <div id="cdSupList"></div>
+          </details>
         </div>
         <div class="block cd-sec" id="cdDiagramBlock">
           <h3>Supply chain diagram</h3>
@@ -1209,5 +1241,6 @@
 <script src="v136.js"></script>
 <script src="v137.js"></script>
 <script src="custom-data.js"></script>
+<script src="v180.js"></script>
 </body>
 </html>

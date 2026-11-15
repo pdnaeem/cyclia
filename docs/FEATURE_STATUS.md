@@ -1,6 +1,6 @@
 # Cyclia feature status
 
-Status of Cyclia 1.7.0, checked against the source code, the automated tests and the validation records. A feature
+Status of Cyclia 1.8.0, checked against the source code, the automated tests and the validation records. A feature
 counts as **validated** only when its calculation is compared with independent reference results. Interface
 elements alone do not count.
 
@@ -36,6 +36,7 @@ elements alone do not count.
 | AWARE water scarcity (annual, monthly, GIS) | Implemented | Consumption = withdrawal minus return to fresh water, with the water balance and the part identified by outputs; hand-calculated reference tests. The factors are not bundled (licence); an imported package is checked for completeness, world fallback, monthly sets, range and source. Not declared complete until checked against the official package's reference results |
 | LANCA land use (SQI aggregation) | Partial | Occupation and transformation per indicator, unit checks (per m2 and per ha) and SQI aggregation tested by hand calculation; an imported package is checked for all five indicators per land use, world fallback and source; a check of the values needs the official package |
 | Toxicity (fate model, imported USEtox factors) | Partial | Screening factors from a multimedia fate model, clearly labelled; official USEtox 2 factors can be imported by CAS number and are checked for CTUh/CTUe units, signs and compartments; no tests against the USEtox reference results yet |
+| Regionalised factors (any method) | Implemented | Factor of the process location, else of the country of a sub-national location, else the generic factor; coverage of each category by exact, country and generic factors, with the locations without a factor (hand-calculated tests) |
 | IMPACT World+, biodiversity methods | Planned | No factors are invented; added only with official factor packages |
 
 ## Databases and interoperability
@@ -83,7 +84,8 @@ elements alone do not count.
 |---|---|---|
 | Monte Carlo, foreground and full, through nested models | Validated | Validation systems with known distributions; a two-level nested chain reproduces the analytic lognormal median and spread |
 | Pedigree uncertainty, correlated parameters (Gaussian copula), convergence | Implemented | Tests of correlation and convergence statistics |
-| Sobol indices | Validated | Reference function with known indices |
+| Sobol indices | Validated | Reference function with known indices; parameters of custom data included through an exact low-rank update of the solution (1.8.0), tested against the analytic indices of a lognormal model and a direct solve |
+| Optimisation of discrete choices | Implemented | Alternatives per line (datasets, sub-models, costs), exhaustive and exact up to 200 000 combinations, best combination under limits and Pareto set; hand-calculated tests and a saved combination recalculated. Deterministic |
 | Comparative LCA | Validated | Comparison checks (functional equivalence, boundaries, allocation, data quality, system models); paired Monte Carlo with a conclusion per category from the probability and its sampling error at 90, 95 or 99 % confidence; tested against the analytic probability of two lognormal alternatives |
 
 ## Social LCA, MFA and costing
@@ -107,8 +109,12 @@ elements alone do not count.
 | ISO 14067 carbon footprint, GHG Protocol workbook | Implemented | Fossil, biogenic and land use change split |
 | Data quality: pedigree indicator and PEF DQR | Validated | Kept apart: a pedigree score is never shown as a PEF DQR; nested aggregation tested against a hand calculation |
 | Reproducibility bundle with fingerprints | Implemented | Bundles recalculate to the same result |
+| Collaborative critical review | Implemented | Comments on the study, lines and ISO 14044 checklist items with severity and status; review files exchanged and merged without duplicates; closing only without unresolved critical or major comments; statement and comments in the Word report. File based, not a shared server |
+| Supplier data requests | Implemented | Excel request per custom process; responses checked (numbers, units, ranges, conflicts with later changes) and shown before they are applied; supplier and date recorded as source. File based, not a web portal |
 
 ## Not available
 
-Multi-user projects, a plugin interface for external methods, and supplier collaboration are not part of
-Cyclia yet. The [development plan](DEVELOPMENT_PLAN.md) lists them in order of priority.
+Simultaneous editing of one project by several users on a shared server, a web portal for suppliers, a plugin
+interface for external methods, social LCA impact pathways (Type II), biodiversity and dynamic characterisation
+beyond climate change are not part of Cyclia yet. Review and supplier data are exchanged as files. The
+[development plan](DEVELOPMENT_PLAN.md) lists the open items in order of priority.

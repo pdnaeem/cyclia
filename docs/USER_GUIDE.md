@@ -521,7 +521,8 @@ can be concluded.
 - **Supply chain**: the tree of where the impact comes from, and a flow chart (Sankey).
 - **Stages**: impact per life cycle stage.
 - **Sensitivity**: the effect of changing each input by the chosen %, parameter sensitivity, and Sobol
-  indices (which uncertain inputs explain the spread).
+  indices (which uncertain inputs explain the spread). The Sobol indices include the uncertain parameters of your
+  own data, listed as "parameter of your data".
 - **Uncertainty**: histogram and intervals from Monte Carlo, and whether the run has **converged** (the mean
   is known to within 1 % of the 95 % interval, and the interval is stable). If not, run more iterations.
 - The tabs below are in front: Summary, Contributions, Supply chain, Stages, Sensitivity, Uncertainty,
@@ -595,6 +596,25 @@ Compare before you claim that one product is better.
   Then an ISO
   14067 carbon footprint report and a GHG Protocol workbook.
 - **Critical review checklist**: the ISO 14044 items a reviewer checks, with your notes, exported to Excel.
+- **Review comments** (below the checklist): a review between two people on two computers.
+  1. Send the reviewer the project (Projects, **Export**). The reviewer imports it, sets their name in Settings and
+     chooses **I am: the reviewer**.
+  2. The reviewer adds comments about the study as a whole, one inventory line or one checklist item. Each has a
+     severity:
+     - **critical**: an ISO requirement is not met or a conclusion may change;
+     - **major**: a significant weakness;
+     - **minor**;
+     - **editorial**.
+  3. The reviewer presses **Write review file** and sends you the file. You choose **I am: the practitioner**,
+     pick the file and press **Merge it**. Answer each comment, write your review file and send it back.
+  4. The reviewer merges it, then **Resolves**, **Keeps open** or **Withdraws** each comment.
+
+  Merging never duplicates a comment. When both of you changed the same comment, the later change wins and the
+  earlier one stays in its history. Cyclia warns when your two copies of the model differ.
+
+  **Close the review** works only when no critical or major comment is unresolved. The statement, and every
+  comment with its answer, go into the Word report (section 5 and Annex B3). If the model changes after closing,
+  the report says that the statement refers to an earlier state.
 - **Share, reproduce, exchange**: a reproducibility bundle (models, settings and fingerprints of the
   databases and methods), and exports to Brightway and openLCA.
 
@@ -763,6 +783,29 @@ Give the **source** of each line. **Edit** changes a line and counts its revisio
 with a formula takes lognormal, normal or pedigree uncertainty, not a triangular or uniform range, because a
 fixed range would not follow the formula when a parameter changes.
 
+### Asking a supplier for the amounts
+When a supplier knows the real figures of a process, let them fill them in. In step 5, open **Ask a supplier for
+these amounts**.
+1. Give the supplier's name and yours, and press **Write the request**. Cyclia writes an Excel file with one row
+   per line of the process: what it is and the unit Cyclia expects. It also states the amount of product that
+   every value refers to. Tick **show my current values** only if the supplier may see your estimates.
+2. Send the file. The supplier fills in the yellow cells:
+   - the amount of each row, in the unit given or another unit of the same kind;
+   - how it was obtained;
+   - if known, the lowest and highest plausible value;
+   - anything else the process uses or emits, on the sheet "Other items".
+3. When the file comes back, choose it and press **Check the answers**. Nothing is changed yet. You see:
+   - the changes (old and new value);
+   - errors, such as text instead of a number or a unit of another kind;
+   - rows left empty;
+   - conflicts: lines you changed yourself after sending the request, which are not overwritten;
+   - the items the supplier added. Model them yourself; Cyclia does not guess which dataset they are.
+4. **Apply** writes the changes. Each line records the supplier, the date of their data and the request number as
+   its source. A range becomes a triangular distribution for the Monte Carlo analysis. The process becomes
+   primary data when every answer was measured or calculated.
+
+The table below the buttons lists every request and its result.
+
 ### The supply chain diagram
 Below step 5, the diagram draws your processes and the library datasets they use, with an arrow for every input
 (orange for waste sent to treatment, dashed blue for avoided products):
@@ -896,6 +939,26 @@ every factor is decided. Give the factors or record why the category does not ap
   Monthly AWARE factors (a month column in the table) are used with a 12-month water use profile of the model;
   watershed polygons (GeoJSON) find the basin from the site's latitude and longitude. The soil quality index can be
   aggregated from the four LANCA indicators with the normalisation references of the method version you follow.
+- **Regionalised factors of any method** (imported with a location column): a process uses the factor of its own
+  location; at a sub-national location (CA-QC) without its own factor, the factor of its country (CA); otherwise
+  the generic factor. The checks of each result say how much of the regionalised impact used the exact location,
+  the country or the generic factor, and which locations had none. The Word report has the table.
+- **Optimise choices**: which material, supplier or energy source gives the lowest impact without making
+  another category or the cost worse than you accept?
+  1. Add lines of the open model as choices.
+  2. For each line, add alternatives: search the library or pick a model of the project. Give the amount needed
+     for the same function, and a cost per unit if you want the cost as a goal or limit.
+  3. Choose what to minimise, and add limits: at most a value, or no more than now plus a percentage.
+  4. Press **Find the best combination**.
+
+  Cyclia evaluates every combination exactly (up to 200 000) and shows:
+  - the best combination;
+  - the Pareto set: the combinations that no other beats in every respect at once. They are the real trade-offs.
+
+  **Save as a model** creates a copy of the model with that combination, to compare with the original in the
+  comparative Monte Carlo. When an alternative is in a unit of another kind than the line (kg instead of m3),
+  Cyclia asks you to check that the amounts give the same function. To move parameters within a range instead,
+  use Optimisation and trade-offs in step 5.
 - **Social screening, and the subcategory assessment (Type I).** The lower part of the tab is the assessment
   proper, after the UNEP 2020 guidelines:
   - choose a stakeholder category (workers, local community, value chain actors, consumers, society or children)

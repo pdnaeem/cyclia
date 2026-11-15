@@ -35,8 +35,8 @@ Settings > General > Social preview: upload `.github/social-preview.png`.
 
 Settings > General > Features: tick **Discussions**. The app's user guide and `SUPPORT.md` link to it.
 
-## Release title for 1.7.0
+## Release title for 1.8.0
 
-Cyclia 1.7.0: ISO 15686-5 life cycle costing, MFA linked to LCA, social subcategory assessment
+Cyclia 1.8.0: supplier data requests, collaborative critical review, optimisation of choices
 
-Paste the text of `docs/releases/RELEASE_NOTES_v1.7.0.md` as the release description.
+Paste the text of `docs/releases/RELEASE_NOTES_v1.8.0.md` as the release description.

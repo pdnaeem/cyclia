@@ -883,6 +883,87 @@ class TestParameterUncertainty(Base):
                 cd.set_database_parameters(self.st, self.db, [b])
 
 
+class TestSobolCustomParameters(Base):
+    """Sobol indices include the parameters of custom data (1.8.0). f = L (2 k1 + 3 k2): L is the lognormal factor of
+    the model line (its data-quality sigma s), k1 and k2 independent lognormal (GSD 1.5). With m = E k, v = Var k:
+    Var f = e^(2s^2) (13 v + 25 m^2) - e^(s^2) 25 m^2, S1(k1) = e^(s^2) 4 v / Var f, ST(k1) = e^(2s^2) 4 v / Var f
+    (and 9 v for k2). One shared k: 25 v in place of 4 v and 9 v."""
+
+    setup_k = TestParameterUncertainty.setup_k
+
+    def sob(self, m, n=4096):
+        import hier
+        r = calc.sobol(self.st, m, [self.mid], n=n, seed=11)
+        T = hier.build(calc.Context(self.st, {}), m)
+        return r, {f: i for i, f in enumerate(r["factors"])}, T["lines"][0]["sigma"]
+
+    @staticmethod
+    def expected(s, coefs):
+        import math
+        sk = math.log(1.5)
+        mk, vk = math.exp(sk ** 2 / 2), math.exp(sk ** 2) * (math.exp(sk ** 2) - 1)
+        tot = sum(c * c for c in coefs)
+        mean = sum(coefs) * mk
+        var = math.exp(2 * s * s) * (tot * vk + mean ** 2) - math.exp(s * s) * mean ** 2
+        return [(math.exp(s * s) * c * c * vk / var, math.exp(2 * s * s) * c * c * vk / var) for c in coefs]
+
+    def test_independent_parameters(self):
+        m = self.setup_k(False)
+        r, idx, s = self.sob(m)
+        own = [f for f in r["factors"] if f.startswith("parameter of your data")]
+        self.assertEqual(sorted(own), ["parameter of your data: k (P)", "parameter of your data: k (Q)"])
+        for name, (s1, st_) in zip(("k (P)", "k (Q)"), self.expected(s, [2, 3])):
+            j = idx["parameter of your data: " + name]
+            with self.subTest(name=name):
+                self.assertAlmostEqual(r["S1"][j][0], s1, delta=0.04)
+                self.assertAlmostEqual(r["ST"][j][0], st_, delta=0.04)
+        self.assertIn("parameter(s) of your own data", r["note"])
+
+    def test_shared_parameter(self):
+        m = self.setup_k(True)
+        r, idx, s = self.sob(m)
+        (s1, st_), = self.expected(s, [5])
+        k = idx["parameter of your data: k (U)"]
+        self.assertAlmostEqual(r["S1"][k][0], s1, delta=0.04)
+        self.assertAlmostEqual(r["ST"][k][0], st_, delta=0.04)
+
+    def test_low_rank_update_equals_a_new_solve(self):
+        """A parameter in a technosphere amount: the Woodbury update gives the same unit impact as a calculation
+        with the parameter set to that value."""
+        import hier
+        st = self.st
+        db = cd.create_database(st, "U")
+        a = cd.save_product(st, db, {"name": "a", "unit": "kg"})
+        top = cd.save_product(st, db, {"name": "top", "unit": "kg"})
+        co2 = cd.save_elementary(st, {"name": "Carbon dioxide, fossil", "compartment": "air",
+                                      "subcompartment": "unspecified", "unit": "kg"})
+        q = {"name": "q", "value": 1.0, "uncertainty": {"type": "uniform", "min": 0.5, "max": 3}}
+        cd.set_database_parameters(st, db, [q])
+        pa = cd.save_process(st, db, {"name": "P", "product": a, "amount": 1})
+        cd.save_exchange(st, pa, {"kind": "elementary", "flow": co2, "formula": "2 * q", "unit": "kg"})
+        pt = cd.save_process(st, db, {"name": "top", "product": top, "amount": 1})
+        cd.save_exchange(st, pt, {"kind": "technosphere", "supplier": pa, "formula": "q ^ 2", "unit": "kg"})
+        cd.save_exchange(st, pt, {"kind": "elementary", "flow": co2, "amount": 0.5, "unit": "kg"})
+        mid = cd.create_method(st, "M", "cc", "cc", "kg CO2-eq", "src")
+        cd.save_factor(st, mid, co2, "value", 1.0, "kg", source="s")
+        m = st.save_model({"name": "m", "product": "p", "unit": "kg", "amount": 1,
+                           "scope": {"goal": "g", "boundary": "cradle-to-gate"}})
+        st.add_input(m, "activity", self.ref(pt), 1.0)
+        calc.invalidate()
+        mc = calc.get_mc(st)
+        M = calc.Methods(st, mc, [mid])
+        ctx = calc.Context(st, {})
+        T = hier.build(ctx, m)
+        plan = cd.mc_plan(st, mc)
+        shift = calc._custom_shift(mc, M, ctx, T, plan)
+        base = hier.leaf_units(ctx, mc, M, T)
+        key = plan["parameters"][0][0]
+        for v in (0.5, 2.0, 3.0):
+            with self.subTest(q=v):
+                got = float((base + shift({key: v}))[0, 0])
+                self.assertAlmostEqual(got, 0.5 + v ** 2 * 2 * v, places=10)      # 0.5 + q^2 x 2q
+
+
 class TestFactorReview(Base):
     def test_context_change_puts_own_factors_under_review(self):
         self.build()

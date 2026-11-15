@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.8.0 (2026-11-15)
+
+Professional platform, first part. Details, tests and limits: docs/quality/ACCEPTANCE_1.8.0.md.
+
+- **Supplier data requests.** From a custom process, Cyclia writes an Excel workbook for a supplier.
+  - The supplier fills in the amounts, with a plausible range if known.
+  - Cyclia reads the answers and shows every change, error, unanswered line, conflict and added item before
+    applying anything.
+  - It records the supplier and the date as the source.
+  - Lines changed in Cyclia after the request are not overwritten.
+- **Collaborative critical review.** The reviewer raises comments on the study, a line or an ISO 14044 checklist
+  item, with a severity; the practitioner answers.
+  - Review files are exchanged and merged without duplicates; the later change wins and the earlier one stays in
+    the history.
+  - The review closes only when no critical or major comment is unresolved, and the closing statement notices
+    later changes of the model.
+  - The Word report has the statement and an annex with every comment and answer.
+- **Optimise choices** (Toolbox). Give alternatives for some lines of a model: other datasets, suppliers or
+  sub-models, with their costs.
+  - Cyclia evaluates every combination exactly and returns the best one for a category or the purchase cost,
+    within limits on the others, and the Pareto set.
+  - Any combination can be saved as a new model.
+- **Sobol indices with parameters of your own data.** The global sensitivity analysis now includes the
+  parameter distributions of custom data, using an exact low-rank update of the supply chain solution instead of
+  a new factorisation per sample.
+- **Regionalised factors.**
+  - A process at a sub-national location without its own factor now takes the factor of its country, as the AWARE
+    and LANCA modules already did.
+  - Every result reports which share of the regionalised impact used the exact location, the country or the
+    generic factor, and which locations had no factor; the Word report has the table.
+
+**Changed results.** A study with regionalised factors and processes at sub-national locations (such as CA-QC)
+whose country has a factor now uses the country factor instead of the generic one. The coverage table shows how
+much of the result this concerns.
+
+- **Build.** The installer workflow has time limits and stops a hung disk image tool on macOS, so a stuck step ends
+  with a message instead of running for six hours.
+
 ## 1.7.0 (2026-11-06)
 
 Advanced environmental LCA, first part. Details, tests and limits: docs/quality/ACCEPTANCE_1.7.0.md.

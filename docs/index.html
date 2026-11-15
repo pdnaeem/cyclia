@@ -31,7 +31,7 @@
   "applicationCategory": "ScientificApplication",
   "applicationSubCategory": "Life cycle assessment",
   "operatingSystem": "Windows, macOS, Linux",
-  "softwareVersion": "1.7.0",
+  "softwareVersion": "1.8.0",
   "license": "https://opensource.org/licenses/MIT",
   "isAccessibleForFree": true,
   "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
@@ -154,7 +154,7 @@ footer a { color: var(--muted); }
         <div class="stat"><b>100 %</b><span>of 2,500 results within 0.1 % of ecoinvent's published LCIA results (EF 3.1, cut-off)</span></div>
         <div class="stat"><b>1e-6</b><span>agreement with Brightway on every result; largest difference 1.4e-12</span></div>
         <div class="stat"><b>35</b><span>validation systems with exact known answers, built into the app</span></div>
-        <div class="stat"><b>305</b><span>automated tests, run on Windows, macOS and Linux for every change</span></div>
+        <div class="stat"><b>327</b><span>automated tests, run on Windows, macOS and Linux for every change</span></div>
       </div>
       <div class="table-scroll"><table class="vtable"><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>
         <tr><td>ecoinvent's published LCIA results (EF 3.1, cut-off, 100 datasets x 25 categories)</td><td>100 % of 2,500 results within 0.1 %, median deviation 3.9e-07 %</td></tr>
@@ -165,7 +165,7 @@ footer a { color: var(--muted); }
         <tr><td>Characterisation factors against openLCA, Brightway or CSV</td><td>Flow by flow, with the effect on results</td></tr>
         <tr><td>ILCD+EPD export</td><td>Validated against the official schemas</td></tr>
         <tr><td>Reference tests</td><td>Comparative probabilities, nested uncertainty and data quality, AWARE, LANCA, SQI, social LCA, MFA and MCI, against analytic or hand-calculated values</td></tr>
-        <tr><td>Automated tests</td><td>305, on Windows, macOS and Linux for every change; the Brightway comparison runs with pinned versions and may not be skipped</td></tr>
+        <tr><td>Automated tests</td><td>327, on Windows, macOS and Linux for every change; the Brightway comparison runs with pinned versions and may not be skipped</td></tr>
         <tr><td>IPCC 2021 GWP100</td><td>14 gases reproduce the published AR6 values exactly (Benchmark Centre)</td></tr>
       </tbody></table></div>
       <p>Details: <a href="VALIDATION_ECOINVENT.html">ecoinvent validation</a> and <a href="CROSS_VALIDATION.html">cross validation</a>.
@@ -208,7 +208,8 @@ footer a { color: var(--muted); }
         </ul></div>
         <div class="card"><h3>Uncertainty and interpretation</h3><ul>
           <li>Monte Carlo with pedigree uncertainty and correlated parameters, through every nested model, with convergence check</li>
-          <li>Sobol indices, parameter sweeps, optimisation and Pareto fronts</li>
+          <li>Sobol indices (including the parameters of your own data), parameter sweeps, optimisation and Pareto fronts</li>
+          <li>Optimisation of choices: the best combination of alternative materials, suppliers or energy within your limits</li>
           <li>Contribution analysis, supply chain tree, Sankey diagram and world map</li>
           <li>Comparative LCA with equivalence checks and a conclusion per category at 90, 95 or 99 % confidence</li>
           <li>Key findings, burden-shifting alerts, pedigree indicator and PEF DQR kept apart</li>
@@ -224,6 +225,8 @@ footer a { color: var(--muted); }
           <li>EPD per ISO 14025:2026 and EN 15804+A2 with EPD International, IBU and INIES layouts (drafts until verified)</li>
           <li>ILCD+EPD XML for ÖKOBAUDAT and InData</li>
           <li>ISO 14067 carbon footprint, GHG Protocol workbook, PEF most relevant results, critical review checklist</li>
+          <li>Critical review between two computers: comments, answers, merged review files, statement in the report</li>
+          <li>Data requests to suppliers as Excel files, checked before they are used</li>
         </ul></div>
         <div class="card"><h3>Open and reproducible</h3><ul>
           <li>Export to Brightway and openLCA; Python and R clients</li>
@@ -263,7 +266,7 @@ footer a { color: var(--muted); }
   <section id="cite">
     <div class="wrap">
       <h2>Cite Cyclia</h2>
-      <blockquote>Rehman, N. U. (2026). <i>Cyclia: open-source life cycle assessment software for researchers</i> (version 1.7.0) [Computer software]. <a href="https://doi.org/10.5281/zenodo.23853747">https://doi.org/10.5281/zenodo.23853747</a></blockquote>
+      <blockquote>Rehman, N. U. (2026). <i>Cyclia: open-source life cycle assessment software for researchers</i> (version 1.8.0) [Computer software]. <a href="https://doi.org/10.5281/zenodo.23853747">https://doi.org/10.5281/zenodo.23853747</a></blockquote>
     </div>
   </section>
 </main>

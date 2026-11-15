@@ -110,15 +110,27 @@ Still open, with the reason:
 These methods are declared complete only when their official factors, units, geographical mapping and
 calculations are validated.
 
-## Release 1.8.0: professional platform (planned)
+## Release 1.8.0: professional platform
 
-The release will add:
-- advanced visual process modelling;
-- multi-user collaboration and collaborative professional review;
-- a supplier data portal;
-- advanced MFA and biodiversity (with an established, documented method);
-- prospective and dynamic LCA beyond climate;
-- scenario optimisation.
+Done in 1.8.0:
+- supplier data requests: an Excel workbook per process, with checked responses applied after a preview;
+- collaborative critical review with severity, answers, merged review files, closing rules and a report annex;
+- optimisation of discrete choices: best combination under limits and the Pareto set, exact;
+- Sobol indices with parameters of custom data (open from 1.7.0);
+- regionalised factors: country fallback and coverage reporting (advanced regionalisation, first part).
+
+Still open, with the reason:
+- **A shared server for simultaneous editing and a web portal for suppliers.** Cyclia is a desktop application
+  without a server. Review and supplier data are exchanged as files, which keeps the data with the user.
+- **Biodiversity.** No established method with an official factor set is available to the project.
+- **Prospective and dynamic LCA beyond climate change.** Dynamic characterisation outside climate change has no
+  established factor set. Prospective background scenarios exist (Toolbox > Background scenarios).
+- **Social LCA Type II (impact pathways).** No consensus characterisation of pathways; to be added only with a
+  published, documented method.
+- **AWARE 2.0, LANCA and USEtox 2 declared complete.** This needs the official packages and their reference
+  results.
+- **Regionalised inventories beyond the location of each process** (regionalised foreground at site level is
+  covered by site-specific factors).
 
 ## Stage P2: advanced environmental and sustainability assessment
 
