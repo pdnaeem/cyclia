@@ -323,7 +323,8 @@ class TestCompareKit(Base):
         subprocess.run([sys.executable, "check_matrices.py"], cwd=k, check=True, capture_output=True)
         r = subprocess.run([sys.executable, "compare.py", "results_matrices.csv", "numpy"], cwd=k, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("agreement", open(os.path.join(k, "comparison_report.md")).read())
+        with open(os.path.join(k, "comparison_report.md"), encoding="utf-8") as fh:
+            self.assertIn("agreement", fh.read())
         # the openLCA JSON-LD, imported back, gives the same results
         ws2 = Workspace(os.path.join(self.dir, "rt"))
         self.addCleanup(ws2.close_all)

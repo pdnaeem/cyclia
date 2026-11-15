@@ -35,8 +35,8 @@ Settings > General > Social preview: upload `.github/social-preview.png`.
 
 Settings > General > Features: tick **Discussions**. The app's user guide and `SUPPORT.md` link to it.
 
-## Release title for 1.8.0
+## Release title for 1.8.1
 
-Cyclia 1.8.0: supplier data requests, collaborative critical review, optimisation of choices
+Cyclia 1.8.1: supplier data requests, collaborative critical review, optimisation of choices
 
-Paste the text of `docs/releases/RELEASE_NOTES_v1.8.0.md` as the release description.
+Paste the text of `docs/releases/RELEASE_NOTES_v1.8.1.md` as the release description.

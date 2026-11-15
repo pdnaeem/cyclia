@@ -124,13 +124,27 @@ def add(store, model_id, d):
     return uid
 
 
+def _later(previous):
+    """A modification time strictly after the previous one. The Windows clock can return the same microsecond for
+    two quick changes, which would make the later one look simultaneous when files are merged."""
+    now = _now()
+    if previous and now <= previous:
+        try:
+            t = datetime.datetime.fromisoformat(previous) + datetime.timedelta(microseconds=1)
+            now = t.isoformat(timespec="microseconds")
+        except ValueError:
+            pass
+    return now
+
+
 def _status(store, uid, status, author, role, auto=False):
     c = store.one("SELECT * FROM main.review_comments WHERE uid=?", (uid,))
     hist = json.loads(c["history"] or "[]")
-    hist.append({"time": _now(), "author": author, "role": role, "status": c["status"], "to": status,
+    t = _later(c["modified"])
+    hist.append({"time": t, "author": author, "role": role, "status": c["status"], "to": status,
                  "auto": auto})
     store.x("UPDATE main.review_comments SET status=?, modified=?, history=? WHERE uid=?",
-            (status, _now(), json.dumps(hist), uid))
+            (status, t, json.dumps(hist), uid))
 
 
 def set_status(store, uid, status, author, role):
@@ -260,7 +274,9 @@ def import_file(store, model_id, path):
         elif (old["modified"] or "") == (c.get("modified") or "") and old["status"] == c.get("status") and \
                 old["text"] == c.get("text"):
             out["unchanged"] += 1
-        elif (c.get("modified") or "") > (old["modified"] or ""):
+        elif (c.get("modified") or "", c.get("status") or "", str(c.get("text"))) > \
+                (old["modified"] or "", old["status"] or "", old["text"] or ""):
+            # the later change wins; on an exact tie of times both sides take the same one, so they agree
             h = json.loads(old["history"] or "[]")
             seen = {json.dumps(x, sort_keys=True) for x in h}
             for x in c.get("history") or []:

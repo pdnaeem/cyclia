@@ -287,7 +287,20 @@ def record_ecoinvent(store, res):
         record(store, "ecoinvent", fam, {
             "n": n, "median": float(sorted(c["median"] for c in cs)[len(cs) // 2]), "max": max(c["max"] for c in cs),
             "within_0_1": sum(c["within_0_1"] * c["n"] for c in cs) / n, "weak": ", ".join(weak),
-            "missing_flows": "see report", "database": ", ".join(res.get("databases_compared") or []) or "ecoinvent"})
+            "missing_flows": "see report", "database": _db_label(res)})
+
+
+def _db_label(res):
+    """'ecoinvent 3.11 (cut-off)' from the databases a benchmark compared (dicts with name, version, system
+    model; plain names are accepted too)."""
+    out = []
+    for d in res.get("databases_compared") or []:
+        if isinstance(d, dict):
+            extra = ", ".join(str(x) for x in (d.get("version"), d.get("system_model")) if x)
+            out.append(str(d.get("name") or "") + (f" ({extra})" if extra else ""))
+        else:
+            out.append(str(d))
+    return "; ".join(x for x in out if x) or res.get("database") or "ecoinvent"
 
 
 def excel(path, c):

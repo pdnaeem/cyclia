@@ -83,13 +83,46 @@ class TestReview(Base):
         rv, pr = self.st2, self.st
         c = review.add(rv, self.m, {"role": "reviewer", "author": "R", "severity": "major", "text": "Check allocation."})
         self.swap(rv, pr, "a.json")
-        review.set_status(pr, c, "answered", "P", "practitioner")
-        review.set_status(rv, c, "withdrawn", "R", "reviewer")             # later change wins
+        # fixed clocks, so the order does not depend on the resolution of the computer's clock
+        real = review._now
+        try:
+            review._now = lambda: "2026-03-01T10:00:00.000000+00:00"
+            review.set_status(pr, c, "answered", "P", "practitioner")
+            review._now = lambda: "2026-03-01T10:05:00.000000+00:00"
+            review.set_status(rv, c, "withdrawn", "R", "reviewer")         # later change wins
+        finally:
+            review._now = real
         r = self.swap(rv, pr, "b.json")
         self.assertEqual(r["updated"], 1)
         t = review.threads(pr, self.m)[0]
         self.assertEqual(t["status"], "withdrawn")
         self.assertTrue(any(h.get("merged") for h in t["history"]))       # the replaced state is kept
+        # the practitioner's file merged into the reviewer's copy keeps the reviewer's later change
+        r = self.swap(pr, rv, "c.json")
+        self.assertEqual(review.threads(rv, self.m)[0]["status"], "withdrawn")
+
+    def test_same_clock_value(self):
+        """A clock that returns the same value twice (coarse clocks on Windows): changes still get increasing times,
+        and two sides changed at exactly the same time agree on one result after merging both ways."""
+        rv, pr = self.st2, self.st
+        real = review._now
+        try:
+            review._now = lambda: "2026-03-01T10:00:00.000000+00:00"
+            c = review.add(rv, self.m, {"role": "reviewer", "author": "R", "severity": "minor", "text": "Units?"})
+            review.set_status(rv, c, "withdrawn", "R", "reviewer")
+            review.set_status(rv, c, "open", "R", "reviewer")
+            t = review.threads(rv, self.m)[0]
+            self.assertGreater(t["modified"], "2026-03-01T10:00:00.000000+00:00")
+            self.assertEqual(t["status"], "open")
+            self.swap(rv, pr, "a.json")
+            review.set_status(pr, c, "answered", "P", "practitioner")
+            review.set_status(rv, c, "resolved", "R", "reviewer")        # same time on both sides
+            self.swap(rv, pr, "b.json")
+            self.swap(pr, rv, "c.json")
+        finally:
+            review._now = real
+        a, b = review.threads(pr, self.m)[0], review.threads(rv, self.m)[0]
+        self.assertEqual(a["status"], b["status"])
 
     def test_word_report(self):
         import docx

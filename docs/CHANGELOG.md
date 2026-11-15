@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.8.1 (2026-11-15)
+
+Corrections to 1.8.0. The calculations are unchanged.
+
+- **Corrected: ecoinvent benchmarks were not kept in the Benchmark Centre.** The record of a run took the compared
+  databases as names, but the benchmark gives them as records (name, version, system model). Saving failed with
+  only a line in the log, so since 1.6.2 an ecoinvent benchmark showed its report but stayed "Not run" in the
+  Benchmark Centre. The databases are now recorded as "ecoinvent (3.11, cut-off)". The test now uses the real
+  shape of the benchmark result.
+- **Corrected: review merge on computers with a coarse clock.** On Windows, two quick changes of a review comment
+  could get the same time, so merging kept the earlier one. Every change now gets a time later than the previous
+  one. When both sides changed a comment at exactly the same time, both choose the same version, so they agree
+  after merging both ways. The tests use fixed clocks, and the review tests pass with a 16 ms clock.
+- A test read the comparison kit report without naming its encoding, which fails on Windows for non-ASCII text.
+
 ## 1.8.0 (2026-11-15)
 
 Professional platform, first part. Details, tests and limits: docs/quality/ACCEPTANCE_1.8.0.md.

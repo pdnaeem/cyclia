@@ -1,7 +1,7 @@
 # Cyclia 1.8.0: professional platform, first part
 
-This record lists what was done for the 1.8.0 plan, how it was tested, and what remains with the reason. With
-Brightway installed, all 327 automated tests pass. Without it, 323 pass and the four Brightway tests are skipped.
+This record lists what was done for the 1.8.0 plan (released as 1.8.1 with two corrections, see the changelog), how it was tested, and what remains with the reason. With
+Brightway installed, all 328 automated tests pass. Without it, 324 pass and the four Brightway tests are skipped.
 The validation suite (35 of 35) and the IPCC 2021 check pass.
 
 | Item | Result |
@@ -73,7 +73,9 @@ Tests are in `tests/test_review.py`.
 Merging the same file again changes nothing. A later change of the model makes the statement refer to an earlier
 state.
 
-**Both sides changed.** The later change wins, and the replaced state is in the history.
+**Both sides changed.** The later change wins, and the replaced state is in the history. The test uses fixed
+clocks. With a clock that returns the same time twice, as Windows clocks can, changes still get increasing times,
+and two sides changed at exactly the same time agree after merging both ways.
 
 **Rules.** The following are refused:
 - a practitioner raising a comment;

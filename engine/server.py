@@ -59,7 +59,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.8.0"
+VERSION = "1.8.1"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -1482,7 +1482,7 @@ def _bench_record(st, kind, title, res):
         else:
             bench_mod.record(st.store, kind, title or kind, bench_mod.summarise(kind, res))
     except Exception as e:   # noqa: BLE001
-        log.warning("benchmark record failed: %s", e)
+        log.warning("benchmark record failed: %s", e, exc_info=True)
 
 
 @route("GET", "/api/benchmark/centre")

@@ -67,7 +67,7 @@ Cyclia checks its own calculations against independent references:
 | Independent second calculation (rebuilt matrices, different solver) | Built in ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Comparison with Brightway (bw2calc) on the same database | All results within 1e-6, largest difference 1.4e-12; runs in the app on any database ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Characterisation factors compared with openLCA, Brightway or CSV factor sets | Flow by flow, with the effect of every difference |
-| Automated tests of the calculation engine | 327 tests (1.8.0), run on Windows, macOS and Linux for every change. A separate workflow installs Brightway at pinned versions and fails if its comparison tests are skipped |
+| Automated tests of the calculation engine | 328 tests (1.8.1), run on Windows, macOS and Linux for every change. A separate workflow installs Brightway at pinned versions and fails if its comparison tests are skipped |
 | Scientific Benchmark Centre | In the app (Toolbox > Validation): every check with its reference, result, differences and status; a check that did not run is never shown as validated |
 
 The status of every feature, including what is not validated yet, is listed in
@@ -186,7 +186,7 @@ and to check for updates.
 
 If Cyclia helps your research, please cite it:
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.8.0)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.8.1)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [CITATION.cff](CITATION.cff). In the app,

@@ -1,4 +1,5 @@
 """Scientific Benchmark Centre: the IPCC check, recording of runs, and the rule that only runs count."""
+import json
 import os
 import shutil
 import sys
@@ -46,13 +47,15 @@ class TestBenchmark(unittest.TestCase):
             {"family": "EF v3.1", "category": "climate change", "n": 100, "median": 1e-5, "max": 0.05,
              "within_0_1": 100.0, "within_1": 100.0},
             {"family": "EF v3.1", "category": "land use", "n": 100, "median": 2.0, "max": 14.0, "within_0_1": 40.0,
-             "within_1": 60.0}], "databases_compared": ["ecoinvent 3.11 cut-off"]})
+             "within_1": 60.0}], "databases_compared": [{"name": "ecoinvent", "version": "3.11", "system_model": "cut-off"}]})
         rows = {r["check"]: r for r in benchmark.centre(self.st)["rows"]}
         self.assertEqual(rows["Calculation core: 35 systems with exact answers"]["status"], "Validated")
         self.assertEqual(rows["IPCC 2021 GWP100 (built-in method)"]["status"], "Deviations")
         ef = [r for k, r in rows.items() if k.startswith("EF v3.1")][0]
         self.assertEqual(ef["status"], "Deviations")              # 70 % within 0.1 %: not validated
         self.assertIn("land use", ef["note"])
+        # the benchmark gives the compared databases as records (name, version, system model)
+        self.assertIn("ecoinvent (3.11, cut-off)", json.dumps(ef))
 
     def test_package_checks(self):
         import regional
