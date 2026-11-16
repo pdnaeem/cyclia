@@ -727,6 +727,7 @@
           <div class="row"><button class="primary" id="btnBenchIpcc">Run the IPCC 2021 check</button><button id="btnBenchRefresh">Refresh</button><button id="btnBenchExport">Export (Excel)</button></div>
           <div class="table-wrap"><table id="benchTable"></table></div>
           <p class="hint">Publish benchmark reports writes one Markdown report per method family (ReCiPe, CML-IA, IPCC, EF) from the ecoinvent benchmarks run in this project: deviation statistics per impact category, the ecoinvent version and the environment. No ecoinvent value is written, so the reports can be published with the source code (docs/benchmarks).</p>
+          <div class="row"><label class="wide">Saved benchmark workbook (optional: leave empty to use the runs of this project)<span class="pathpick"><input id="bpWorkbook" placeholder="Cyclia benchmark against ecoinvent.xlsx"><button data-pick="file" data-target="bpWorkbook" data-ext="xlsx">Browse</button></span></label></div>
           <div class="row"><button id="btnBenchPublish">Publish benchmark reports</button></div>
           <div id="benchPublishOut"></div>
         </div>

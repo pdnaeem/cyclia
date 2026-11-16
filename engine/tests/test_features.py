@@ -863,6 +863,56 @@ class TestOfficial(unittest.TestCase):
             time.sleep(0.05)
         self.assertEqual(jj["status"], "error")
 
+    def test_benchmark_keeps_methods_apart(self):
+        """1.9.1: two families with the same category and indicator names (as IPCC 2013 and 2021 share 'climate change /
+        GWP100') get their own statistics; 1.9.0 pooled them, so each row counted the results of both."""
+        import calc as c
+        from importers import lcia
+        from openpyxl import Workbook
+        st = self.st
+        meths = [m for m in st.methods() if m["family"] == demo.FAMILY]
+        twins = []
+        for m in meths:
+            t = st.get_or_create_method("Twin", m["category"], m["indicator"], m["unit"], "test")
+            raw = st.q("SELECT c_name, c_comp, c_sub, location, flow_uuid, value FROM cf_raw WHERE method_id=?", (m["id"],))
+            st.x("DELETE FROM cf_raw WHERE method_id=?", (t,))
+            lcia.store_raw(st, t, [(r["c_name"], r["c_comp"], r["c_sub"], r["location"], r["flow_uuid"], 2 * r["value"])
+                                   for r in raw])
+            twins.append(st.one("SELECT * FROM methods WHERE id=?", (t,)))
+        lcia.rematch(st, [t["id"] for t in twins])
+        calc.invalidate()
+        try:
+            acts = st.q("SELECT id, key, name, location, product, unit FROM activities")
+            mc = c.get_mc(st)
+            both = meths + twins
+            M = c.Methods(st, mc, [m["id"] for m in both], regional=False)
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Activity UUID_Product UUID", "Activity Name", "Geography", "Reference Product Name",
+                       "Reference Product Unit"] + [f"{m['family']} | {m['category']} | {m['indicator']} [{m['unit']}]"
+                                                    for m in both])
+            for a in acts:
+                f = np.zeros(mc.n)
+                f[mc.act_index[a["id"]]] = 1.0
+                ws.append([a["key"], a["name"], a["location"], a["product"], a["unit"]] + (M.Q @ mc.solve(f)).tolist())
+            path = os.path.join(self.dir, "twins.xlsx")
+            wb.save(path)
+            r = self.api.job("/api/benchmark-ecoinvent", {"path": path, "family": "", "sample": 0})
+            rows = [x for x in r["by_category"] if x["family"] in (demo.FAMILY, "Twin")]
+            self.assertEqual(len(rows), 2 * len(meths))
+            per = {(x["family"], x["category"], x["indicator"]): x["n"] for x in rows}
+            for m in meths:
+                self.assertEqual(per[("Twin", m["category"], m["indicator"])], per[(demo.FAMILY, m["category"],
+                                                                                     m["indicator"])])
+                self.assertLessEqual(per[("Twin", m["category"], m["indicator"])], len(acts))
+            self.assertTrue(all(x["within_0_1"] == 100 for x in rows))
+        finally:
+            for t in twins:
+                for tb in ("cf_raw", "cfs", "cfs_regional"):
+                    st.x(f"DELETE FROM {tb} WHERE method_id=?", (t["id"],))
+                st.x("DELETE FROM methods WHERE id=?", (t["id"],))
+            calc.invalidate()
+
     def test_benchmark_diagnosis(self):
         """A factor that the library lost must show up in the diagnosis, and numerically-zero pairs must agree."""
         st = self.st

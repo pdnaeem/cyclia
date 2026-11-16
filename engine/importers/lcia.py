@@ -11,11 +11,16 @@ flows of another nomenclature (e.g. FEDEFL or EF flows to ecoinvent names) via a
 """
 import csv
 import io
-import math
+import re
 
 from openpyxl import load_workbook
 
+import numcheck
 from canon import canon, canon_context, canon_name
+
+
+# text that is meant as a number (also 1e309, inf, nan): checked as a factor; any other text is a note in the column
+_NUMBER_LIKE = re.compile(r"[+-]?((\d+([.,]\d*)?|[.,]\d+)([eE][+-]?\d+)?|inf(inity)?|nan)", re.I)
 
 
 def _norm(s):
@@ -36,13 +41,9 @@ def store_raw(store, method_id, rows):
         loc = (loc or "").strip()
         if loc.upper() in ("GLO", "GLOBAL", "WORLD"):
             loc = ""
-        try:
-            v = float(value)
-        except (TypeError, ValueError):
-            raise ValueError(f"The factor of '{name}' is not a number: {value!r}.")
-        if not math.isfinite(v):
-            # 1.8.4: a NaN or infinite factor would make every result of the category NaN
-            raise ValueError(f"The factor of '{name}' ({comp or 'any compartment'}) is not a finite number: {value!r}.")
+        # 1.8.4: a NaN or infinite factor would make every result of the category NaN; 1.9.1: a yes/no value is not
+        # a factor (float(True) is 1.0)
+        v = numcheck.finite(value, f"The factor of '{name}' ({comp or 'any compartment'})")
         batch.append((method_id, cn, cc, cs, loc, (uuid or None), v))
     with store.lock:
         store.conn.executemany("INSERT INTO cf_raw VALUES(?,?,?,?,?,?,?)", batch)
@@ -77,7 +78,10 @@ def rematch(store, method_ids=None):
                   "ON (f.uuid=r.flow_uuid) OR (r.flow_uuid IS NULL AND f.c_name=r.c_name AND (r.c_comp='' OR f.c_comp=r.c_comp) "
                   "AND (r.c_sub='' OR f.c_sub=r.c_sub)) WHERE r.location!=''" + where, args)
         # 5. mapped flows inherit the target's factor x conversion factor
-        mwhere = where.replace("r.method_id", "cf.method_id")
+        # a mapping row with a factor that is not a positive finite number (written before 1.9.1 checked it) is
+        # left out, so it cannot make inherited factors infinite
+        mok = " AND m.factor > 0 AND m.factor <= 1.7976931348623157e308"
+        mwhere = where.replace("r.method_id", "cf.method_id") + mok
         c.execute("INSERT OR IGNORE INTO cfs SELECT cf.method_id, fs.id, cf.value * m.factor FROM flow_mapping m "
                   "JOIN flows fs ON (m.s_uuid IS NOT NULL AND fs.uuid=m.s_uuid) OR (m.s_uuid IS NULL AND fs.c_name=m.s_name "
                   "AND fs.c_comp=m.s_comp AND (m.s_sub='' OR fs.c_sub=m.s_sub)) "
@@ -85,7 +89,7 @@ def rematch(store, method_ids=None):
                   "AND ft.c_comp=m.t_comp AND (m.t_sub='' OR ft.c_sub=m.t_sub)) "
                   "JOIN cfs cf ON cf.flow_id=ft.id WHERE fs.id!=ft.id" + mwhere, args)
         # 6. mapped flows whose target exists only in the method (e.g. a FEDEFL name not present in any database)
-        rwhere = where
+        rwhere = where + mok
         c.execute("INSERT OR IGNORE INTO cfs SELECT r.method_id, fs.id, r.value * m.factor FROM flow_mapping m "
                   "JOIN flows fs ON (m.s_uuid IS NOT NULL AND fs.uuid=m.s_uuid) OR (m.s_uuid IS NULL AND fs.c_name=m.s_name "
                   "AND fs.c_comp=m.s_comp AND (m.s_sub='' OR fs.c_sub=m.s_sub)) "
@@ -126,7 +130,7 @@ def _rows_to_methods(store, rows, source):
         key = (str(r["family"]).strip(), str(r["category"]).strip(), str(r["indicator"] or r["category"]).strip())
         if key not in groups:
             groups[key] = {"unit": r.get("unit", ""), "rows": []}
-        groups[key]["rows"].append((r["name"], r["comp"], r["sub"], r.get("location", ""), r.get("uuid"), float(r["cf"])))
+        groups[key]["rows"].append((r["name"], r["comp"], r["sub"], r.get("location", ""), r.get("uuid"), r["cf"]))
     ids = []
     for (fam, cat, ind), g in groups.items():
         mid = store.get_or_create_method(fam, cat, ind, g["unit"], source)
@@ -169,21 +173,27 @@ def import_ecoinvent_lcia_xlsx(store, path, progress=lambda *a: None):
     isub, icf = need("subcompartment", "sub-compartment"), need("cf", "characterization factor", "factor")
     iloc = next((head.index(n) for n in ("location", "geography", "region", "country") if n in head), None)
     rows = []
-    for row in it:
+    skipped = []
+    for n, row in enumerate(it, start=2):
         if not row or row[im] is None or row[icf] is None:
             continue
-        try:
-            float(row[icf])
-        except (TypeError, ValueError):
+        v = row[icf]
+        if isinstance(v, str) and not _NUMBER_LIKE.fullmatch(v.strip()):
+            skipped.append(n)       # a note or a label in the factor column (e.g. "n.a."): not a factor
             continue
+        # a yes/no, NaN or infinite factor is an error in the file, not a note: the import stops and names the row
+        cf = numcheck.finite(v, f"Row {n} of the CFs sheet ({row[iname]}, {row[ic]}): the factor")
         key = (str(row[im]), str(row[ic]), str(row[ii]))
         rows.append({"family": key[0], "category": key[1], "indicator": key[2], "unit": units.get(key, ""),
-                     "name": row[iname], "comp": row[icomp], "sub": row[isub] or "", "cf": row[icf],
+                     "name": row[iname], "comp": row[icomp], "sub": row[isub] or "", "cf": cf,
                      "location": str(row[iloc] or "") if iloc is not None else ""})
         if len(rows) % 50000 == 0:
             progress(min(80, 5 + len(rows) // 10000), f"Reading factors ({len(rows):,})")
     progress(85, "Matching factors to flows")
     res = _finish(store, _rows_to_methods(store, rows, "ecoinvent LCIA implementation"), "xlsx")
+    if skipped:
+        res["warnings"].append(f"{len(skipped)} row(s) have text instead of a factor and were left out (rows "
+                               f"{', '.join(map(str, skipped[:5]))}{' ...' if len(skipped) > 5 else ''}).")
     progress(100, "Methods imported")
     return res
 
@@ -204,11 +214,10 @@ def _read_csv(path):
     return reader, fields, getattr(dialect, "delimiter", ",")
 
 
-def _num(v, semicolon):
-    v = (v or "").strip()
-    if semicolon:
-        v = v.replace(",", ".")
-    return float(v)
+def _num(v, semicolon, what="The value", **limits):
+    """A finite number from a CSV cell (decimal comma with ';' separated files). Text, yes/no, NaN, infinity and 1e309
+    are refused (1.9.1: 1e309 used to be stored as infinity)."""
+    return numcheck.finite((v or "").strip(), what, comma=semicolon, **limits)
 
 
 def import_cf_csv(store, path, progress=lambda *a: None):
@@ -221,10 +230,7 @@ def import_cf_csv(store, path, progress=lambda *a: None):
         g = lambda k: (r.get(fields.get(k, ""), "") or "").strip()
         if not g("cf"):
             continue
-        try:
-            cf = _num(g("cf"), delim == ";")
-        except ValueError:
-            raise ValueError(f"Row {n}: the factor '{g('cf')}' is not a number.")
+        cf = _num(g("cf"), delim == ";", f"Row {n}: the factor of '{g('flow_name')}'")
         rows.append({"family": g("method"), "category": g("category"), "indicator": g("indicator"), "unit": g("unit"),
                      "name": g("flow_name"), "comp": g("compartment"), "sub": g("subcompartment"), "cf": cf,
                      "uuid": g("flow_uuid") or None, "location": g("location")})
@@ -259,13 +265,12 @@ def import_nw_csv(store, path, progress=lambda *a: None):
         if not ids:
             unmatched.append(f"{g('method')} / {g('category')}")
             continue
-        try:
-            n = _num(g("normalisation"), delim == ";") if g("normalisation") else None
-            w = _num(g("weighting"), delim == ";") if g("weighting") else None
-        except ValueError:
-            raise ValueError(f"Non-numeric factor in the row for {g('category')}.")
-        if n == 0:
-            raise ValueError(f"The normalisation value for {g('category')} is zero.")
+        # results are divided by the normalisation reference (a positive total) and multiplied by the weight
+        # (a share, zero or more); 1.9.1: 1e309 used to be stored as infinity
+        n = _num(g("normalisation"), delim == ";", f"The normalisation value for {g('category')}",
+                 lo=0, lo_open=True) if g("normalisation") else None
+        w = _num(g("weighting"), delim == ";", f"The weighting factor for {g('category')}", lo=0) \
+            if g("weighting") else None
         for mid in ids:
             rows.append((mid, g("set") or "default", n, w))
     with store.lock:
@@ -314,10 +319,10 @@ def import_mapping_csv(store, path, progress=lambda *a: None):
             sname, suuid, tname, tuuid, fac = g("source_name"), g("source_uuid"), g("target_name"), g("target_uuid"), g("factor")
         if not sname or not (tname or tuuid):
             continue
-        try:
-            fac = _num(fac, delim == ";") if fac else 1.0
-        except ValueError:
-            raise ValueError(f"Mapping for '{sname}': conversion factor '{fac}' is not a number.")
+        # amount of the target flow per unit of the source flow: positive and finite (1.9.1: 1e309 was accepted and
+        # every factor inherited through the mapping became infinite)
+        fac = _num(fac, delim == ";", f"Mapping for '{sname}': the conversion factor", lo=0, lo_open=True) \
+            if fac else 1.0
         s_c = canon(sname, sc, ss)
         t_c = canon(tname, tc, ts)
         rows.append(("fedefl" if fedefl else "csv", s_c[0], s_c[1], s_c[2] if ss else "", suuid or None,

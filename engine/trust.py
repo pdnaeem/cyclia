@@ -421,6 +421,12 @@ ID_HEADS = {"activity uuid_product uuid": "key", "activity uuid & product uuid":
             "reference product unit": "unit", "unit": "unit", "activity uuid": "act", "product uuid": "prod"}
 
 
+META_HEADS = {"reference product amount", "exchange name"}
+# a gap smaller than this share of the sum of absolute contributions is round-off (double precision, LU solve of a
+# matrix with ecoinvent's condition number); see METHODS section 20
+CANCEL_TOL = 1e-9
+
+
 def _clean(v):
     return " ".join(str(v or "").replace("\n", " ").split()).strip()
 
@@ -447,6 +453,12 @@ def _parse_sheet(ws, top, h):
     cols = []
     for j in range(first, width):
         parts = [block[i][j] for i in range(data_start) if block[i][j]]
+        # 1.9.1: the column that holds the row labels of the header ("Exchange Name / Compartment / Subcompartment /
+        # Reference Product Amount") is not a flow or a category; it was read as a flow of the LCI file
+        # (checked on the column's own cells: empty cells take the label on their left, so the filled labels of
+        # a flow column can carry "Reference Product Amount" too)
+        if any(str(top[i][j] if j < len(top[i]) else "").strip().lower() in META_HEADS for i in range(data_start)):
+            continue
         if parts:
             cols.append({"index": j, "labels": parts + [ws.title], "sheet": ws.title, "id": f"{ws.title}|{j}"})
     return ids, data_start, cols
@@ -565,6 +577,35 @@ def header_sample(cols, n=4):
     return "; ".join(" / ".join(c["labels"][:5]) for c in cols[:n])
 
 
+def _same_method(x, m):
+    """Whether a compared result belongs to method m: by its id (1.9.1); by category and indicator for results made
+    without the id."""
+    if x.get("method_id") is not None and m.get("id") is not None:
+        return x["method_id"] == m["id"]
+    return x["category"] == m["category"] and x["indicator"] == m["indicator"]
+
+
+def compare_value(ref, val, gross, tiny):
+    """(deviation %, deviation % before the round-off rules, note) of Cyclia's result `val` against ecoinvent's `ref`.
+
+    gross is the sum of the absolute contributions of the supply chain to the result. When the net result is the
+    small remainder of large positive and negative contributions, a gap below CANCEL_TOL x gross is round-off of the
+    two solvers and counts as agreement (1.9.1); the relative difference before that rule is kept for the report."""
+    scale = max(abs(ref), abs(val))
+    dev = 0.0 if scale == 0 else (val - ref) / abs(ref) * 100 if ref else None
+    raw = dev
+    if scale <= tiny:
+        return 0.0, raw, "both numerically zero"
+    if (dev is None or abs(dev) > 0.1) and abs(val - ref) <= CANCEL_TOL * gross:
+        return 0.0, raw, (f"cancellation: net result {val:.3g} of contributions summing to {gross:.3g} in absolute "
+                          "value; the gap is within round-off")
+    if ref and abs(val + ref) <= 1e-6 * abs(ref):
+        return dev, raw, "opposite sign"
+    if ref and val == 0:
+        return dev, raw, "Cyclia gives zero"
+    return dev, raw, ""
+
+
 def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=lambda *a: None, db_name=None,
                         lci_path=None):
     """Compare Cyclia with ecoinvent's own cumulative LCIA results for a stratified sample of datasets and every
@@ -653,6 +694,9 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
         f[j] = 1.0 if mc.diag[j] >= 0 else -1.0  # waste treatment: per unit treated, as ecoinvent reports it
         x_s = mc.solve(f)
         h = M.Q @ x_s
+        # sum of the absolute contributions of the supply chain to each result: a net result much smaller than this is
+        # the remainder of positive and negative contributions that cancel, known only to the solver's round-off
+        gross = abs(M.Q) @ np.abs(x_s)
         G[a["id"]] = mc.B @ x_s
         if len(unl_idx):
             hit = unl_idx[np.abs(x_s[unl_idx]) > 1e-12 * (np.abs(x_s).max() or 1)]
@@ -665,19 +709,12 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
             if ref is None:
                 continue
             val = float(h[k])
-            scale = max(abs(ref), abs(val))
-            tiny = 1e-12 * scale_of[c["id"]]
-            dev = 0.0 if scale == 0 else (val - ref) / abs(ref) * 100 if ref else None
-            note = ""
-            if scale <= tiny:
-                dev, note = 0.0, "both numerically zero"
-            elif ref and abs(val + ref) <= 1e-6 * abs(ref) and abs(ref) > 0:
-                note = "opposite sign"
-            elif ref and val == 0:
-                note = "Cyclia gives zero"
+            dev, raw_dev, note = compare_value(ref, val, float(gross[k]), 1e-12 * scale_of[c["id"]])
             out.append({"group": g, "activity": a["name"], "location": a["location"], "product": a["product"], "act_id": a["id"],
+                        "method_id": c["method"]["id"], "family": c["method"]["family"],
                         "category": c["method"]["category"], "indicator": c["method"]["indicator"],
-                        "reference": ref, "cyclia": val, "deviation_percent": dev, "note": note})
+                        "reference": ref, "cyclia": val, "deviation_percent": dev, "note": note,
+                        "raw_deviation_percent": raw_dev, "gross": float(gross[k])})
         if n % 10 == 0:
             progress(40 + 55 * n / max(1, len(chosen)), f"Calculating dataset {n + 1} of {len(chosen)}")
     progress(97, "Summarising")
@@ -774,7 +811,7 @@ def land_use_reconciliation(store, mc, M, mcols, out, G):
             continue
         if land_idx is None:
             land_idx = [i for i in range(len(mc.flow_ids)) if _land_group(fname(i)[0])]
-        items = [x for x in out if x["category"] == m["category"] and x["indicator"] == m["indicator"] and x["reference"]
+        items = [x for x in out if _same_method(x, m) and x["reference"]
                  and x["act_id"] in G and x["note"] == ""]
         if len(items) < 3:
             continue
@@ -852,7 +889,7 @@ def factor_finder(store, mc, M, mcols, out, G, max_flows=6):
     found = []
     for k, c in enumerate(mcols):
         m = c["method"]
-        items = [x for x in out if x["category"] == m["category"] and x["indicator"] == m["indicator"]
+        items = [x for x in out if _same_method(x, m)
                  and x["note"] == "" and x["reference"] and x["act_id"] in G]
         bad = [x for x in items if x["deviation_percent"] is not None and abs(x["deviation_percent"]) > 0.1]
         if len(items) < 5 or len(bad) < max(2, 0.05 * len(items)):
@@ -915,7 +952,7 @@ def diagnose(store, mc, M, mcols, out, per_cat=2, top=12):
     raw_cache = {}
     for k, c in enumerate(mcols):
         m = c["method"]
-        items = [x for x in out if x["category"] == m["category"] and x["indicator"] == m["indicator"]
+        items = [x for x in out if _same_method(x, m)
                  and x["deviation_percent"] is not None and abs(x["deviation_percent"]) > 0.1 and x["note"] == ""]
         if not items:
             continue
@@ -964,11 +1001,22 @@ def _bench_summary(store, mc, M, mcols, out, n_datasets, n_file, n_matched, grou
             return {"n": 0}
         d = np.array(d)
         return {"n": int(len(d)), "median": float(np.median(d)), "p95": float(np.percentile(d, 95)), "max": float(d.max()),
-                "within_0_1": float((d <= 0.1).mean() * 100), "within_1": float((d <= 1).mean() * 100)}
+                "within_0_1": float((d <= 0.1).mean() * 100), "within_1": float((d <= 1).mean() * 100),
+                "cancellation": sum(1 for x in items if (x.get("note") or "").startswith("cancellation")),
+                "numerically_zero": sum(1 for x in items if x.get("note") == "both numerically zero")}
     used = np.unique(mc.b_rows)
+    idx_id, idx_name = {}, {}
+    for x in out:
+        if x.get("method_id") is not None:
+            idx_id.setdefault(x["method_id"], []).append(x)
+        else:
+            idx_name.setdefault((x["category"], x["indicator"]), []).append(x)
     by_cat = []
     for k, c in enumerate(mcols):
-        items = [x for x in out if x["category"] == c["method"]["category"] and x["indicator"] == c["method"]["indicator"]]
+        # 1.9.1: by method, not by category and indicator name (several families share 'climate change / GWP100',
+        # and 1.9.0 pooled their results in each of their rows)
+        items = idx_id.get(c["method"].get("id")) if c["method"].get("id") in idx_id else \
+            idx_name.get((c["method"]["category"], c["method"]["indicator"]), [])
         s = stats(items)
         no_cf = int(sum(1 for i in used if M.C[k, i] == 0))
         signed = [x["deviation_percent"] for x in items if x["deviation_percent"] is not None]
@@ -1041,15 +1089,18 @@ def benchmark_excel(path, res):
         ws.append([k, v])
     ws2 = wb.create_sheet("By category")
     ws2.append(["Family", "Category", "Indicator", "Unit", "Results", "Median |dev| %", "95th pct |dev| %", "Max |dev| %",
-                "Within 0.1 %", "Within 1 %", "Flows used without a factor (most are not part of the category)", "Hint"])
+                "Within 0.1 %", "Within 1 %", "Flows used without a factor (most are not part of the category)", "Hint",
+                "Results within round-off of cancelling contributions", "Results zero on both sides"])
     for c in res["by_category"]:
         ws2.append([c["family"], c["category"], c["indicator"], c["unit"], c.get("n"), c.get("median"), c.get("p95"),
-                    c.get("max"), c.get("within_0_1"), c.get("within_1"), c["flows_without_factor"], c["hint"]])
+                    c.get("max"), c.get("within_0_1"), c.get("within_1"), c["flows_without_factor"], c["hint"],
+                    c.get("cancellation", 0), c.get("numerically_zero", 0)])
     ws3 = wb.create_sheet("All results")
-    ws3.append(["Group", "Dataset", "Location", "Product", "Category", "Indicator", "ecoinvent", "Cyclia", "Deviation %", "Note"])
+    ws3.append(["Group", "Dataset", "Location", "Product", "Category", "Indicator", "ecoinvent", "Cyclia", "Deviation %", "Note",
+                "Relative difference before the round-off rule %", "Sum of absolute contributions"])
     for x in res["rows"]:
         ws3.append([x["group"], x["activity"], x["location"], x["product"], x["category"], x["indicator"], x["reference"],
-                    x["cyclia"], x["deviation_percent"], x["note"]])
+                    x["cyclia"], x["deviation_percent"], x["note"], x.get("raw_deviation_percent"), x.get("gross")])
     ws4 = wb.create_sheet("Diagnosis")
     ws4.append(["Category", "Dataset", "Location", "ecoinvent", "Cyclia", "Gap", "Explained by unmatched factors",
                 "Explained %", "Flow without factor", "Flow compartment", "Canonical subcompartment", "Amount", "Unit",

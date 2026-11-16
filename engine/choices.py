@@ -32,17 +32,21 @@ class OptimiseError(ValueError):
     pass
 
 
+def _id(v, what):
+    return numcheck.identifier(v, what, err=OptimiseError)
+
+
 def _fin(v, what):
     return numcheck.finite(v, what, err=OptimiseError)
 
 
 def _target(store, kind, ref_id):
     if kind == "activity":
-        r = store.one("SELECT id, name, unit, location FROM activities WHERE id=?", (int(ref_id),))
+        r = store.one("SELECT id, name, unit, location FROM activities WHERE id=?", (_id(ref_id, "ref_id"),))
         if r:
             return {"name": f"{r['name']} [{r['location']}]", "unit": r["unit"]}
     elif kind == "model":
-        r = store.one("SELECT id, name, unit FROM main.models WHERE id=?", (int(ref_id),))
+        r = store.one("SELECT id, name, unit FROM main.models WHERE id=?", (_id(ref_id, "ref_id"),))
         if r:
             return {"name": r["name"], "unit": r["unit"]}
     else:
@@ -51,7 +55,7 @@ def _target(store, kind, ref_id):
 
 
 def _prepare(store, model_id, method_ids, slots, scenario=None, bg=None):
-    method_ids = [int(m) for m in method_ids or []]
+    method_ids = [_id(m, "method_ids") for m in method_ids or []]
     if not method_ids:
         raise OptimiseError("Pick the impact categories in step 4 first.")
     base = calc.run(store, model_id, method_ids, scenario=scenario, bg=bg)
@@ -70,7 +74,7 @@ def _prepare(store, model_id, method_ids, slots, scenario=None, bg=None):
     seen = set()
     warnings = []
     for s in slots:
-        iid = int(s.get("input_id") or 0)
+        iid = _id(s.get("input_id"), "input_id")
         if iid not in inputs:
             raise OptimiseError("A choice refers to a line that is not in this model.")
         if iid in seen:
@@ -104,7 +108,7 @@ def _prepare(store, model_id, method_ids, slots, scenario=None, bg=None):
             fac = units.factor(unit, tgt["unit"]) if unit else 1.0
             if fac is None:
                 raise OptimiseError(f"'{unit}' cannot be converted to the unit of '{tgt['name']}' ({tgt['unit']}).")
-            a, fl, fx = calc.line_unit_demand(ctx, {"kind": kind, "ref_id": int(o["ref_id"])})
+            a, fl, fx = calc.line_unit_demand(ctx, {"kind": kind, "ref_id": _id(o["ref_id"], "ref_id")})
             u, _, _ = calc.impacts(mc, M, a, fl, fx)
             cost = None
             if o.get("unit_cost") not in (None, ""):
@@ -116,7 +120,7 @@ def _prepare(store, model_id, method_ids, slots, scenario=None, bg=None):
                                 f"{cur_unit}: check that the amount fulfils the same function.")
             opts.append({"label": o.get("label") or tgt["name"], "current": False,
                          "impact": u * amount * fac * sign * share, "cost": cost, "kind": kind,
-                         "ref_id": int(o["ref_id"]), "amount": amount, "unit": unit,
+                         "ref_id": _id(o["ref_id"], "ref_id"), "amount": amount, "unit": unit,
                          "unit_cost": None if cost is None else float(o["unit_cost"])})
         prepared.append({"input_id": iid, "name": ln["name"], "options": opts})
     totals = np.array([r["total"] for r in base["results"]], float)
@@ -142,7 +146,7 @@ def optimise(store, model_id, method_ids, slots, objective, constraints=(), scen
             if not has_cost:
                 raise OptimiseError("The cost needs a cost per unit on every current line and every alternative.")
             return "cost"
-        mid = int(spec.get("method_id") or 0)
+        mid = _id(spec.get("method_id"), "method_id")
         if mid not in method_ids:
             raise OptimiseError("An objective or limit refers to a category that is not selected in step 4.")
         return method_ids.index(mid)
@@ -165,7 +169,7 @@ def optimise(store, model_id, method_ids, slots, objective, constraints=(), scen
     base_cost = None
     if has_cost:
         # purchase cost per functional unit of the model's own lines that carry a cost per unit
-        model = store.model(int(model_id))
+        model = store.model(_id(model_id, "model_id"))
         share = calc.allocation_share(model["scope"])
         lines = {l["input_id"]: l for l in base["lines"]}
         base_cost = 0.0
@@ -255,14 +259,15 @@ def optimise(store, model_id, method_ids, slots, objective, constraints=(), scen
 def apply(store, model_id, method_ids, slots, choice, name=None, scenario=None, bg=None):
     """Save a combination as a copy of the model. choice: {input_id: option index} (0 = current)."""
     _, prepared, _ = _prepare(store, model_id, method_ids, slots, scenario, bg)
-    m = store.model(int(model_id))
-    nid = store.duplicate_model(int(model_id), name or (m["name"] + " (optimised)"))
+    m = store.model(_id(model_id, "model_id"))
+    nid = store.duplicate_model(_id(model_id, "model_id"), name or (m["name"] + " (optimised)"))
     orig = [i["id"] for i in store.q("SELECT id FROM main.model_inputs WHERE model_id=? ORDER BY position, id",
-                                     (int(model_id),))]
+                                     (_id(model_id, "model_id"),))]
     copy = [i["id"] for i in store.q("SELECT id FROM main.model_inputs WHERE model_id=? ORDER BY position, id", (nid,))]
     mapping = dict(zip(orig, copy))
     for p in prepared:
-        j = int((choice or {}).get(str(p["input_id"]), (choice or {}).get(p["input_id"], 0)))
+        j = numcheck.integer((choice or {}).get(str(p["input_id"]), (choice or {}).get(p["input_id"], 0)), "The alternative",
+                             0, err=OptimiseError)
         if not 0 <= j < len(p["options"]):
             raise OptimiseError("Unknown alternative.")
         if j == 0:

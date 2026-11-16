@@ -3,7 +3,7 @@
 This document describes how Cyclia computes results, so that a study can be reproduced and reviewed. Sections
 1 to 11 describe the core added in 1.1; later sections give the version in which each method was added or changed.
 Cite the software as: Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers*
-(version 1.9.0) [Computer software]. https://doi.org/10.5281/zenodo.23853747
+(version 1.9.1) [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 ## 1. Inventory model
 
@@ -1107,6 +1107,18 @@ warnings with examples, where they were replaced without a word before. An openL
 not a finite number stops the import, as before, because replacing it would change results. Test:
 tests/test_v190_numbers.py.
 
+1.9.1 closes the paths the audit of 1.9.0 found outside the validator:
+- **LCIA imports.**
+  - Characterisation factors in ecoinvent's LCIA workbook, in CSV files and from every other importer.
+  - Normalisation references, which must be positive and finite, and weights, which must be zero or more.
+  - Mapping conversion factors, which must be positive and finite; a mapping row saved earlier with another value is
+    left out of matching.
+- **Identifiers.** Every public method of the storage layer checks the identifiers it receives, so no caller can pass
+  a yes/no value or a fraction as a record. The API checks optional identifiers (scenario, background scenario) the
+  same way.
+
+Test: tests/test_v191.py.
+
 ## 20. Full-library regression and published benchmarks (1.9.0)
 
 **Every dataset under every category.** For the scores of all datasets in one category, Cyclia solves the
@@ -1137,6 +1149,19 @@ Markdown report per method family group (ReCiPe, CML-IA, IPCC, EF). Each report 
 0.1 % and within 1 %, together with the ecoinvent version and the software environment. It contains no ecoinvent
 value. Status: "Validated" when at least 95 % of all results are within 0.1 % and every category has at least 95 % of
 its results within 1 %. A method family without a report has not been benchmarked against ecoinvent.
+
+**Results that cancel (1.9.1).** A result can be the small remainder of large positive and negative contributions,
+for example a resource that enters one part of the supply chain and leaves another. Its relative deviation then
+measures the round-off of the two solvers rather than any difference in data. For each compared result the benchmark
+computes g = |Q_k| |x|, the sum of the absolute contributions (|Q_k| is the absolute row of the category, |x| the
+absolute scaling vector). A result whose relative deviation exceeds 0.1 % agrees when |Cyclia − ecoinvent| ≤ 1e-9 g.
+The relative difference before the rule and g are listed for every result, and each category counts the results the
+rule applied to. An ordinary result cannot pass this way: for a result of 100 with contributions summing to 10^6, the
+rule tolerates a gap of 0.001, which is 0.001 %.
+
+**Per method (1.9.1).** Results are grouped by the method's identifier. Before, results were grouped by category and
+indicator name, so methods sharing a name were pooled in each other's statistics and diagnosis. Seven families of
+ecoinvent's file share "climate change / GWP100".
 
 **Release gate.** engine/tools/release_gate.py runs the whole test suite with Brightway required, so a skipped
 Brightway comparison is a failure. It also runs the regression, the 35 validation systems and the IPCC 2021 GWP100

@@ -717,12 +717,13 @@ class ProjectStore:
             raise ValueError("The goal and scope must be a set of fields.")
         check_scope_numbers(scope)
         js = json.dumps(scope)
-        if data.get("id"):
-            if not self.one("SELECT id FROM main.models WHERE id=?", (data["id"],)):
+        mid = _data_id(data, "id", "The model id")
+        if mid is not None:
+            if not self.one("SELECT id FROM main.models WHERE id=?", (mid,)):
                 raise ValueError("That model no longer exists.")
             self.x("UPDATE main.models SET name=?, product=?, unit=?, amount=?, scope=? WHERE id=?",
-                   (name, data.get("product", ""), data.get("unit", ""), amount, js, data["id"]))
-            return data["id"]
+                   (name, data.get("product", ""), data.get("unit", ""), amount, js, mid))
+            return mid
         return self.x("INSERT INTO main.models(name,product,unit,amount,scope) VALUES(?,?,?,?,?)",
                       (name, data.get("product", ""), data.get("unit", ""), amount, js))
 
@@ -907,19 +908,21 @@ class ProjectStore:
         if not fm.valid_name(name):
             raise ValueError("Parameter names use letters, digits and _, start with a letter, and cannot be "
                              "a reserved word (e.g. density_wood).")
-        model_id = data.get("model_id") or None
+        model_id = _data_id(data, "model_id", "The model id")
+        if model_id is not None and not self.one("SELECT id FROM main.models WHERE id=?", (model_id,)):
+            raise ValueError("That model no longer exists.")
+        pid = _data_id(data, "id", "The parameter id")
+        if pid is not None and not self.one("SELECT id FROM main.parameters WHERE id=?", (pid,)):
+            raise ValueError("That parameter no longer exists.")
         clash = self.one("SELECT id FROM main.parameters WHERE name=? AND COALESCE(model_id,0)=COALESCE(?,0)",
                          (name, model_id))
-        if clash and clash["id"] != data.get("id"):
+        if clash and clash["id"] != pid:
             raise ValueError(f"A parameter called '{name}' already exists here.")
         f = (data.get("formula") or "").strip() or None
         value = finite(data.get("value") if data.get("value") not in (None, "") else 0, "The parameter value")
         if f:
             fm.parse(f)
-        try:
-            utype = int(data.get("utype") or 0)
-        except (TypeError, ValueError):
-            raise ValueError("Unknown uncertainty type.")
+        utype = numcheck.parse(data.get("utype") or 0)
         if utype not in (0, 1, 2, 3, 4):
             raise ValueError("Unknown uncertainty type.")
         vals = [data.get(k) for k in ("p1", "p2", "p3")]
@@ -935,11 +938,12 @@ class ProjectStore:
             raise ValueError("Uniform: give minimum and maximum.")
         if utype == 1 and vals[0] <= 1:
             raise ValueError("Lognormal: the geometric standard deviation must be above 1 (e.g. 1.2).")
+        utype = int(utype)
         row = (model_id, name, value, f, data.get("unit", ""), data.get("comment", ""), utype, *vals)
-        if data.get("id"):
+        if pid is not None:
             self.x("UPDATE main.parameters SET model_id=?, name=?, value=?, formula=?, unit=?, comment=?, utype=?, "
-                   "p1=?, p2=?, p3=? WHERE id=?", row + (data["id"],))
-            return data["id"]
+                   "p1=?, p2=?, p3=? WHERE id=?", row + (pid,))
+            return pid
         return self.x("INSERT INTO main.parameters(model_id,name,value,formula,unit,comment,utype,p1,p2,p3) "
                       "VALUES(?,?,?,?,?,?,?,?,?,?)", row)
 
@@ -961,13 +965,16 @@ class ProjectStore:
             if v in (None, ""):
                 continue
             ov[k] = finite(v, f"Scenario value for '{k}'")
+        sid = _data_id(data, "id", "The scenario id")
+        if sid is not None and not self.one("SELECT id FROM main.scenarios WHERE id=?", (sid,)):
+            raise ValueError("That scenario no longer exists.")
         clash = self.one("SELECT id FROM main.scenarios WHERE name=?", (name,))
-        if clash and clash["id"] != data.get("id"):
+        if clash and clash["id"] != sid:
             raise ValueError("A scenario with that name already exists.")
-        if data.get("id"):
+        if sid is not None:
             self.x("UPDATE main.scenarios SET name=?, description=?, overrides=? WHERE id=?",
-                   (name, data.get("description", ""), json.dumps(ov), data["id"]))
-            return data["id"]
+                   (name, data.get("description", ""), json.dumps(ov), sid))
+            return sid
         return self.x("INSERT INTO main.scenarios(name,description,overrides) VALUES(?,?,?)",
                       (name, data.get("description", ""), json.dumps(ov)))
 
@@ -1006,7 +1013,7 @@ class ProjectStore:
         return rows
 
     def bg_scenario(self, sid):
-        r = self.one("SELECT * FROM main.bg_scenarios WHERE id=?", (int(sid),))
+        r = self.one("SELECT * FROM main.bg_scenarios WHERE id=?", (sid,))
         if r:
             r["rules"] = json.loads(r["rules"] or "[]")
         return r
@@ -1023,16 +1030,19 @@ class ProjectStore:
             raise ValueError("Add at least one rule.")
         import science
         science.validate_rules(rules)
+        bid = _data_id(data, "id", "The background scenario id")
+        if bid is not None and not self.one("SELECT id FROM main.bg_scenarios WHERE id=?", (bid,)):
+            raise ValueError("That background scenario no longer exists.")
         clash = self.one("SELECT id FROM main.bg_scenarios WHERE name=?", (name,))
-        if clash and clash["id"] != data.get("id"):
+        if clash and clash["id"] != bid:
             raise ValueError("A background scenario with that name already exists.")
         base = finite(data.get("base_year") if data.get("base_year") not in (None, "") else 2020, "The base year",
                       1900, 2300)
         row = (name, kind, data.get("description", ""), base, json.dumps(rules))
-        if data.get("id"):
+        if bid is not None:
             self.x("UPDATE main.bg_scenarios SET name=?, kind=?, description=?, base_year=?, rules=? WHERE id=?",
-                   row + (data["id"],))
-            return data["id"]
+                   row + (bid,))
+            return bid
         return self.x("INSERT INTO main.bg_scenarios(name,kind,description,base_year,rules) VALUES(?,?,?,?,?)", row)
 
     def delete_bg_scenario(self, sid):
@@ -1145,6 +1155,57 @@ class ProjectStore:
 
     def delete_chemical(self, cid):
         self.x("DELETE FROM lib.chemicals WHERE id=?", (cid,))
+
+
+# ---------------------------------------------------------------------------- identifiers (1.9.1)
+# Every public method of ProjectStore that takes a record identifier checks it here, whoever calls it (API, module,
+# importer): a yes/no value (True is 1 in Python), a fraction, text, zero or a negative number is refused before it
+# reaches SQL. None stays allowed where the method has None as its default or the identifier is optional.
+ID_PARAMS = {"db_id", "act_id", "flow_id", "model_id", "input_id", "pid", "sid", "cid", "vid", "tid", "activity_id",
+             "ref_id"}
+OPTIONAL_IDS = {("add_input", "ref_id"),       # None for an EPD line (kind 'fixed')
+                ("add_comment", "input_id")}   # None for a comment on the whole model
+
+
+def _checked_ids(fn):
+    import functools
+    import inspect
+    sig = inspect.signature(fn)
+    names = [n for n in sig.parameters if n in ID_PARAMS]
+    if not names:
+        return fn
+    pos = {n: i for i, n in enumerate(sig.parameters)}
+    may_be_none = {n for n in names if (fn.__name__, n) in OPTIONAL_IDS or sig.parameters[n].default is None}
+
+    @functools.wraps(fn)
+    def run(*args, **kw):
+        args = list(args)
+        for n in names:
+            i = pos[n]
+            if i < len(args):
+                v = args[i]
+                if v is None and n in may_be_none:
+                    continue
+                args[i] = numcheck.identifier(v, n)
+            elif n in kw:
+                if kw[n] is None and n in may_be_none:
+                    continue
+                kw[n] = numcheck.identifier(kw[n], n)
+        return fn(*args, **kw)
+    return run
+
+
+for _name, _fn in list(vars(ProjectStore).items()):
+    if callable(_fn) and not _name.startswith("_"):
+        setattr(ProjectStore, _name, _checked_ids(_fn))
+
+
+def _data_id(data, key, what=None, optional=True):
+    """An identifier field of a record sent to a save_* method (id, model_id): checked, or None when absent."""
+    v = data.get(key)
+    if v in (None, "") and optional:
+        return None
+    return numcheck.identifier(v, what or key)
 
 
 class Workspace:

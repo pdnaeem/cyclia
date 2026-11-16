@@ -819,7 +819,8 @@
   $("#btnBenchRefresh").addEventListener("click", (e) => guard(e.target, load));
   $("#btnBenchExport").addEventListener("click", (e) => guard(e.target, () => exportTo("/api/export/benchmark-centre", "Cyclia benchmark centre.xlsx", "xlsx")));
   $("#btnBenchPublish").addEventListener("click", (e) => guard(e.target, async () => {
-    const r = await api("POST", "/api/benchmark/publish", {});
+    const wbk = $("#bpWorkbook").value.trim();
+    const r = await api("POST", "/api/benchmark/publish", wbk ? { workbook: wbk } : {});
     addExport(r);
     $("#benchPublishOut").innerHTML = `<p class="ok">${r.files.length} file(s) written to ${esc(r.folder)}: ${r.files.map(esc).join(", ")}. Copy them to docs/benchmarks to publish them.</p>`;
   }));

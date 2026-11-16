@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.9.1 (2026-11-16)
+
+Fixes from the audit of 1.9.0, and the first published benchmark of ReCiPe, CML-IA and IPCC against ecoinvent.
+Results of valid data are unchanged: the reference regression snapshot passes unchanged. Details and tests:
+docs/quality/ACCEPTANCE_1.9.1.md.
+
+- **LCIA imports.** These paths bypassed the common number validator, and now use it:
+  - a yes/no value as a characterisation factor in ecoinvent's LCIA workbook was read as 1.0; it now stops the
+    import with the row named, as do NaN, infinity and 1e309. Text in the factor column (such as "n.a.") is left out
+    and reported in the warnings;
+  - 1e309 in a normalisation and weighting CSV was stored as infinity. Normalisation references must now be
+    positive and finite, weights zero or more;
+  - a mapping conversion factor of 1e309 was saved, and every factor inherited through the mapping became infinite.
+    Conversion factors must now be positive and finite, and a mapping row written earlier with such a factor is
+    left out of matching;
+  - factors from every importer go through the same check (`store_raw`).
+- **Identifiers.**
+  - `{"model_id": true}` attached a parameter to model 1, and `{"id": true}` renamed parameter 1.
+  - Every public method of the storage layer now checks its record identifiers itself, whoever calls it. A yes/no
+    value, 0, a negative number, a fraction or text is refused before it reaches the database.
+  - Parameters, scenarios and background scenarios check that the record and its model exist before an update.
+  - The API refuses yes/no values for `scenario`, `bg_id` and `scenario_ids`. Before, `false` meant "none" and
+    `true` meant 1.
+  - Custom data, critical review, optimisation of choices and MFA links check their identifiers too.
+- **Benchmark against ecoinvent.**
+  - Results are kept apart per method. Before, methods with the same category and indicator names (seven families
+    have "climate change / GWP100") were pooled in each other's statistics, and in the diagnosis tools: factor
+    finder, cause of deviations, land use reconciliation.
+  - New round-off rule for results that are the small remainder of positive and negative contributions that
+    cancel. Such a result agrees when the gap to ecoinvent is below 1e-9 of the sum of the absolute contributions.
+    The relative difference before the rule and that sum are listed for every result, and each category counts the
+    results this applies to.
+  - The label column of ecoinvent's cumulative LCI file ("Exchange Name / ... / Reference Product Amount") is no
+    longer read as a flow.
+- **Benchmark reports from a saved workbook.** Validation > Publish benchmark reports can now use a benchmark
+  workbook saved earlier, also by another installation; on the command line, `engine/tools/benchmark_publish.py`
+  does the same. With the workbook's All results sheet, the statistics are computed per method.
+- **Published benchmark.** The run on ecoinvent 3.13 (cut-off) with Cyclia 1.9.0 is published in docs/benchmarks:
+  - 46 method families and 614 categories, 61,400 results;
+  - every result within 0.1 % in 612 categories, largest deviation 0.019 %. This covers ReCiPe 2016 (midpoint and
+    endpoint, E, H, I), CML v4.8 2016, IPCC 2013 and 2021, EF 3.0 and 3.1, TRACI, USEtox, IMPACT World+ and more;
+  - Ecological Scarcity 2021 "biotic resources" (with and without long-term emissions) is not validated. 90 of 100
+    results deviate; all of them are at most 1e-5 of the category's largest result, and most differ in sign. The
+    round-off rule of 1.9.1 has to be run on them before anything more is claimed.
+
 ## 1.9.0 (2026-11-16)
 
 First step towards Cyclia 2.0 (docs/ROADMAP.md, section "Road to 2.0"): one number validator on every path,

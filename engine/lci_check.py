@@ -208,6 +208,11 @@ def _is_land(name):
     return n.startswith("occupation") or n.startswith("transformation")
 
 
+def _same_method(x, m):
+    import trust
+    return trust._same_method(x, m)
+
+
 def inventory_check(store, mc, M, mcols, out, chosen, G, cols, lci_rows, n_file_rows):
     """Split the gap of every compared result into an inventory part and a factor part (see the module docstring),
     and list the flows whose cumulative amounts differ. chosen: [(group, results row, activity)]."""
@@ -289,7 +294,7 @@ def inventory_check(store, mc, M, mcols, out, chosen, G, cols, lci_rows, n_file_
     for k, c in enumerate(mcols):
         m = c["method"]
         land = "land" in f"{m['category']} {m['indicator']}".lower()
-        items = [x for x in out if x["category"] == m["category"] and x["indicator"] == m["indicator"]
+        items = [x for x in out if _same_method(x, m)
                  and x["act_id"] in E and x["reference"] and x["note"] != "both numerically zero"]
         if not items:
             continue

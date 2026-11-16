@@ -1,6 +1,6 @@
 # Cyclia feature status
 
-Status of Cyclia 1.9.0, checked against the source code, the automated tests and the validation records. A feature
+Status of Cyclia 1.9.1, checked against the source code, the automated tests and the validation records. A feature
 counts as **validated** only when its calculation is compared with independent reference results. Interface
 elements alone do not count.
 
@@ -16,7 +16,7 @@ elements alone do not count.
 | Feature | Status | Evidence and limits |
 |---|---|---|
 | Matrix LCA (sparse LU, loops, nested models) | Validated | 35 validation systems with exact answers; independent second implementation ([cross validation](CROSS_VALIDATION.md)); ecoinvent benchmark |
-| Agreement with ecoinvent's LCIA results (EF 3.1, cut-off) | Validated | 100 % of 2,500 results within 0.1 %, median 3.9e-07 %, run with Cyclia 1.3.10 and not yet repeated on the current release; the Benchmark Centre records each new run ([report](VALIDATION_ECOINVENT.md)) |
+| Agreement with ecoinvent's LCIA results (ecoinvent 3.13, cut-off) | Validated, except 2 categories | 46 method families, 614 categories, 61,400 results, run with Cyclia 1.9.0: every result within 0.1 % in 612 categories, largest deviation 0.019 %. Ecological Scarcity 2021 "biotic resources" (with and without long-term emissions) is not validated: 90 of 100 results deviate, all of them very small and mostly of opposite sign, to be checked with the round-off test of 1.9.1 ([reports](https://github.com/pdnaeem/cyclia/tree/main/docs/benchmarks)). Earlier: EF 3.1 with Cyclia 1.3.10 ([report](VALIDATION_ECOINVENT.md)) |
 | Inventory check against ecoinvent's cumulative LCI | Validated | Splits each deviation into inventory and factor parts; found the land use cause |
 | Units and conversions | Validated | Unit families, conversion tests, unknown-unit check in the database check |
 | Parameters, formulas, scenarios | Implemented | Tests of formula evaluation and scenario switching |
@@ -34,7 +34,7 @@ elements alone do not count.
 |---|---|---|
 | EF 3.1 with JRC normalisation and weighting | Validated | Factors from ecoinvent's LCIA implementation file or the JRC package; ecoinvent benchmark over 25 categories |
 | IPCC 2021 GWP100, EN 15804+A2 split | Validated | 14 gases reproduce the published IPCC AR6 GWP100 values within 1e-12 in an independent check (Benchmark Centre, automated test); fossil, biogenic and land use change split tested |
-| ReCiPe 2016, CML-IA | Implemented | Read from the official factor files; the ecoinvent validation includes every installed method of ecoinvent's results file and writes a report per method for publication. The run against ecoinvent needs a licence holder and has not been published yet ([status](https://github.com/pdnaeem/cyclia/tree/main/docs/benchmarks)) |
+| ReCiPe 2016, CML-IA | Validated | Read from the official factor files. Against ecoinvent 3.13 (cut-off) with Cyclia 1.9.0, every result within 0.1 %: ReCiPe 2016 midpoint and endpoint (E, H, I) and CML v4.8 2016, with and without long-term emissions ([reports](https://github.com/pdnaeem/cyclia/tree/main/docs/benchmarks)) |
 | Any method from a CSV table, flow mapping | Implemented | Missing-factor and unit checks per category |
 | Dynamic GWP | Validated | Validation system with an exact answer |
 | AWARE water scarcity (annual, monthly, GIS) | Implemented | Consumption = withdrawal minus return to fresh water, with the water balance and the part identified by outputs; hand-calculated reference tests. The factors are not bundled (licence); an imported package is checked for completeness, world fallback, monthly sets, range and source. Not declared complete until checked against the official package's reference results |

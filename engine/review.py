@@ -16,6 +16,8 @@ import hashlib
 import json
 import uuid
 
+import numcheck
+
 SEVERITY = ("critical", "major", "minor", "editorial")
 STATUS = ("open", "answered", "resolved", "withdrawn")
 ROLES = ("reviewer", "practitioner")
@@ -32,6 +34,10 @@ CREATE INDEX IF NOT EXISTS main.idx_review_model ON review_comments(model_id);
 
 class ReviewError(ValueError):
     pass
+
+
+def _id(v):
+    return numcheck.identifier(v, "model_id", err=ReviewError)
 
 
 def ensure(store):
@@ -55,7 +61,7 @@ def _txt(v, what, required=True, n=4000):
 def fingerprint(store, model_id):
     """Hash of what determines the results of the model: its inputs, parameters and scope (without the review
     notes). Equal fingerprints mean reviewer and practitioner look at the same model."""
-    m = store.one("SELECT * FROM main.models WHERE id=?", (int(model_id),))
+    m = store.one("SELECT * FROM main.models WHERE id=?", (_id(model_id),))
     if not m:
         raise ReviewError("Model not found.")
     sc = json.loads(m["scope"] or "{}")
@@ -64,9 +70,9 @@ def fingerprint(store, model_id):
     keep = ("kind", "ref_db", "ref_key", "amount", "formula", "stage", "avoided", "input_amount", "input_unit",
             "pedigree", "year", "fixed")
     inputs = [{k: r[k] for k in keep if k in r.keys()}
-              for r in store.q("SELECT * FROM main.model_inputs WHERE model_id=? ORDER BY position, id", (int(model_id),))]
+              for r in store.q("SELECT * FROM main.model_inputs WHERE model_id=? ORDER BY position, id", (_id(model_id),))]
     params = [{k: r[k] for k in ("name", "value", "formula", "utype", "p1", "p2", "p3")}
-              for r in store.q("SELECT * FROM main.parameters WHERE model_id=? ORDER BY name", (int(model_id),))]
+              for r in store.q("SELECT * FROM main.parameters WHERE model_id=? ORDER BY name", (_id(model_id),))]
     doc = {"name": m["name"], "amount": m["amount"], "unit": m["unit"], "scope": sc, "inputs": inputs, "params": params}
     return hashlib.sha256(json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
@@ -78,7 +84,7 @@ def _target(store, model_id, target):
     kind, _, ref = target.partition(":")
     if kind == "line":
         r = store.one("SELECT i.id, i.label, i.ref_key, a.name FROM main.model_inputs i LEFT JOIN activities a ON "
-                      "i.kind='activity' AND a.id=i.ref_id WHERE i.id=? AND i.model_id=?", (int(ref), int(model_id)))
+                      "i.kind='activity' AND a.id=i.ref_id WHERE i.id=? AND i.model_id=?", (int(ref), _id(model_id)))
         if not r:
             raise ReviewError("That inventory line is not in this model.")
         return target, "Line: " + (r["label"] or r["name"] or r["ref_key"] or f"#{ref}")
@@ -93,7 +99,7 @@ def _target(store, model_id, target):
 
 def add(store, model_id, d):
     ensure(store)
-    if not store.one("SELECT id FROM main.models WHERE id=?", (int(model_id),)):
+    if not store.one("SELECT id FROM main.models WHERE id=?", (_id(model_id),)):
         raise ReviewError("Model not found.")
     role = d.get("role") or "reviewer"
     if role not in ROLES:
@@ -103,7 +109,7 @@ def add(store, model_id, d):
     now = _now()
     parent = d.get("parent") or None
     if parent:
-        p = store.one("SELECT * FROM main.review_comments WHERE uid=? AND model_id=?", (parent, int(model_id)))
+        p = store.one("SELECT * FROM main.review_comments WHERE uid=? AND model_id=?", (parent, _id(model_id)))
         if not p or p["parent"]:
             raise ReviewError("Reply to a comment of this model.")
         target, label, severity, status = p["target"], p["target_label"], "", ""
@@ -118,7 +124,7 @@ def add(store, model_id, d):
     uid = str(uuid.uuid4())
     store.x("INSERT INTO main.review_comments(uid, model_id, parent, target, target_label, author, role, severity, "
             "status, text, created, modified) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-            (uid, int(model_id), parent, target, label, author, role, severity, status, text, now, now))
+            (uid, _id(model_id), parent, target, label, author, role, severity, status, text, now, now))
     if parent and role == "practitioner" and p["status"] == "open":
         _status(store, parent, "answered", author, role, auto=True)
     return uid
@@ -165,7 +171,7 @@ def set_status(store, uid, status, author, role):
 def threads(store, model_id):
     ensure(store)
     rows = [dict(r) for r in store.q("SELECT * FROM main.review_comments WHERE model_id=? ORDER BY created",
-                                     (int(model_id),))]
+                                     (_id(model_id),))]
     tops = [r for r in rows if not r["parent"]]
     for t in tops:
         t["replies"] = [r for r in rows if r["parent"] == t["uid"]]
@@ -178,7 +184,7 @@ def threads(store, model_id):
 
 def summary(store, model_id):
     ts = threads(store, model_id)
-    m = store.model(int(model_id))
+    m = store.model(_id(model_id))
     closure = (m["scope"] or {}).get("review_closure") if m else None
     fp = fingerprint(store, model_id)
     counts = {s: {st: sum(1 for t in ts if t["severity"] == s and t["status"] == st) for st in STATUS} for s in SEVERITY}
@@ -193,7 +199,7 @@ def close(store, model_id, reviewer, statement):
     if s["blocking"]:
         raise ReviewError(f"{s['blocking']} critical or major comment(s) are not resolved. Resolve or withdraw them "
                           "before closing the review.")
-    m = store.model(int(model_id))
+    m = store.model(_id(model_id))
     sc = m["scope"]
     sc["review_closure"] = {"reviewer": _txt(reviewer, "The reviewer's name", n=200),
                             "statement": _txt(statement, "The review statement", n=6000), "date": _now()[:10],
@@ -201,23 +207,23 @@ def close(store, model_id, reviewer, statement):
                             "comments": sum(sum(v.values()) for v in s["counts"].values()),
                             "open_minor": sum(s["counts"][x]["open"] + s["counts"][x]["answered"]
                                               for x in ("minor", "editorial"))}
-    store.x("UPDATE main.models SET scope=? WHERE id=?", (json.dumps(sc), int(model_id)))
+    store.x("UPDATE main.models SET scope=? WHERE id=?", (json.dumps(sc), _id(model_id)))
     return sc["review_closure"]
 
 
 def reopen(store, model_id):
-    m = store.model(int(model_id))
+    m = store.model(_id(model_id))
     sc = m["scope"]
     sc.pop("review_closure", None)
-    store.x("UPDATE main.models SET scope=? WHERE id=?", (json.dumps(sc), int(model_id)))
+    store.x("UPDATE main.models SET scope=? WHERE id=?", (json.dumps(sc), _id(model_id)))
 
 
 def export_file(store, model_id, path, author=""):
     ensure(store)
-    m = store.model(int(model_id))
+    m = store.model(_id(model_id))
     if not m:
         raise ReviewError("Model not found.")
-    rows = [dict(r) for r in store.q("SELECT * FROM main.review_comments WHERE model_id=?", (int(model_id),))]
+    rows = [dict(r) for r in store.q("SELECT * FROM main.review_comments WHERE model_id=?", (_id(model_id),))]
     for r in rows:
         r.pop("model_id", None)
         r["history"] = json.loads(r["history"] or "[]")
@@ -242,7 +248,7 @@ def import_file(store, model_id, path):
         raise ReviewError("This is not a Cyclia review file.")
     if int(doc.get("version") or 0) > 1:
         raise ReviewError("The review file was written by a newer Cyclia. Update Cyclia first.")
-    m = store.model(int(model_id))
+    m = store.model(_id(model_id))
     if not m:
         raise ReviewError("Model not found.")
     out = {"added": 0, "updated": 0, "unchanged": 0, "kept_local": 0, "skipped": 0,
@@ -267,9 +273,9 @@ def import_file(store, model_id, path):
         vals = tuple(str(c.get(k) or "")[:6000] if k != "parent" else (c.get("parent") or None) for k in cols)
         if not old:
             store.x("INSERT INTO main.review_comments(" + ",".join(cols) + ", model_id, history) VALUES(" +
-                    ",".join("?" * len(cols)) + ",?,?)", vals + (int(model_id), hist))
+                    ",".join("?" * len(cols)) + ",?,?)", vals + (_id(model_id), hist))
             out["added"] += 1
-        elif old["model_id"] != int(model_id):
+        elif old["model_id"] != _id(model_id):
             out["skipped"] += 1
         elif (old["modified"] or "") == (c.get("modified") or "") and old["status"] == c.get("status") and \
                 old["text"] == c.get("text"):
@@ -301,5 +307,5 @@ def import_file(store, model_id, path):
                                                           (cl.get("date") or "") >= sc["review_closure"].get("date", "")):
         sc["review_closure"] = cl
         out["closure"] = True
-    store.x("UPDATE main.models SET scope=? WHERE id=?", (json.dumps(sc), int(model_id)))
+    store.x("UPDATE main.models SET scope=? WHERE id=?", (json.dumps(sc), _id(model_id)))
     return out

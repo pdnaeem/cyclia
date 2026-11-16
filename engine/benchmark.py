@@ -9,6 +9,7 @@ Rules
 """
 import datetime
 import json
+import re
 import shutil
 import tempfile
 
@@ -287,7 +288,7 @@ def record_ecoinvent(store, res):
         # 1.9.0: deviation statistics per category are kept for the publishable report (statistics only: no
         # ecoinvent value is stored here)
         cats_kept = [{k: c.get(k) for k in ("category", "indicator", "unit", "n", "median", "p95", "max", "within_0_1",
-                                            "within_1", "median_signed", "hint")} for c in cs]
+                                            "within_1", "median_signed", "hint", "cancellation", "numerically_zero")} for c in cs]
         record(store, "ecoinvent", fam, {
             "n": n, "median": float(sorted(c["median"] for c in cs)[len(cs) // 2]), "max": max(c["max"] for c in cs),
             "within_0_1": sum(c["within_0_1"] * c["n"] for c in cs) / n,
@@ -295,7 +296,7 @@ def record_ecoinvent(store, res):
             "missing_flows": "see report", "database": _db_label(res), "categories": cats_kept,
             "datasets_compared": res.get("datasets_matched") or res.get("datasets"),
             "datasets_in_file": res.get("datasets_in_file"), "inventory_checked": bool(res.get("inventory")),
-            "unlinked_inputs": res.get("unlinked_inputs")})
+            "unlinked_inputs": res.get("unlinked_inputs"), "per_method": True})
 
 
 def _db_label(res):
@@ -340,8 +341,10 @@ GROUPS = (("recipe", "ReCiPe"), ("cml", "CML-IA"), ("ipcc", "IPCC"), ("environme
 
 
 def method_group(family):
-    """ReCiPe, CML-IA, IPCC or EF for a method family name; the family itself otherwise."""
-    low = (family or "").lower()
+    """ReCiPe, CML-IA, IPCC or EF for a method family name; the family itself otherwise ("no LT" variants, without
+    long-term emissions, go with their family)."""
+    family = re.sub(r"\s+no lt$", "", (family or "").strip(), flags=re.I)
+    low = family.lower()
     for k, g in GROUPS:
         if k in low:
             return g
@@ -372,7 +375,14 @@ def publication(store, cyclia_version=""):
     ecoinvent value, so they can be published. Returns {file name: text}; empty when no benchmark was run."""
     latest = {}
     for r in store.q("SELECT * FROM benchmark_runs WHERE kind='ecoinvent' ORDER BY id"):
-        latest[r["title"]] = dict(r) | {"summary": json.loads(r["summary"])}
+        sm = json.loads(r["summary"])
+        sm.setdefault("pooled", bool(sm.get("categories")) and not sm.get("per_method"))   # recorded by 1.9.0
+        latest[r["title"]] = dict(r) | {"summary": sm}
+    return _publication(latest, cyclia_version)
+
+
+def _publication(latest, cyclia_version=""):
+    """{family: {"time", "summary"}} -> {file name: Markdown}."""
     by_group = {}
     for fam, r in latest.items():
         key = (method_group(fam), r["summary"].get("database") or "ecoinvent")
@@ -435,15 +445,16 @@ def _report(grp, db, runs, cyclia_version):
     if any(sm.get("inventory_checked") for sm in sms):
         lines.append("- The cumulative inventory was compared with ecoinvent's cumulative LCI as well, which separates "
                      "deviations caused by the inventory from those caused by the factors.")
-    lines += [f"- Software: Cyclia {env.get('cyclia') or cyclia_version}, Python {env.get('python', '')}, NumPy "
-              f"{env.get('numpy', '')}, SciPy {env.get('scipy', '')}, {env.get('platform', '')}; run on "
-              f"{env.get('date', '')[:10]}.", "",
+    sw = [f"Cyclia {env.get('cyclia') or cyclia_version}"] + [f"{k} {env[v]}" for k, v in
+                                                             (("Python", "python"), ("NumPy", "numpy"), ("SciPy", "scipy"))
+                                                             if env.get(v)] + ([env["platform"]] if env.get("platform") else [])
+    lines += [f"- Software: {', '.join(sw)}; run on {env.get('date', '')[:10]}.", "",
               "## Deviation per impact category", "",
               "Deviation = |Cyclia - ecoinvent| / |ecoinvent| x 100, per dataset. Signed median: negative when Cyclia "
               "is lower for most datasets.", "",
               "| Method | Category | Indicator | Unit | Results | Median % | Signed median % | 95th percentile % | Max % "
-              "| Within 0.1 % | Within 1 % |",
-              "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|"]
+              "| Within 0.1 % | Within 1 % | Within round-off |",
+              "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
     notes = []
     for fam, r in runs:
         cats = r["summary"].get("categories")
@@ -455,10 +466,17 @@ def _report(grp, db, runs, cyclia_version):
             lines.append(f"| {fam} | {c['category']} | {c.get('indicator') or ''} | {c.get('unit') or ''} | "
                          f"{c.get('n') or 0:,} | {_pct(c.get('median'))} | {_pct(c.get('median_signed'))} | "
                          f"{_pct(c.get('p95'))} | {_pct(c.get('max'))} | {_pct(c.get('within_0_1'), 4)} % | "
-                         f"{_pct(c.get('within_1'), 4)} % |")
-            if c.get("hint") and (c.get("median") or 0) > 0.1:
+                         f"{_pct(c.get('within_1'), 4)} % | "
+                         f"{'' if c.get('cancellation') is None else format(c['cancellation'], ',')} |")
+            if c.get("analysis"):
+                notes.append(f"{fam}, {c['category']} ({c.get('indicator') or ''}): {c['analysis']}")
+            elif c.get("hint") and (c.get("median") or 0) > 0.1:
                 notes.append(f"{c['category']}: {c['hint']}")
     lines += [""]
+    if any(sm.get("pooled") for sm in sms):
+        notes.insert(0, "This run was saved by Cyclia 1.9.0 or earlier, which pooled the statistics of methods with the "
+                        "same category and indicator names (the 'Results' column counts all of them). Cyclia 1.9.1 "
+                        "keeps each method apart.")
     if notes:
         lines += ["## Notes", ""] + [f"- {x}" for x in notes] + [""]
     lines += ["## How to read this", "",
@@ -470,6 +488,9 @@ def _report(grp, db, runs, cyclia_version):
               "factors as published.",
               "- Only the ecoinvent version and system model named were compared. Another version or system model "
               "needs its own run.",
+              "- 'Within round-off' counts results whose net value is the small remainder of positive and negative "
+              "contributions that cancel, and where the gap to ecoinvent is below 1e-9 of the sum of the absolute "
+              "contributions (Cyclia 1.9.1 and later; empty for earlier runs). These count as agreeing.",
               "- No ecoinvent data is reproduced here: the report holds deviation statistics only.", "",
               "## Reproduce", "",
               "1. Import the ecoinvent database (ecoSpold2) and the method in Cyclia.",
@@ -493,3 +514,103 @@ def write_publication(store, folder, cyclia_version=""):
             fh.write(text)
         out.append(p)
     return out
+
+
+def publication_from_workbook(path):
+    """The reports of publication() from a benchmark workbook saved by Cyclia (Validation > ecoinvent > Export).
+
+    The By category sheet of Cyclia 1.9.0 and earlier pooled the statistics of methods that share a category and
+    indicator name (seven 'climate change / GWP100' rows each showed 700 results). When the All results sheet is
+    present and each dataset's rows follow the order of the By category sheet, the statistics are computed again per
+    method from it; otherwise the pooled statistics are reported and the report says so. Each category below the
+    status rule gets an analysis of its deviating results in relative terms only, so no ecoinvent value enters the
+    report."""
+    import itertools
+    import numpy as np
+    from openpyxl import load_workbook
+    wb = load_workbook(path, read_only=True, data_only=True)
+    if "Summary" not in wb.sheetnames or "By category" not in wb.sheetnames:
+        raise ValueError("This is not a benchmark workbook saved by Cyclia (sheets Summary and By category).")
+    summ = {}
+    for r in wb["Summary"].iter_rows(values_only=True):
+        if r and r[0] and len(r) > 1:
+            summ[str(r[0])] = r[1]
+    rows = list(wb["By category"].iter_rows(values_only=True))
+    head = [str(h or "") for h in rows[0]]
+    col = {h: i for i, h in enumerate(head)}
+
+    def g(r, name):
+        i = col.get(name)
+        return r[i] if i is not None and i < len(r) else None
+    cats = []
+    for r in rows[1:]:
+        if r and g(r, "Family"):
+            cats.append((g(r, "Family"), {
+                "category": g(r, "Category"), "indicator": g(r, "Indicator"), "unit": g(r, "Unit"), "n": g(r, "Results"),
+                "median": g(r, "Median |dev| %"), "p95": g(r, "95th pct |dev| %"), "max": g(r, "Max |dev| %"),
+                "within_0_1": g(r, "Within 0.1 %"), "within_1": g(r, "Within 1 %"), "hint": g(r, "Hint"),
+                "median_signed": None, "cancellation": g(r, "Results within round-off of cancelling contributions")}))
+    per_method = False
+    if "All results" in wb.sheetnames:
+        it = wb["All results"].iter_rows(values_only=True)
+        ah = {str(h or ""): i for i, h in enumerate(next(it))}
+        seq = [(c["category"], c["indicator"]) for _, c in cats]
+        blocks = [list(b) for _, b in itertools.groupby(it, key=lambda r: (r[ah["Dataset"]], r[ah["Location"]],
+                                                                           r[ah["Product"]]))]
+        if blocks and all([(r[ah["Category"]], r[ah["Indicator"]]) for r in b] == seq for b in blocks):
+            per_method = True
+            for k, (_, c) in enumerate(cats):
+                vals = [(b[k][ah["ecoinvent"]], b[k][ah["Cyclia"]], b[k][ah["Deviation %"]]) for b in blocks]
+                d = np.array([v for _, _, v in vals if v is not None], dtype=float)
+                if not len(d):
+                    continue
+                a = np.abs(d)
+                c.update(n=int(len(d)), median=float(np.median(a)), p95=float(np.percentile(a, 95)), max=float(a.max()),
+                         within_0_1=float((a <= 0.1).mean() * 100), within_1=float((a <= 1).mean() * 100),
+                         median_signed=float(np.median(d)))
+                c["_vals"] = vals
+    for fam, c in cats:
+        vals = c.pop("_vals", None)
+        if vals and (c["within_1"] or 0) < 95:
+            c["analysis"] = _weak_analysis(vals)
+    db = summ.get("Database") or "ecoinvent"
+    ver, sysm = summ.get("Database version"), summ.get("System model")
+    label = f"ecoinvent ({ver}, {sysm})" if ver and str(db).lower().startswith("ecoinvent") else str(db)
+    env = {"cyclia": str(summ.get("Cyclia") or ""), "date": str(summ.get("Date") or "")}
+    lci = summ.get("ecoinvent cumulative LCI file")
+    fams = {}
+    for fam, c in cats:
+        fams.setdefault(fam, []).append(c)
+    latest = {}
+    for fam, cs in fams.items():
+        n = sum(c["n"] or 0 for c in cs)
+        latest[fam] = {"time": env["date"], "summary": {
+            "n": n, "database": label, "categories": cs, "environment": env,
+            "within_0_1": sum((c["within_0_1"] or 0) * (c["n"] or 0) for c in cs) / n if n else 0,
+            "within_1": sum((c["within_1"] or 0) * (c["n"] or 0) for c in cs) / n if n else 0,
+            "weak": ", ".join(c["category"] for c in cs if (c["within_1"] or 0) < 95),
+            "datasets_compared": summ.get("Datasets compared"), "datasets_in_file": summ.get("Datasets in the results file"),
+            "inventory_checked": bool(lci and lci != "not used"),
+            "pooled": not per_method}}
+    return _publication(latest, env["cyclia"])
+
+
+def _weak_analysis(vals):
+    """Relative description of the deviating results of a category below the status rule."""
+    top = max(abs(e or 0) for e, _, _ in vals) or 1.0
+    dev = [(e or 0, y or 0) for e, y, d in vals if d is not None and abs(d) > 0.1]
+    if not dev:
+        return ""
+    big = max(max(abs(e), abs(y)) for e, y in dev) / top
+    flips = sum(1 for e, y in dev if e * y < 0)
+    if big >= 1e-3:
+        return (f"{len(dev)} of {len(vals)} results deviate by more than 0.1 %; the largest deviating result is "
+                f"{big:.2g} of the largest result of the category in the sample.")
+    return (f"{len(dev)} of {len(vals)} results deviate by more than 0.1 %. In each of them both results are at most "
+            f"{big:.1g} of the largest result of the category in the sample"
+            + (f", and in {flips} the two results have opposite signs" if flips else "") +
+            ". A result that small next to others of the same category, with a sign that differs between the two "
+            "programs, is most likely the remainder of contributions of both signs that cancel, where the relative "
+            "deviation measures round-off rather than a difference in the inventory or the factors. Cyclia 1.9.1 "
+            "tests this per result (gap below 1e-9 of the sum of the absolute contributions). This run was made "
+            "before that test, so the category is reported as measured and is not claimed as validated.")

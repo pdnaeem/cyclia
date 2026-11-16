@@ -314,7 +314,7 @@ def lca(store, defn, method_ids, links):
     production and use, losses, recycling, credits), gross, credits and net."""
     import calc
     res = run(defn)
-    method_ids = [int(m) for m in method_ids or []]
+    method_ids = [numcheck.identifier(m, "method_ids") for m in method_ids or []]
     if not method_ids:
         raise ValueError("Pick impact categories in step 4 first.")
     if not links:
@@ -327,7 +327,7 @@ def lca(store, defn, method_ids, links):
         pid = ln.get("process", key)
         if pid not in procs:
             raise ValueError(f"'{pid}' is not a process of the MFA system.")
-        kind, ref = ln.get("kind", "activity"), int(ln["id"])
+        kind, ref = ln.get("kind", "activity"), numcheck.identifier(ln["id"], "The linked dataset id")
         f = _finite(ln.get("factor", 1.0), f"The factor of the link of '{pid}'", 0)
         avoided = bool(ln.get("avoided"))
         sub = _finite(ln.get("substitution", 1.0), f"The substitution ratio of '{pid}'") if avoided else 1.0
@@ -385,7 +385,7 @@ def lca(store, defn, method_ids, links):
             "cumulative_by_process": {k: v.tolist() for k, v in by_proc.items()},
             "cumulative_by_role": {rl: sum((np.array(r["by_role"][rl]) for r in per_year), np.zeros(len(cats))).tolist()
                                    for rl in roles},
-            "linked": {k: {"process": l.get("process", k), "kind": l.get("kind", "activity"), "id": int(l["id"]),
+            "linked": {k: {"process": l.get("process", k), "kind": l.get("kind", "activity"), "id": numcheck.identifier(l["id"], "The linked dataset id"),
                            "factor": float(l.get("factor", 1.0)), "basis": l.get("basis") or "throughput",
                            "avoided": bool(l.get("avoided")), "substitution": float(l.get("substitution", 1.0)),
                            "role": role[k]} for k, l in links.items()},

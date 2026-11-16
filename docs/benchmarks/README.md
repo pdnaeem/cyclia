@@ -1,36 +1,32 @@
----
-title: Cyclia benchmarks against ecoinvent
-description: Per-method benchmark reports of Cyclia against ecoinvent's own cumulative LCIA results, with the status of each method family.
----
-
 # Cyclia benchmarks against ecoinvent
 
-Each report in this folder compares Cyclia's results with ecoinvent's own cumulative LCIA results for one method family
-and one ecoinvent version. The reports contain deviation statistics only (how far Cyclia's result is from ecoinvent's,
-per impact category). No ecoinvent value is reproduced, so the reports can be published with the source code.
+Each report compares Cyclia's results with ecoinvent's own cumulative LCIA results, for the method family and the ecoinvent version named. The reports contain deviation statistics only; no ecoinvent value is reproduced. They are produced by Cyclia (Validation > Benchmark Centre > Publish benchmark reports) on a computer with an ecoinvent licence.
 
-## Status
+| Method | Database | Results compared | Status | Date | Cyclia |
+|---|---|---:|---|---|---|
+| [CML-IA](cml-ia-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 2,200 | Validated | 2026-11-16 | 1.9.0 |
+| [Crustal Scarcity Indicator 2020](crustal-scarcity-indicator-2020-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 100 | Validated | 2026-11-16 | 1.9.0 |
+| [Cumulative Energy Demand (CED)](cumulative-energy-demand-ced-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 1,200 | Validated | 2026-11-16 | 1.9.0 |
+| [Cumulative Exergy Demand (CExD)](cumulative-exergy-demand-cexd-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 1,400 | Validated | 2026-11-16 | 1.9.0 |
+| [EF](ef-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 10,600 | Validated | 2026-11-16 | 1.9.0 |
+| [EPS 2020d](eps-2020d-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 1,400 | Validated | 2026-11-16 | 1.9.0 |
+| [Ecological Footprint](ecological-footprint-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 400 | Validated | 2026-11-16 | 1.9.0 |
+| [Ecological Scarcity 2021](ecological-scarcity-2021-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 4,000 | Validated except some categories | 2026-11-16 | 1.9.0 |
+| [Ecosystem Damage Potential](ecosystem-damage-potential-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 300 | Validated | 2026-11-16 | 1.9.0 |
+| [IMPACT World+ v2.2.1, footprint version](impact-world-v2-2-1-footprint-version-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 500 | Validated | 2026-11-16 | 1.9.0 |
+| [IPCC](ipcc-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 7,200 | Validated | 2026-11-16 | 1.9.0 |
+| [Inventory results and indicators](inventory-results-and-indicators-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 3,500 | Validated | 2026-11-16 | 1.9.0 |
+| [ReCiPe](recipe-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 25,600 | Validated | 2026-11-16 | 1.9.0 |
+| [TRACI v2.1](traci-v2-1-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 1,800 | Validated | 2026-11-16 | 1.9.0 |
+| [USEtox v2.13, endpoint](usetox-v2-13-endpoint-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 600 | Validated | 2026-11-16 | 1.9.0 |
+| [USEtox v2.13, midpoint](usetox-v2-13-midpoint-ecoinvent-3-13-cutoff.md) | ecoinvent (3.13, cutoff) | 600 | Validated | 2026-11-16 | 1.9.0 |
 
-| Method | Database | Results compared | Status | Cyclia |
-|---|---|---:|---|---|
-| EF 3.1 | ecoinvent (cut-off) | 2,500 (100 datasets x 25 categories) | 100 % within 0.1 % ([report](../VALIDATION_ECOINVENT.md)) | 1.3.10 |
-| ReCiPe 2016 | | | Not run | |
-| CML-IA | | | Not run | |
-| IPCC 2021 (ecoinvent's implementation) | | | Not run | |
+A method that is not listed here has not been benchmarked against ecoinvent and is not claimed as validated. Status rule: 'Validated' when at least 95 % of all results agree within 0.1 % and every category has at least 95 % of its results within 1 %.
+## Earlier runs
 
-"Not run" means what it says: the method has not been benchmarked against ecoinvent and is not claimed as validated.
-The built-in IPCC 2021 GWP100 method is checked on every release against the values published by the IPCC (AR6 WG1,
-Table 7.15 and Table 7.SM.7) by the validation suite; that check does not involve ecoinvent.
-
-## How a report is produced
-
-The benchmark needs an ecoinvent licence, so it runs on a licence holder's computer, not on the build servers:
-
-1. Import ecoinvent (ecoSpold2) and the method (ReCiPe, CML-IA, IPCC or EF) in Cyclia.
-2. Validation > ecoinvent: choose ecoinvent's cumulative LCIA results file for the same version and system model, tick
-   "every installed method", and run the benchmark.
-3. Validation > Benchmark Centre > Publish benchmark reports writes one file per method family and a README with the
-   status table. Copy them into this folder, replacing this README.
-
-Status rule: "Validated" when at least 95 % of all results agree within 0.1 % and every category has at least 95 % of
-its results within 1 %. A category below that is named in its report.
+- EF 3.1 on ecoinvent (cut-off), Cyclia 1.3.10: 2,500 results (100 datasets, 25 categories), 100 % within 0.1 %
+  ([report](../VALIDATION_ECOINVENT.md)). The run above on ecoinvent 3.13 with Cyclia 1.9.0 supersedes it for the
+  current releases.
+- The run above was made with Cyclia 1.9.0. Its reports were written from the saved benchmark workbook with
+  `engine/tools/benchmark_publish.py` (Cyclia 1.9.1), which computes the statistics per method from the workbook's
+  results. The round-off test for cancelling contributions (1.9.1) was not part of that run.

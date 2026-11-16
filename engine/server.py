@@ -60,7 +60,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.9.0"
+VERSION = "1.9.1"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -251,14 +251,21 @@ def _calc_error(fn, *a, **k):
 
 
 def _unlocked(store, model_id):
-    lk = store.lock_info(int(model_id)) if model_id else None
+    lk = store.lock_info(_int(model_id, "model_id", 1)) if model_id not in (None, "") else None
     if lk:
         raise ApiError(f"This model is locked{' by ' + lk['by'] if lk.get('by') else ''}"
                        f"{': ' + lk['reason'] if lk.get('reason') else ''}. Unlock it in step 2 (Versions and lock) to edit.", 423)
 
 
+def _opt_id(body, key):
+    """An optional identifier field: None when absent or empty, else a whole number of at least 1 (a yes/no value,
+    0 or a fraction is refused; before 1.9.1 false meant 'none' and true meant 1)."""
+    v = body.get(key)
+    return None if v is None or v == "" else _int(v, key, 1)
+
+
 def _bg(body):
-    if body.get("bg_id"):
+    if _opt_id(body, "bg_id") is not None:
         return {"id": _int(body["bg_id"], "bg_id"), "year": _num(body["bg_year"], "The scenario year") if body.get("bg_year") not in (None, "") else None}
     return None
 
@@ -1175,6 +1182,10 @@ def params_list(st, body, q):
 @route("POST", "/api/parameters")
 def params_save(st, body, q):
     store = st.store
+    # 1.9.1: {"model_id": true} attached the parameter to model 1 and {"id": true} renamed parameter 1
+    for k in ("model_id", "id"):
+        if body.get(k) is not None and body.get(k) != "":
+            body[k] = _int(body[k], k, 1)
     if body.get("model_id"):
         _unlocked(store, body["model_id"])
     try:
@@ -1225,7 +1236,7 @@ def scen_delete(st, body, q, sid):
 @route("POST", "/api/compare-scenarios")
 def scen_compare(st, body, q):
     mid, mids = _need(body, "model_id", "method_ids")
-    return _calc_error(calc.compare_scenarios, st.store, int(mid), _ids(mids), body.get("scenario_ids") or [],
+    return _calc_error(calc.compare_scenarios, st.store, int(mid), _ids(mids), _ids(body["scenario_ids"], "scenario_ids") if body.get("scenario_ids") else [],
                        bg=_bg(body))
 
 
@@ -1237,7 +1248,7 @@ def _mc_key(model_id, method_ids, scenario, bg=None):
 
 def _calc(st, body, top=12):
     mid, mids = _need(body, "model_id", "method_ids")
-    scen = _int(body["scenario"], "scenario", 1) if body.get("scenario") not in (None, "", 0) else None
+    scen = _opt_id(body, "scenario")
     bg = _bg(body)
     res = _calc_error(calc.run, st.store, int(mid), _ids(mids), top=top,
                       mc_iterations=_int(body.get("mc_iterations") or 0, "mc_iterations"),
@@ -1266,7 +1277,7 @@ def calculate(st, body, q):
 def uncertainty(st, body, q):
     ids, mids = _need(body, "model_ids", "method_ids")
     ids, mids = _ids(ids), _ids(mids)
-    scen = _int(body["scenario"], "scenario") if body.get("scenario") else None
+    scen = _opt_id(body, "scenario")
     iterations = _int(body.get("iterations") or 200, "Iterations")
     store = st.store
     bg = _bg(body)
@@ -1289,7 +1300,7 @@ def sobol(st, body, q):
     mid, mids = _need(body, "model_id", "method_ids")
     store = st.store
     n = _int(body.get("n") or 512, "Sample size")
-    scen = _int(body["scenario"], "scenario") if body.get("scenario") else None
+    scen = _opt_id(body, "scenario")
 
     def job(progress, cancelled):
         try:
@@ -1312,7 +1323,7 @@ def supply_tree(st, body, q):
 def compare(st, body, q):
     ids, mids = _need(body, "model_ids", "method_ids")
     return _calc_error(calc.compare, st.store, _ids(ids), _ids(mids),
-                       _int(body["scenario"], "scenario") if body.get("scenario") else None, bg=_bg(body),
+                       _opt_id(body, "scenario"), bg=_bg(body),
                        equivalence=str(body.get("equivalence") or "")[:2000])
 
 
@@ -1368,7 +1379,7 @@ def _prov(st, body):
     """Recursive provenance of the supply chain for the reports (left out, not failing, if it cannot be built)."""
     try:
         return calc.provenance(st.store, _int(body["model_id"], "model_id"), _ids(body["method_ids"]),
-                               _int(body["scenario"], "scenario") if body.get("scenario") else None, _bg(body))
+                               _opt_id(body, "scenario"), _bg(body))
     except Exception as e:   # noqa: BLE001
         log.warning("provenance not built: %s", e)
         return None
@@ -1540,7 +1551,18 @@ def bench_publish(st, body, q):
     publication with the source code (docs/benchmarks)."""
     folder = _check_path(body.get("folder") or os.path.join(st.exports, "benchmarks"), must_exist=False)
     try:
-        paths = bench_mod.write_publication(st.store, folder, VERSION)
+        if body.get("workbook"):
+            # 1.9.1: from a benchmark workbook saved earlier (also one saved by another installation)
+            files = bench_mod.publication_from_workbook(_check_path(body["workbook"]))
+            os.makedirs(folder, exist_ok=True)
+            paths = []
+            for name, text in files.items():
+                p = os.path.join(folder, name)
+                with open(p, "w", encoding="utf-8", newline="\n") as fh:
+                    fh.write(text)
+                paths.append(p)
+        else:
+            paths = bench_mod.write_publication(st.store, folder, VERSION)
     except ValueError as e:
         raise ApiError(str(e))
     except OSError as e:
@@ -1612,7 +1634,7 @@ def bundle_export(st, body, q):
     ids, mids = _need(body, "model_ids", "method_ids")
     path = _check_path(body.get("path") or os.path.join(st.exports, f"{st.project_name} reproducibility "
                                                          f"{time.strftime('%Y%m%d-%H%M')}.zip"), False)
-    settings = {"model_ids": ids, "method_ids": mids, "scenario": _int(body["scenario"], "scenario") if body.get("scenario") else None,
+    settings = {"model_ids": ids, "method_ids": mids, "scenario": _opt_id(body, "scenario"),
                 "bg": _bg(body), "nw_set": body.get("nw_set") or None, "mc_iterations": _int(body.get("mc_iterations") or 0, "mc_iterations"),
                 "seed": 42}
     project = st.project_name
@@ -1800,7 +1822,7 @@ def lit_add(st, body, q, mid):
 
 def _sweep_args(body):
     mid, mids, params = _need(body, "model_id", "method_ids", "params")
-    return int(mid), _ids(mids), params, _int(body["scenario"], "scenario") if body.get("scenario") else None, _bg(body)
+    return int(mid), _ids(mids), params, _opt_id(body, "scenario"), _bg(body)
 
 
 @route("POST", "/api/sweep")
@@ -2744,7 +2766,7 @@ def slca_t1_scope(st, body, q):
 def model_alloc_compare(st, body, q):
     mid, mids = _need(body, "model_id", "method_ids")
     return _calc_error(calc.allocation_compare, st.store, int(mid), _ids(mids),
-                       _int(body["scenario"], "scenario") if body.get("scenario") else None, _bg(body))
+                       _opt_id(body, "scenario"), _bg(body))
 
 
 @route("POST", "/api/custom/allocation-compare")
@@ -3291,7 +3313,7 @@ def _opt(fn, *a, **k):
 def choices_run(st, body, q):
     mid, mids, slots = _need(body, "model_id", "method_ids", "slots")
     return _opt(choices.optimise, st.store, int(mid), _ids(mids), slots, body.get("objective") or {},
-                body.get("constraints") or [], _int(body["scenario"], "scenario") if body.get("scenario") else None, _bg(body))
+                body.get("constraints") or [], _opt_id(body, "scenario"), _bg(body))
 
 
 @route("POST", "/api/choices/apply")
@@ -3299,7 +3321,7 @@ def choices_apply(st, body, q):
     mid, mids, slots = _need(body, "model_id", "method_ids", "slots")
     nid = _opt(choices.apply, st.store, int(mid), _ids(mids), slots, body.get("choice") or {},
                str(body.get("name") or "")[:200] or None,
-               _int(body["scenario"], "scenario") if body.get("scenario") else None, _bg(body))
+               _opt_id(body, "scenario"), _bg(body))
     return {"model_id": nid}
 
 

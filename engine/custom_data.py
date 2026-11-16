@@ -60,6 +60,11 @@ class CustomDataError(ValueError):
     pass
 
 
+def _id(v, what):
+    """A record identifier (1.9.1): a whole number of at least 1; a yes/no value is refused (int(True) is 1)."""
+    return numcheck.identifier(v, what, err=CustomDataError)
+
+
 def ensure_schema(store):
     with store.lock:
         store.conn.executescript(SCHEMA)
@@ -171,7 +176,7 @@ def history(store, item, limit=100):
     """Change history of an item, newest first. Versions are summarised (what changed, and whether the state before
     and after can be restored) instead of being returned in full."""
     ensure_schema(store)
-    rows = store.q("SELECT * FROM custom_history WHERE item=? ORDER BY id DESC LIMIT ?", (item, int(limit)))
+    rows = store.q("SELECT * FROM custom_history WHERE item=? ORDER BY id DESC LIMIT ?", (item, numcheck.integer(limit, "limit", 1)))
     for r in rows:
         d = json.loads(r["data"]) if r["data"] else None
         if isinstance(d, dict) and ("before" in d or "after" in d):
@@ -212,7 +217,7 @@ def restore(store, uid, history_id, which="before", author=""):
     """Bring a process back to the state before (or after) a recorded change. The restore is itself recorded, so it
     can be undone. Refused, with nothing changed, when the old state no longer fits (for example a supplier or a
     product that was deleted since)."""
-    h = store.one("SELECT * FROM custom_history WHERE id=? AND item=?", (int(history_id), uid))
+    h = store.one("SELECT * FROM custom_history WHERE id=? AND item=?", (_id(history_id, "history_id"), uid))
     if not h or not h["data"]:
         raise CustomDataError("That version was not found.")
     snap = (json.loads(h["data"]) or {}).get("before" if which == "before" else "after")
@@ -288,7 +293,7 @@ def deleted_processes(store, db_id):
                      "ORDER BY id DESC LIMIT 200"):
         d = json.loads(h["data"] or "{}")
         b = d.get("before")
-        if b and b["item"]["db_id"] == int(db_id) and not store.one("SELECT 1 AS x FROM custom_items WHERE uuid=?",
+        if b and b["item"]["db_id"] == _id(db_id, "db_id") and not store.one("SELECT 1 AS x FROM custom_items WHERE uuid=?",
                                                                     (h["item"],)):
             if all(o["uuid"] != h["item"] for o in out):
                 out.append({"uuid": h["item"], "name": b["item"]["name"], "time": h["time"], "history_id": h["id"]})
@@ -341,7 +346,7 @@ def _save_item(store, kind, uid, db_id, ref_id, name, data, source, author):
 def _own(store, uid, kind, db_id):
     """The existing item with this UUID, or None. Refuses a UUID that belongs to another kind or database."""
     r = store.one("SELECT kind, db_id FROM custom_items WHERE uuid=?", (uid,))
-    if r and (r["kind"] != kind or (db_id is not None and r["db_id"] != int(db_id))):
+    if r and (r["kind"] != kind or (db_id is not None and r["db_id"] != _id(db_id, "db_id"))):
         raise CustomDataError("This identifier is already used by another item.")
     return _item(store, uid, kind) if r else None
 
@@ -455,7 +460,7 @@ def create_database(store, name, description="", author="", licence="", geograph
 
 
 def is_custom(store, db_id):
-    r = store.one("SELECT source FROM databases WHERE id=?", (int(db_id),))
+    r = store.one("SELECT source FROM databases WHERE id=?", (_id(db_id, "db_id"),))
     return bool(r and r["source"] == SOURCE)
 
 
@@ -485,7 +490,7 @@ def save_product(store, db_id, d):
     name = _text(d.get("name"), "The product name", maxlen=300)
     unit = check_unit(d.get("unit"), "The product unit")
     existing = store.one("SELECT uuid FROM custom_items WHERE kind='product' AND db_id=? AND lower(name)=lower(?) "
-                         "AND uuid!=?", (int(db_id), name, uid))
+                         "AND uuid!=?", (_id(db_id, "db_id"), name, uid))
     if existing:
         raise CustomDataError(f"A product called '{name}' already exists in this database.")
     old = _own(store, uid, "product", db_id)
@@ -495,10 +500,10 @@ def save_product(store, db_id, d):
                                   "product instead.")
     data = {"unit": unit, "description": _text(d.get("description"), "Description", required=False, maxlen=2000),
             "category": _text(d.get("category"), "Category", required=False, maxlen=200)}
-    _save_item(store, "product", uid, int(db_id), None, name, data, _text(d.get("source"), "Source", False, 1000),
+    _save_item(store, "product", uid, _id(db_id, "db_id"), None, name, data, _text(d.get("source"), "Source", False, 1000),
                _text(d.get("author"), "Author", False, 200))
     if old:
-        compile(store, int(db_id))   # the datasets that make this product carry its name and unit
+        compile(store, _id(db_id, "db_id"))   # the datasets that make this product carry its name and unit
     return uid
 
 
@@ -660,7 +665,7 @@ def _check_params(params, what):
 
 
 def _db_params(store, db_id):
-    r = store.one("SELECT data FROM custom_items WHERE kind='database' AND db_id=?", (int(db_id),))
+    r = store.one("SELECT data FROM custom_items WHERE kind='database' AND db_id=?", (_id(db_id, "db_id"),))
     return (json.loads(r["data"] or "{}").get("parameters") or []) if r else []
 
 
@@ -681,14 +686,14 @@ def set_database_parameters(store, db_id, params, author=""):
     _need_custom(store, db_id)
     clean = _check_params(params, "the database")
     r = store.one("SELECT uuid, name, data, source, author FROM custom_items WHERE kind='database' AND db_id=?",
-                  (int(db_id),))
+                  (_id(db_id, "db_id"),))
     if not r:
         raise CustomDataError("The custom database was not found.")
     old = json.loads(r["data"] or "{}")
-    _save_item(store, "database", r["uuid"], int(db_id), None, r["name"], {**old, "parameters": clean}, r["source"] or "",
+    _save_item(store, "database", r["uuid"], _id(db_id, "db_id"), None, r["name"], {**old, "parameters": clean}, r["source"] or "",
                author or r["author"] or "")
     try:
-        compile(store, int(db_id))
+        compile(store, _id(db_id, "db_id"))
     except Exception:
         _raw_data(store, r["uuid"], old)
         raise
@@ -911,7 +916,7 @@ def allocation_compare(store, uid, method_ids, alternatives=None):
         raise CustomDataError("The process uses its own products through its supply chain, so the comparison would not "
                               "be exact. Compare by saving each allocation in turn instead.")
     mc = calc.get_mc(store)
-    M = calc.Methods(store, mc, [int(m) for m in method_ids])
+    M = calc.Methods(store, mc, [_id(m, "method_ids") for m in method_ids])
     outs = [(d["product"], d["amount"])] + [(c["product"], c["amount"]) for c in d["coproducts"]]
     aids = {d["product"]: p["ref_id"], **(d.get("coproduct_refs") or {})}
     per_unit = {}
@@ -961,7 +966,7 @@ def save_process(store, db_id, d):
     _own(store, uid, "process", db_id)
     name = _text(d.get("name"), "The process name", maxlen=300)
     prod = _item(store, _text(d.get("product"), "The reference product"), "product")
-    if prod["db_id"] != int(db_id):
+    if prod["db_id"] != _id(db_id, "db_id"):
         raise CustomDataError("The reference product belongs to another custom database.")
     amount = _number(d.get("amount", 1.0), "The reference amount")
     if amount < 0:
@@ -988,7 +993,7 @@ def save_process(store, db_id, d):
     cps, seen = [], {prod["uuid"]}
     for cp in d.get("coproducts") or []:
         cprod = _item(store, _text(cp.get("product"), "A co-product"), "product")
-        if cprod["db_id"] != int(db_id):
+        if cprod["db_id"] != _id(db_id, "db_id"):
             raise CustomDataError("A co-product belongs to another custom database.")
         if cprod["uuid"] in seen:
             raise CustomDataError(f"'{cprod['name']}' is listed twice among the outputs of the process.")
@@ -1033,16 +1038,16 @@ def save_process(store, db_id, d):
         ref = data["coproduct_refs"][g]
         if store.one("SELECT 1 AS x FROM main.model_inputs WHERE kind='activity' AND ref_id=?", (ref,)):
             raise CustomDataError("A model of this project uses a co-product you removed. Remove that line first.")
-    _save_item(store, "process", uid, int(db_id), None, name, data, _text(d.get("source"), "Source", False, 1000),
+    _save_item(store, "process", uid, _id(db_id, "db_id"), None, name, data, _text(d.get("source"), "Source", False, 1000),
                _text(d.get("author"), "Author", False, 200))
     try:
-        compile(store, int(db_id))
+        compile(store, _id(db_id, "db_id"))
     except Exception:
         if old is not None:
             _raw_data(store, uid, old)
         else:
             store.x("DELETE FROM custom_items WHERE uuid=?", (uid,))
-        compile(store, int(db_id))
+        compile(store, _id(db_id, "db_id"))
         raise
     _attach_versions(store, uid, before)
     return uid
@@ -1071,7 +1076,7 @@ def _supplier(store, target):
         prod = _item(store, p["data"]["product"], "product")
         sign = -1.0 if p["data"]["type"] == "treatment" else 1.0
         return p["ref_id"], prod["data"]["unit"], sign * p["data"]["amount"], p["name"]
-    a = store.one("SELECT id, name, unit, production FROM activities WHERE id=?", (int(target),))
+    a = store.one("SELECT id, name, unit, production FROM activities WHERE id=?", (_id(target, "target"),))
     if not a:
         raise CustomDataError("The supplier dataset was not found.")
     return a["id"], a["unit"], float(a["production"] or 1.0), a["name"]
@@ -1165,10 +1170,10 @@ def save_exchange(store, process_uuid, d):
                                    "amount_ref=?, avoided=?, utype=?, p1=?, p2=?, p3=?, pedigree=?, uncertainty=?, "
                                    "source=?, comment=?, modified=?, author=?, formula=?, unit_factor=?, "
                                    "revision=COALESCE(revision,1)+1 "
-                                   "WHERE id=? AND process_uuid=?", row + (int(d["id"]), process_uuid)).rowcount
+                                   "WHERE id=? AND process_uuid=?", row + (_id(d["id"], "id"), process_uuid)).rowcount
             if not n:
                 raise CustomDataError("The exchange was not found.")
-            eid = int(d["id"])
+            eid = _id(d["id"], "id")
         else:
             eid = store.conn.execute("INSERT INTO custom_exchanges(process_uuid,kind,target,amount,unit,amount_ref,avoided,"
                                      "utype,p1,p2,p3,pedigree,uncertainty,source,comment,modified,author,formula,"
@@ -1190,12 +1195,12 @@ def save_exchange(store, process_uuid, d):
 def delete_exchange(store, process_uuid, exchange_id):
     p = _item(store, process_uuid, "process")
     old = store.one("SELECT kind, target, amount, unit FROM custom_exchanges WHERE id=? AND process_uuid=?",
-                    (int(exchange_id), process_uuid))
+                    (_id(exchange_id, "exchange_id"), process_uuid))
     if not old:
         raise CustomDataError("The exchange was not found.")
     before = snapshot(store, process_uuid)
-    store.x("DELETE FROM custom_exchanges WHERE id=? AND process_uuid=?", (int(exchange_id), process_uuid))
-    _log(store, process_uuid, "exchange", "exchange removed", "", {"exchange": int(exchange_id), **old})
+    store.x("DELETE FROM custom_exchanges WHERE id=? AND process_uuid=?", (_id(exchange_id, "exchange_id"), process_uuid))
+    _log(store, process_uuid, "exchange", "exchange removed", "", {"exchange": _id(exchange_id, "exchange_id"), **old})
     compile(store, p["db_id"])
     _attach_versions(store, process_uuid, before)
 
@@ -1298,7 +1303,7 @@ def method_scopes(store):
 
 
 def set_method_scope(store, method_id, unlisted, reason="", author=""):
-    it = store.one("SELECT uuid FROM custom_items WHERE kind='method' AND ref_id=?", (int(method_id),))
+    it = store.one("SELECT uuid FROM custom_items WHERE kind='method' AND ref_id=?", (_id(method_id, "method_id"),))
     if not it:
         raise CustomDataError("Only custom methods can be changed here.")
     item = _item(store, it["uuid"], "method")
@@ -1309,10 +1314,10 @@ def set_method_scope(store, method_id, unlisted, reason="", author=""):
 
 
 def delete_method(store, method_id):
-    it = store.one("SELECT uuid, name FROM custom_items WHERE kind='method' AND ref_id=?", (int(method_id),))
+    it = store.one("SELECT uuid, name FROM custom_items WHERE kind='method' AND ref_id=?", (_id(method_id, "method_id"),))
     if not it:
         raise CustomDataError("Only custom methods can be deleted here.")
-    mid = int(method_id)
+    mid = _id(method_id, "method_id")
     with store.lock:
         for t in ("cfs", "cfs_regional", "cf_raw", "nw", "custom_factors"):
             store.conn.execute(f"DELETE FROM {t} WHERE method_id=?", (mid,))
@@ -1333,11 +1338,11 @@ def save_factor(store, method_id, flow_uuid, status, value=None, unit=None, sour
     """status 'value': a characterisation factor (per `unit` of the flow's dimension) with its source.
     status 'not_applicable': the category does not apply to the flow, with the reason. Never an implicit zero."""
     ensure_schema(store)
-    m = store.one("SELECT id, unit FROM methods WHERE id=?", (int(method_id),))
+    m = store.one("SELECT id, unit FROM methods WHERE id=?", (_id(method_id, "method_id"),))
     if not m:
         raise CustomDataError("The impact category was not found.")
     f = flow_info(store, flow_uuid)
-    if not f["custom"] and int(method_id) not in custom_methods(store):
+    if not f["custom"] and _id(method_id, "method_id") not in custom_methods(store):
         raise CustomDataError("Factors of installed methods for library flows come from the method itself. Assign "
                               "factors here to your own flows, or create a custom method.")
     if status == "value":
@@ -1346,9 +1351,9 @@ def save_factor(store, method_id, flow_uuid, status, value=None, unit=None, sour
         # factor per u -> per the flow's unit: CF_ref = CF_u x (amount in u per 1 flow unit)
         ref = v * convert(1.0, f["unit"], u, "The factor")
         src = _text(source, "The source of the factor")
-        row = (int(method_id), flow_uuid, "value", ref, v, u, src, _text(comment, "Comment", False, 2000))
+        row = (_id(method_id, "method_id"), flow_uuid, "value", ref, v, u, src, _text(comment, "Comment", False, 2000))
     elif status == "not_applicable":
-        row = (int(method_id), flow_uuid, "not_applicable", None, None, None, _text(source, "Source", False, 1000),
+        row = (_id(method_id, "method_id"), flow_uuid, "not_applicable", None, None, None, _text(source, "Source", False, 1000),
                _text(comment, "The reason why this category does not apply"))
     else:
         raise CustomDataError("Give a factor or state that the category does not apply.")
@@ -1358,26 +1363,26 @@ def save_factor(store, method_id, flow_uuid, status, value=None, unit=None, sour
                            row + (_text(author, "Author", False, 200), _now()))
         store.conn.commit()
     _log(store, flow_uuid, "factor", "factor saved", author,
-         {"method_id": int(method_id), "status": status, "value_entered": row[4], "unit": row[5], "source": row[6],
+         {"method_id": _id(method_id, "method_id"), "status": status, "value_entered": row[4], "unit": row[5], "source": row[6],
           "comment": row[7]})
-    _refresh_factors(store, [int(method_id)])
+    _refresh_factors(store, [_id(method_id, "method_id")])
 
 
 def confirm_factor(store, method_id, flow_uuid, author=""):
     """Accept a factor that was put under review, unchanged."""
-    r = store.one("SELECT * FROM custom_factors WHERE method_id=? AND flow_uuid=?", (int(method_id), flow_uuid))
+    r = store.one("SELECT * FROM custom_factors WHERE method_id=? AND flow_uuid=?", (_id(method_id, "method_id"), flow_uuid))
     if not r or not r["review"]:
         raise CustomDataError("This factor is not under review.")
     store.x("UPDATE custom_factors SET review=NULL, author=?, modified=? WHERE method_id=? AND flow_uuid=?",
-            (author or r["author"], _now(), int(method_id), flow_uuid))
-    _log(store, flow_uuid, "factor", "factor confirmed after review", author, {"method_id": int(method_id)})
-    _refresh_factors(store, [int(method_id)])
+            (author or r["author"], _now(), _id(method_id, "method_id"), flow_uuid))
+    _log(store, flow_uuid, "factor", "factor confirmed after review", author, {"method_id": _id(method_id, "method_id")})
+    _refresh_factors(store, [_id(method_id, "method_id")])
 
 
 def delete_factor(store, method_id, flow_uuid):
-    store.x("DELETE FROM custom_factors WHERE method_id=? AND flow_uuid=?", (int(method_id), flow_uuid))
-    _log(store, flow_uuid, "factor", "factor removed", "", {"method_id": int(method_id)})
-    _refresh_factors(store, [int(method_id)])
+    store.x("DELETE FROM custom_factors WHERE method_id=? AND flow_uuid=?", (_id(method_id, "method_id"), flow_uuid))
+    _log(store, flow_uuid, "factor", "factor removed", "", {"method_id": _id(method_id, "method_id")})
+    _refresh_factors(store, [_id(method_id, "method_id")])
 
 
 def _refresh_factors(store, method_ids=None):
@@ -1514,7 +1519,7 @@ def compile(store, db_id):
     of the database and of the process; a formula that fails or gives a negative amount stops the compilation, and
     nothing is changed."""
     ensure_schema(store)
-    db_id = int(db_id)
+    db_id = _id(db_id, "db_id")
     procs = [dict(r) for r in store.q("SELECT * FROM custom_items WHERE kind='process' AND db_id=? ORDER BY created", (db_id,))]
     prods = {r["uuid"]: json.loads(r["data"]) | {"name": r["name"]}
              for r in store.q("SELECT uuid, name, data FROM custom_items WHERE kind='product' AND db_id=?", (db_id,))}
@@ -1663,7 +1668,7 @@ def check(store, db_id):
     """Everything that keeps the custom database from being complete, as a list of findings (level, message)."""
     import staging
     ensure_schema(store)
-    db_id = int(db_id)
+    db_id = _id(db_id, "db_id")
     out = []
     procs = store.q("SELECT * FROM custom_items WHERE kind='process' AND db_id=?", (db_id,))
     if not procs:
@@ -1786,7 +1791,7 @@ def target_activity(store, target):
 
 def contents(store, db_id):
     ensure_schema(store)
-    db_id = int(db_id)
+    db_id = _id(db_id, "db_id")
     items = lambda kind: [dict(r) | {"data": json.loads(r["data"] or "{}")} for r in store.q(
         "SELECT * FROM custom_items WHERE kind=? AND db_id=? ORDER BY name", (kind, db_id))]
     procs = items("process")

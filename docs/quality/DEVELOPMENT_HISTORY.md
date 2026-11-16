@@ -178,6 +178,19 @@ optimisation of discrete choices, Sobol indices with parameters of custom data, 
 fallback and coverage. 1.8.1 corrected the recording of ecoinvent benchmarks in the Benchmark Centre and the review
 merge on coarse clocks.
 
+## 2t. 1.9.1
+
+Audit of 1.9.0 (score 8.6). Two paths were outside the number validator: LCIA imports (a yes/no factor, infinite
+normalisation and mapping factors) and the parameter API (identifiers given as yes/no). Both are closed, and the
+storage layer now checks identifiers for every caller.
+
+The user's benchmark on ecoinvent 3.13 with 1.9.0 (46 method families, 61,400 results) gave 612 of 614 categories
+within 0.1 %. Two problems in the benchmark itself came out of reading it:
+- methods sharing category names were pooled in each other's statistics;
+- the biotic resources results of Ecological Scarcity 2021, tiny and mostly of opposite sign, had no test for
+  cancellation.
+Both are fixed. The reports of that run are published in docs/benchmarks.
+
 ## 2s. 1.9.0
 
 First release of the road to 2.0 (docs/quality/ACCEPTANCE_1.9.0.md):
