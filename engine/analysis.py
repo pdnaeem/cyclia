@@ -31,33 +31,66 @@ def _input_amount(ctx, model_id, inp):
     return inp["input_amount"] if inp["input_amount"] is not None else inp["amount"]
 
 
-def _model_cost(ctx, model_id, rate, depth=0, year0=0.0):
-    """Cost per reference amount of a model: (undiscounted, discounted, n_costed, n_uncosted)."""
+def _cost_items(ctx, model_id, mult, windows, path, depth, out, uncosted):
+    """Every priced line of a model and its sub-models, as cost items with their purchase times.
+
+    windows: the periods in which this model is in use, as (start, end, life_end). The top model has one window
+    (0, study period or None, None). A sub-model line bought every R years opens one window per purchase,
+    (t, min(t + R, end), t + R): its own lines are bought (and replaced) within that window only, and their service
+    life ends at the latest when the sub-model is replaced."""
     if depth > 25:
         raise calc.LCAError("Models are nested more than 25 levels deep.")
     m = ctx.model(model_id)
     share = calc.allocation_share(m["scope"])
-    tot = disc = 0.0
-    n_c = n_u = 0
     for inp in m["inputs"]:
         sign = -1.0 if inp["avoided"] else 1.0
-        year = year0 + float(inp.get("year") or 0)
+        y = float(inp.get("year") or 0)
+        R = float(inp.get("replace_every") or 0)
+        name = inp["label"] or inp["target"]["name"]
         if inp.get("unit_cost") is not None:
-            c = _input_amount(ctx, model_id, inp) * float(inp["unit_cost"]) * sign * share
-            tot += c
-            disc += c / (1 + rate) ** year
-            n_c += 1
+            c1 = _input_amount(ctx, model_id, inp) * float(inp["unit_cost"]) * sign * share * mult
+            purchases = []
+            for start, end, life in windows:
+                t = start + y
+                while end is None or t < end - 1e-9:
+                    own = t + R if R > 0 else None
+                    ends = [x for x in (own, life) if x is not None]
+                    purchases.append((t, min(ends) if ends else None))
+                    if R <= 0 or end is None:
+                        break
+                    t += R
+            out.append({"model_id": model_id, "input_id": inp["id"], "path": path + [name], "c1": c1,
+                        "purchases": purchases, "cost_type": inp.get("cost_type") or "",
+                        "gsd": float(inp["cost_gsd"]) if inp.get("cost_gsd") else None, "R": R})
         elif inp["kind"] == "model":
             sub = ctx.model(inp["ref_id"])
-            st, sd, sc_, su = _model_cost(ctx, inp["ref_id"], rate, depth + 1, year)
             k = calc.line_amount(ctx, model_id, inp) / (sub["amount"] or 1.0) * sign * share
-            tot += st * k
-            disc += sd * k
-            n_c += sc_
-            n_u += su
+            sw = []
+            for start, end, life in windows:
+                t = start + y
+                while end is None or t < end - 1e-9:
+                    if R > 0 and end is not None:
+                        sw.append((t, min(t + R, end), min(t + R, life) if life is not None else t + R))
+                        t += R
+                    else:
+                        sw.append((t, end, life))
+                        break
+            _cost_items(ctx, inp["ref_id"], mult * k, sw, path + [name], depth + 1, out, uncosted)
         else:
-            n_u += 1
-    return tot, disc, n_c, n_u
+            uncosted.append(path + [name])
+
+
+class _OneLine:
+    """A view of the context in which one model has only the given line (to cost one line with its sub-models)."""
+
+    def __init__(self, ctx, model_id, model):
+        self._ctx, self._id, self._m = ctx, model_id, model
+
+    def model(self, mid):
+        return self._m if mid == self._id else self._ctx.model(mid)
+
+    def __getattr__(self, k):
+        return getattr(self._ctx, k)
 
 
 ISO_15686_5 = ("construction", "operation", "maintenance", "end of life", "non-construction", "income",
@@ -102,51 +135,64 @@ def lcc(ctx, model_id, iterations=2000, seed=42):
         if esc[k] <= -1:
             raise calc.LCAError("A price escalation must be above -100 % per year.")
     residual_on = sc.get("lcc_residual", True) is not False
-    share = calc.allocation_share(sc)
-    rows, n_unc, sampled = [], 0, []
+    T = period if period > 0 else None
+
+    def value(it):
+        """Purchases, residual value and their discounted values of one cost item."""
+        e = esc.get(it["cost_type"] or "not classified", esc.get("all", 0.0))
+        c = d = res = res_d = 0.0
+        for t, life_end in it["purchases"]:
+            ct = it["c1"] * (1 + e) ** t
+            c += ct
+            d += ct / (1 + rate) ** t
+            # linear depreciation over the service life actually used; credited at the end of the study period
+            if residual_on and T is not None and life_end is not None and t < T < life_end - 1e-12:
+                r = -ct * (life_end - T) / (life_end - t)
+                res += r
+                res_d += r / (1 + rate) ** T
+        return c, d, res, res_d, e
+
+    rows, n_unc, sampled, details = [], 0, [], []
     for inp in model["inputs"]:
-        sign = -1.0 if inp["avoided"] else 1.0
-        year = float(inp.get("year") or 0)
         name = inp["label"] or inp["target"]["name"]
         stage = inp["stage"] or UNASSIGNED
-        ctype = inp.get("cost_type") or ""
-        e = esc.get(ctype or "not classified", esc.get("all", 0.0))
-        residual = residual_d = 0.0
-        if inp.get("unit_cost") is not None:
-            c1 = _input_amount(ctx, model_id, inp) * float(inp["unit_cost"]) * sign * share
-            years = [year]
-            R = float(inp.get("replace_every") or 0)
-            if R > 0 and period > 0:
-                k = 1
-                while year + k * R < period - 1e-9:
-                    years.append(year + k * R)
-                    k += 1
-            c = sum(c1 * (1 + e) ** y for y in years)
-            d = sum(c1 * (1 + e) ** y / (1 + rate) ** y for y in years)
-            if residual_on and R > 0 and period > 0 and years[-1] < period:
-                left = years[-1] + R - period
-                if left > 1e-12:
-                    residual = -c1 * (1 + e) ** years[-1] * left / R
-                    residual_d = residual / (1 + rate) ** period
-            src = "line"
-            if inp.get("cost_gsd"):
-                sampled.append((len(rows), float(inp["cost_gsd"])))
-        elif inp["kind"] == "model":
-            sub = ctx.model(inp["ref_id"])
-            st, sd, n_c, n_u = _model_cost(ctx, inp["ref_id"], rate, 1, year)
-            if not n_c:
-                n_unc += 1
-                continue
-            k = calc.line_amount(ctx, model_id, inp) / (sub["amount"] or 1.0) * sign * share
-            c, d, src, years = st * k, sd * k, "sub-model", [year]
-        else:
+        items, unc = [], []
+        if inp.get("unit_cost") is None and inp["kind"] != "model":
             n_unc += 1
             continue
-        rows.append({"input_id": inp["id"], "name": name, "stage": stage, "year": year, "cost": c + residual,
-                     "discounted": d + residual_d, "purchases": c, "residual_value": residual,
-                     "residual_discounted": residual_d, "escalation_percent": e * 100, "cost_type": ctype,
-                     "replacements": (len(years) - 1) if src == "line" else 0, "cost_gsd": inp.get("cost_gsd"),
-                     "module_d": calc.is_module_d(sc, inp["stage"]), "source": src, "revenue": c + residual < 0})
+        # the line itself, or its sub-model with every level below, through the same purchase rules
+        one = dict(model, inputs=[inp])
+        ctx_one = _OneLine(ctx, model_id, one)
+        _cost_items(ctx_one, model_id, 1.0, [(0.0, T, None)], [], 0, items, unc)
+        if not items:
+            n_unc += 1
+            continue
+        c = d = residual = residual_d = 0.0
+        e_line = None
+        for it in items:
+            ci, di, ri, rdi, e = value(it)
+            c += ci
+            d += di
+            residual += ri
+            residual_d += rdi
+            e_line = e if e_line is None else e_line
+            if it["gsd"]:
+                sampled.append(((it["model_id"], it["input_id"]), it["gsd"], len(rows), di + rdi))
+            if inp["kind"] == "model":
+                details.append({"line": name, "path": " > ".join(it["path"]), "purchases": len(it["purchases"]),
+                                "first_year": it["purchases"][0][0] if it["purchases"] else None,
+                                "cost": ci + ri, "discounted": di + rdi, "residual_value": ri,
+                                "escalation_percent": e * 100, "cost_type": it["cost_type"] or "not classified",
+                                "cost_gsd": it["gsd"]})
+        src = "line" if inp["kind"] != "model" or inp.get("unit_cost") is not None else "sub-model"
+        rows.append({"input_id": inp["id"], "name": name, "stage": stage, "year": float(inp.get("year") or 0),
+                     "cost": c + residual, "discounted": d + residual_d, "purchases": c, "residual_value": residual,
+                     "residual_discounted": residual_d,
+                     "escalation_percent": (e_line or 0.0) * 100 if src == "line" else None,
+                     "cost_type": inp.get("cost_type") or "",
+                     "replacements": sum(len(it["purchases"]) for it in items) - len(items),
+                     "cost_gsd": inp.get("cost_gsd"), "module_d": calc.is_module_d(sc, inp["stage"]), "source": src,
+                     "priced_lines": len(items), "unpriced_lines_below": len(unc), "revenue": c + residual < 0})
     ac = [r for r in rows if not r["module_d"]]
     stages = []
     for r in ac:
@@ -162,15 +208,19 @@ def lcc(ctx, model_id, iterations=2000, seed=42):
         by_type[t]["discounted"] += r["discounted"]
     total_d = sum(r["discounted"] for r in ac)
     unc = None
-    samp = [(i, g) for i, g in sampled if not rows[i]["module_d"]]
+    samp = [(key, g, i, v) for key, g, i, v in sampled if not rows[i]["module_d"]]
     if samp:
         rng = np.random.default_rng(seed)
         n = int(max(200, min(iterations, 20000)))
         tot = np.full(n, total_d)
-        for i, g in samp:
-            # a price known within a factor g: lognormal multiplier with median 1 on every cost of the line
-            tot += rows[i]["discounted"] * (np.exp(rng.standard_normal(n) * math.log(g)) - 1.0)
-        unc = {"iterations": n, "lines": len(samp), "median": float(np.median(tot)), "mean": float(tot.mean()),
+        draws = {}
+        for key, g, i, v in samp:
+            # a price known within a factor g: lognormal multiplier with median 1 on every cost of that priced line,
+            # the same draw wherever the line is used (one price)
+            if key not in draws:
+                draws[key] = np.exp(rng.standard_normal(n) * math.log(g))
+            tot += v * (draws[key] - 1.0)
+        unc = {"iterations": n, "lines": len(draws), "median": float(np.median(tot)), "mean": float(tot.mean()),
                "p2_5": float(np.percentile(tot, 2.5)), "p97_5": float(np.percentile(tot, 97.5))}
     rows.sort(key=lambda r: -abs(r["cost"]))
     return {"currency": (sc.get("lcc_currency") or "EUR").strip() or "EUR", "rate_percent": rate * 100,
@@ -181,13 +231,17 @@ def lcc(ctx, model_id, iterations=2000, seed=42):
             "beyond_boundary": sum(r["cost"] for r in rows if r["module_d"]), "by_stage": by_stage,
             "by_type": list(by_type.values()), "study_period": period, "lines": rows,
             "n_costed": len(rows), "n_uncosted": n_unc, "iso_categories": list(ISO_15686_5),
+            "sub_model_items": details,
             "note": "Costs per functional unit from the prices entered in step 3 (price per unit of the amount). "
                     "Credit lines with a price count as revenue. Each purchase is escalated with the real price "
                     "escalation of its cost type and discounted with the rate in step 2 and its year (net present cost, "
                     "ISO 15686-5). A line with a replacement interval is bought again every interval within the study "
                     "period, and the remaining service life of its last purchase is credited at the end of the period "
-                    "(residual value, linear). Module D lines are reported apart. Only the costs you entered are "
-                    "included: lines without a price count as zero."}
+                    "(residual value, linear). Sub-models follow the same rules at every level: their priced lines are bought "
+                    "with the sub-model, replaced within it, escalated by their own cost type and sampled with their own "
+                    "price uncertainty; a sub-model replaced every R years buys its lines again each time. Module D "
+                    "lines are reported apart. Only the costs you entered are included: lines without a price count as "
+                    "zero."}
 
 
 # ============================================================================ water inventory

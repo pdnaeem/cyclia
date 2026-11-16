@@ -785,7 +785,8 @@ class TestApi(Base):
             with urllib.request.urlopen(req) as r:
                 code, data = r.status, json.loads(r.read())
         except urllib.error.HTTPError as e:
-            code, data = e.code, json.loads(e.read())
+            with e:
+                code, data = e.code, json.loads(e.read())
         self.assertEqual(code, expect, data)
         return data
 

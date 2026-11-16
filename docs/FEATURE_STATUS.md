@@ -1,6 +1,6 @@
 # Cyclia feature status
 
-Status of Cyclia 1.8.1, checked against the source code, the automated tests and the validation records. A feature
+Status of Cyclia 1.8.2, checked against the source code, the automated tests and the validation records. A feature
 counts as **validated** only when its calculation is compared with independent reference results. Interface
 elements alone do not count.
 
@@ -16,7 +16,7 @@ elements alone do not count.
 | Feature | Status | Evidence and limits |
 |---|---|---|
 | Matrix LCA (sparse LU, loops, nested models) | Validated | 35 validation systems with exact answers; independent second implementation ([cross validation](CROSS_VALIDATION.md)); ecoinvent benchmark |
-| Agreement with ecoinvent's LCIA results (EF 3.1, cut-off) | Validated | 100 % of 2,500 results within 0.1 %, median 3.9e-07 % ([report](VALIDATION_ECOINVENT.md)) |
+| Agreement with ecoinvent's LCIA results (EF 3.1, cut-off) | Validated | 100 % of 2,500 results within 0.1 %, median 3.9e-07 %, run with Cyclia 1.3.10 and not yet repeated on the current release; the Benchmark Centre records each new run ([report](VALIDATION_ECOINVENT.md)) |
 | Inventory check against ecoinvent's cumulative LCI | Validated | Splits each deviation into inventory and factor parts; found the land use cause |
 | Units and conversions | Validated | Unit families, conversion tests, unknown-unit check in the database check |
 | Parameters, formulas, scenarios | Implemented | Tests of formula evaluation and scenario switching |
@@ -72,10 +72,10 @@ elements alone do not count.
 | Feature | Status | Evidence and limits |
 |---|---|---|
 | Guided ISO 14044 workflow | Implemented | Six steps with checks |
-| Allocation: mass, economic, energy, physical, manual; system expansion; avoided products | Implemented | Allocation overview per project; a side-by-side comparison of allocation choices is planned |
+| Allocation: mass, economic, energy, physical, manual; system expansion; avoided products | Implemented | Allocation overview per project; side-by-side comparison of allocation choices for a custom process and for a model (rows below) |
 | Circular Footprint Formula (PEF) | Validated | Hand-calculated reference test |
 | EN 15804+A2 modules A to D | Validated | Module reconciliation checked before an EPD is written |
-| Flow diagram | Partial | Arrangeable diagram of the model, a click opens the line; custom processes are connected and edited in their own diagram; model inventories are still edited in tables |
+| Flow diagram | Implemented | Arrangeable diagram of the model, in which the inventory is edited (lines moved between stages or to a new stage, amounts, credits, removal); custom processes are connected and edited in their own diagram |
 | Background scenarios (prospective, consequential) | Implemented | premise and Activity Browser scenario files |
 
 ## Uncertainty and sensitivity
@@ -93,10 +93,10 @@ elements alone do not count.
 | Feature | Status | Evidence and limits |
 |---|---|---|
 | Social LCA screening | Partial | Screening of worker hours and risk hours per stakeholder with imported PSILCA, SOCA or own data, with hand-calculated tests of activity levels, waste treatment, credits and coverage |
-| Social LCA subcategory assessment (Type I) | Implemented | UNEP 2020 stakeholder categories and subcategories, performance reference points on the -2 to +2 scale, activity-variable weighting, coverage, site-specific share, hotspots and missing subcategories; hand-calculated tests. Cyclia ships no social data; impact pathways (Type II) are not included |
+| Social LCA subcategory assessment (Type I) | Implemented | UNEP 2020 stakeholder categories and subcategories, performance reference points on the -2 to +2 scale, activity-variable weighting, coverage, site-specific share, hotspots and missing subcategories; finite weights on one activity variable, no score where they cannot be combined (1.8.2); hand-calculated tests. Cyclia ships no social data; impact pathways (Type II) are not included |
 | Material flow analysis | Implemented | Dynamic stocks, lifetimes, recycling loops, collection rate, recycling efficiency and end-of-life recycling rate, Material Circularity Indicator (reference values of the Ellen MacArthur Foundation methodology), visual builder |
-| MFA integrated with LCA | Implemented | Impacts year by year from the MFA quantities: production charged on virgin input, recycling, losses, credits for recovered material with a substitution ratio, gross and net; tests that every part equals quantity x factor x unit impact |
-| Life cycle costing | Implemented | ISO 15686-5: prices per line, discounting, cost types including the ISO 15686-5 categories, replacements, residual value at the end of the study period, real price escalation per cost type, price uncertainty with a Monte Carlo interval; hand-calculated tests |
+| MFA integrated with LCA | Implemented | Impacts year by year from the MFA quantities: production charged on virgin input, recycling, losses, credits for recovered material with a substitution ratio, gross and net; tests that every part equals quantity x factor x unit impact; inflows, coefficients, lifetimes and factors must be finite, inflows non-negative (1.8.2) |
+| Life cycle costing | Implemented | ISO 15686-5: prices per line, discounting, cost types including the ISO 15686-5 categories, replacements, residual value at the end of the study period, real price escalation per cost type, price uncertainty with a Monte Carlo interval; the same rules for priced lines inside sub-models at every level (1.8.2), one price draw per line wherever it is used; hand-calculated tests |
 | Allocation choices of a model | Implemented | Results under mass, economic, energy, physical, manual allocation and without allocation, side by side; each equal to a full calculation under that basis (tested) |
 
 ## Reports and declarations

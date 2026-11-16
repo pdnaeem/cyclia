@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.2 (2026-11-15)
+
+- 
+
 ## 1.8.1 (2026-11-15)
 
 Corrections to 1.8.0. The calculations are unchanged.

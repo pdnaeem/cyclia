@@ -64,6 +64,65 @@ class TestLCC(unittest.TestCase):
         self.assertAlmostEqual(u["p2_5"], 100 * 1.5 ** -1.96, delta=0.06 * 100 * 1.5 ** -1.96)
 
 
+class TestNestedLCC(unittest.TestCase):
+    """Sub-models follow the line rules at every level (1.8.2). Child model: one pump at 100 per unit."""
+    setUp = TestLCC.setUp
+    tearDown = TestLCC.tearDown
+
+    def child(self, **line):
+        c = self.st.save_model({"name": "child", "product": "c", "unit": "unit", "amount": 1,
+                                "scope": {"goal": "g", "boundary": "cradle-to-gate"}})
+        iid = self.st.add_input(c, "activity", self.a, 1.0)
+        self.st.update_input(iid, {"unit_cost": 100, **line})
+        return c
+
+    def parent(self, scope, children, **line):
+        m = self.st.save_model({"name": "parent", "product": "p", "unit": "unit", "amount": 1,
+                                "scope": {"goal": "g", "boundary": "cradle-to-grave", **scope}})
+        for c in children:
+            iid = self.st.add_input(m, "model", c, 1.0)
+            if line:
+                self.st.update_input(iid, line)
+        return analysis.lcc(calc.Context(self.st), m)
+
+    def test_replacements_of_a_child_line(self):
+        r = self.parent({"lcc_period": 20}, [self.child(replace_every=5)])
+        self.assertAlmostEqual(r["total"], 400, places=9)               # 0, 5, 10, 15
+        self.assertEqual(r["lines"][0]["replacements"], 3)
+        r = self.parent({"lcc_period": 20}, [self.child(replace_every=6)])
+        self.assertAlmostEqual(r["total"], 400 - 100 * 4 / 6, places=9)   # 0, 6, 12, 18; 4 of 6 years left
+        self.assertAlmostEqual(r["residual_value"], -100 * 4 / 6, places=9)
+        self.assertEqual(r["sub_model_items"][0]["path"], "child > pump")
+
+    def test_escalation_and_discounting_of_a_child_line(self):
+        c = self.child(replace_every=5, cost_type="maintenance")
+        r = self.parent({"lcc_period": 20, "lcc_rate": 3, "lcc_escalation": {"maintenance": 2}}, [c])
+        ys = (0, 5, 10, 15)
+        self.assertAlmostEqual(r["total"], sum(100 * 1.02 ** y for y in ys), places=9)
+        self.assertAlmostEqual(r["total_discounted"], sum(100 * 1.02 ** y / 1.03 ** y for y in ys), places=9)
+
+    def test_child_replaced_with_its_sub_model(self):
+        # the sub-model is replaced every 10 years; inside it the pump every 4 years
+        r = self.parent({"lcc_period": 20}, [self.child(replace_every=4)], replace_every=10)
+        self.assertAlmostEqual(r["total"], 600, places=9)               # 0, 4, 8 | 10, 14, 18
+        r = self.parent({"lcc_period": 25}, [self.child(replace_every=4)], replace_every=10)
+        # ... | 20, 24; the pump bought in year 24 has 3 of its 4 years left at 25
+        self.assertAlmostEqual(r["total"], 800 - 75, places=9)
+
+    def test_child_price_uncertainty(self):
+        c = self.child(replace_every=5, cost_gsd=2.0)
+        r = self.parent({"lcc_period": 20}, [c, c])                    # the same child twice: one price
+        u = r["uncertainty"]
+        self.assertEqual(u["lines"], 1)
+        self.assertAlmostEqual(u["median"] / r["total_discounted"], 1.0, delta=0.08)
+        self.assertAlmostEqual(u["p97_5"] / u["median"], 2.0 ** 1.96, delta=0.4)
+        self.assertAlmostEqual(u["p2_5"] / u["median"], 2.0 ** -1.96, delta=0.05)
+
+    def test_without_period_a_child_is_bought_once(self):
+        r = self.parent({}, [self.child(replace_every=5)])
+        self.assertAlmostEqual(r["total"], 100, places=9)
+
+
 if __name__ == "__main__":
     unittest.main()
 

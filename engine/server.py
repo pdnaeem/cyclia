@@ -59,7 +59,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -199,6 +199,12 @@ def _check_path(p, must_exist=True):
 
 
 ROUTES = []
+
+
+def _no_constant(name):
+    """NaN and Infinity are not numbers of an inventory: refuse them in every request (JSON has no such values;
+    Python's reader would otherwise accept them)."""
+    raise ValueError(f"'{name}' is not a valid number.")
 
 
 def route(method, pattern):
@@ -3034,9 +3040,11 @@ def make_handler(st, token):
                     return self._send(413, {"error": "Request too large"})
                 if n:
                     try:
-                        body = json.loads(self.rfile.read(n) or b"{}")
+                        body = json.loads(self.rfile.read(n) or b"{}", parse_constant=_no_constant)
                     except json.JSONDecodeError:
                         return self._send(400, {"error": "Invalid JSON"})
+                    except ValueError as e:
+                        return self._send(400, {"error": str(e)})
                 if not isinstance(body, dict):
                     return self._send(400, {"error": "Expected a JSON object"})
             for m, rx, fn in ROUTES:

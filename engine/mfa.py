@@ -60,6 +60,19 @@ def retirement(lifetime, n):
     raise ValueError("Lifetime type must be fixed, normal or weibull.")
 
 
+def _finite(v, what, low=None):
+    """A finite number (not NaN or infinite), at least low when given."""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"{what} must be a number.")
+    if not math.isfinite(x):
+        raise ValueError(f"{what} must be a finite number.")
+    if low is not None and x < low:
+        raise ValueError(f"{what} must be at least {low:g}.")
+    return x
+
+
 def validate(defn):
     procs = defn.get("processes") or []
     if not procs:
@@ -71,7 +84,7 @@ def validate(defn):
     for f in defn.get("flows") or []:
         if f.get("from") not in pid or f.get("to") not in pid:
             raise ValueError(f"Flow {f.get('from')} -> {f.get('to')}: both ends must be defined processes.")
-        if not 0 <= float(f.get("share", -1)) <= 1:
+        if not 0 <= _finite(f.get("share", -1), f"Flow {f.get('from')} -> {f.get('to')}: the transfer coefficient") <= 1:
             raise ValueError(f"Flow {f['from']} -> {f['to']}: the transfer coefficient must be between 0 and 1.")
     for p in procs:
         if p.get("sink"):
@@ -84,11 +97,27 @@ def validate(defn):
                              "(send losses to a sink).")
         if p.get("stock") and not p.get("lifetime"):
             raise ValueError(f"The stock '{p['id']}' needs a lifetime.")
+        if p.get("stock"):
+            for k in ("mean", "sd", "shape", "scale"):
+                if k in p["lifetime"] and p["lifetime"][k] not in (None, ""):
+                    _finite(p["lifetime"][k], f"The lifetime {k} of '{p['id']}'", 0)
     for e in defn.get("inflows") or []:
         if e.get("to") not in pid:
             raise ValueError("Every external inflow must go to a defined process.")
+        for yr, v in (e.get("values") or {}).items():
+            try:
+                int(yr)
+            except (TypeError, ValueError):
+                raise ValueError(f"The inflow to '{e['to']}' has the year '{yr}', which is not a whole number.")
+            # an inflow enters the system; material leaving it is a flow to a sink, never a negative inflow
+            # (a negative inflow would be offset against the losses and hide a mass balance error)
+            _finite(v, f"The inflow to '{e['to']}' in {yr}", 0)
     y = defn.get("years") or []
-    if len(y) != 2 or int(y[1]) < int(y[0]):
+    try:
+        bad = len(y) != 2 or int(y[1]) < int(y[0])
+    except (TypeError, ValueError):
+        bad = True
+    if bad:
         raise ValueError("Give the first and last year, e.g. [2020, 2050].")
     return True
 
@@ -299,9 +328,9 @@ def lca(store, defn, method_ids, links):
         if pid not in procs:
             raise ValueError(f"'{pid}' is not a process of the MFA system.")
         kind, ref = ln.get("kind", "activity"), int(ln["id"])
-        f = float(ln.get("factor", 1.0))
+        f = _finite(ln.get("factor", 1.0), f"The factor of the link of '{pid}'", 0)
         avoided = bool(ln.get("avoided"))
-        sub = float(ln.get("substitution", 1.0)) if avoided else 1.0
+        sub = _finite(ln.get("substitution", 1.0), f"The substitution ratio of '{pid}'") if avoided else 1.0
         if avoided and not 0 < sub <= 1:
             raise ValueError("The substitution ratio of a credit lies between 0 and 1.")
         if kind == "activity":

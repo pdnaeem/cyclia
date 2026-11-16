@@ -1,7 +1,9 @@
 # Cyclia: calculation methods
 
-This document describes how Cyclia 1.1 computes results, so that a study can be reproduced and reviewed.
-Cite the software as: *Cyclia v1.1 (NielloSoft, 2026). Life cycle assessment software.*
+This document describes how Cyclia computes results, so that a study can be reproduced and reviewed. Sections
+1 to 11 describe the core added in 1.1; later sections give the version in which each method was added or changed.
+Cite the software as: Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers*
+(version 1.8.2) [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 ## 1. Inventory model
 
@@ -438,6 +440,32 @@ Cost types include the ISO 15686-5 categories: construction, operation, maintena
 income and externalities. Results are given by line, stage and cost type. Tests: replacements and residual value
 (300 − 50), escalation with discounting, and the lognormal interval of the price, all by hand.
 
+**Sub-models (1.8.2).** The priced lines of sub-models follow the same rules at every level, with the study period,
+discount rate and escalation rates of the study.
+
+A sub-model is in use during windows (start, end, end of life):
+- the top model has one window (0, T);
+- a sub-model line in year y with replacement interval R is bought at y + kR within its parent's window, and each
+  purchase opens a window (t, min(t + R, end of the parent window)) whose service life ends at t + R.
+
+Inside a window, a priced line is bought at start + y + kR while that is before the end of the window. Its service
+life ends at its own t + R or at the end of the window's life, whichever is earlier. The residual value of a
+purchase that is still in service at T is −c (1 + e)^t (L − T)/(L − t), with L the end of its service life. It is
+credited in year T, and reduces to the formula above for a line of the top model.
+
+Price uncertainty is sampled once per priced line: the same price wherever the line is used. Lines without a price
+count as zero.
+
+Until 1.8.1 a sub-model counted its prices once, without replacements, escalation, residual value or price
+uncertainty.
+
+Tests (hand calculation, child line at 100):
+- replaced every 5 years over 20 years: 400;
+- every 6 years: 400 − 100 × 4/6;
+- escalation 2 % with discounting at 3 %: Σ 100 × 1.02^y / 1.03^y over y = 0, 5, 10, 15;
+- the sub-model replaced every 10 years and its pump every 4 years: 600 over 20 years, and 800 − 75 over 25 years;
+- the same child used twice with GSD 2 gives one draw: p97.5 / median ≈ 2^1.96.
+
 ### 12.6 AWARE water scarcity (Toolbox > Regional methods)
 
 Water consumption of every process per functional unit, from the engine's scaling vector:
@@ -603,6 +631,16 @@ Since 1.7.0 a link is counted on one of three quantities:
 
 A credit (system expansion) for the recovered material counts −quantity × factor × substitution ratio × impact
 per unit of the primary material it replaces. The substitution ratio is at most 1 and reflects quality losses.
+
+**Inputs (1.8.2).** The following must be finite numbers:
+- external inflows, which must also be zero or positive;
+- transfer coefficients, from 0 to 1;
+- lifetime parameters, zero or positive;
+- link factors, zero or positive.
+
+Material that leaves the system is a flow to a sink. A negative inflow used to be offset against the losses and
+showed a closed mass balance; it is now refused. The years of inflows are whole numbers. NaN and Infinity are
+refused in every request to the engine.
 
 Results are given per year and cumulatively:
 - by process;
@@ -880,7 +918,15 @@ hours per functional unit). For a subcategory, the indicators of one organisatio
 subcategory score is sum_o w_o s_o / sum_o w_o. Coverage = sum_o w_o / W, with W the total activity variable of the
 product system that the user states. Scores are not aggregated across subcategories or stakeholders; the lowest
 score per stakeholder and the rows at -1 or -2 (hotspots) are reported. Subcategories with no row are listed as
-missing unless excluded with a reason. Mixed weight units are flagged. Cyclia ships no social data. Test: Fair
+missing unless excluded with a reason. Cyclia ships no social data.
+
+**Weights (1.8.2).** Weights and the total must be positive, finite numbers. Weights are expressed on one activity
+variable: the unit of the scope, or of the first row.
+- Weights in units of the same kind are converted (60 min = 1 h).
+- A subcategory with a weight that cannot be converted gets no score, with the reason. A warning names the units.
+- An organisation whose rows give different weights in one subcategory also gets no score there.
+
+Mixed units are therefore never averaged into a score. Test: Fair
 salary (3 h at +1, 1 h at -2) = 0.25, coverage 50 %, site-specific share 75 %; Working hours with two indicators of
 one factory = -0.5.
 

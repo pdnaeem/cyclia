@@ -331,6 +331,11 @@ Following ISO 15686-5, Cyclia also handles:
   a factor 1.2, roughly two times in three. The Summary then shows the 95 % range of the net present cost.
 - **Cost types** include the ISO 15686-5 categories: construction, operation, maintenance, end of life,
   non-construction, income and externalities.
+- **Prices inside sub-models** follow the same rules, with the study period, discount rate and escalation of the
+  study. A pump replaced every 5 years inside a sub-model is bought again every 5 years, with its own cost type,
+  escalation and price uncertainty. If the line that uses the sub-model has its own replacement interval, the whole
+  sub-model is bought again each time, and its parts start again with it. **Priced lines inside sub-models**, below
+  the cost table, lists each of them with its purchases.
 
 **Compare allocation choices** (step 2, allocation, when the model has co-products) shows the results under mass,
 economic, energy, physical and manual allocation, and without allocation, for the categories of step 4. A choice
@@ -959,7 +964,10 @@ every factor is decided. Give the factors or record why the category does not ap
   comparative Monte Carlo. When an alternative is in a unit of another kind than the line (kg instead of m3),
   Cyclia asks you to check that the amounts give the same function. To move parameters within a range instead,
   use Optimisation and trade-offs in step 5.
-- **Social screening, and the subcategory assessment (Type I).** The lower part of the tab is the assessment
+- **Social screening, and the subcategory assessment (Type I).** In the subcategory assessment, give every weight
+  in one activity variable, for example worker hours. Hours and minutes are converted. A subcategory whose rows mix
+  variables that cannot be converted (hours and euros), or give one organisation two different weights, shows "No
+  score" with the reason instead of a misleading average. The lower part of the tab is the assessment
   proper, after the UNEP 2020 guidelines:
   - choose a stakeholder category (workers, local community, value chain actors, consumers, society or children)
     and one of its subcategories;

@@ -160,7 +160,10 @@
         ${Object.keys(lc.escalation || {}).length ? `<p class="hint">Real price escalation: ${Object.entries(lc.escalation).map(([k, v]) => `${esc(k)} ${v} % per year`).join(", ")}.</p>` : ""}
         <div class="table-wrap"><table><thead><tr><th>Line</th><th>Stage</th><th class="num">Cost</th>${lc.rate_percent ? '<th class="num">Discounted</th>' : ""}</tr></thead><tbody>` +
         lc.lines.slice(0, 12).map((l) => `<tr><td>${esc(l.name)}${l.source === "sub-model" ? ' <span class="hint">(from its model)</span>' : ""}${l.revenue ? ' <span class="hint">(revenue)</span>' : ""}</td><td>${esc(l.stage)}</td><td class="num">${money(l.cost, lc.currency)}</td>${lc.rate_percent ? `<td class="num">${money(l.discounted, lc.currency)}</td>` : ""}</tr>`).join("") +
-        `</tbody></table></div>` + (types.length > 1 || (types[0] && types[0].type !== "not classified") ? `<p>By cost type: ${types.map((t) => `${esc(t.type)} ${money(t.cost, lc.currency)}`).join("; ")}.</p>` : "") +
+        `</tbody></table></div>` +
+        ((lc.sub_model_items || []).length ? `<details><summary>Priced lines inside sub-models (${lc.sub_model_items.length})</summary><div class="table-wrap"><table><thead><tr><th>Line</th><th class="num">Purchases</th><th>Cost type</th><th class="num">Cost</th>${lc.rate_percent ? '<th class="num">Discounted</th>' : ""}</tr></thead><tbody>` +
+          lc.sub_model_items.map((x) => `<tr><td>${esc(x.path)}</td><td class="num">${x.purchases}</td><td>${esc(x.cost_type)}${x.escalation_percent ? ` (${fmt(x.escalation_percent)} % per year)` : ""}${x.cost_gsd ? `, price GSD ${fmt(x.cost_gsd)}` : ""}</td><td class="num">${money(x.cost, lc.currency)}</td>${lc.rate_percent ? `<td class="num">${money(x.discounted, lc.currency)}</td>` : ""}</tr>`).join("") + "</tbody></table></div></details>" : "") +
+        (types.length > 1 || (types[0] && types[0].type !== "not classified") ? `<p>By cost type: ${types.map((t) => `${esc(t.type)} ${money(t.cost, lc.currency)}`).join("; ")}.</p>` : "") +
         `<p class="hint">${esc(lc.note)}${lc.n_uncosted ? ` ${lc.n_uncosted} line(s) have no price.` : ""}</p>`;
     }
     if (w) {

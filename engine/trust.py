@@ -472,13 +472,19 @@ def read_lcia_results(path, progress=lambda *a: None, family=""):
         raise ValueError("No sheet with an 'Activity Name' or 'Activity UUID_Product UUID' column was found. This does "
                          f"not look like ecoinvent's cumulative LCIA results file. Sheets: {', '.join(wb.sheetnames[:10])}.")
     fam = _norm(family)
-    named = [x for x in sheets if fam and (_norm(x[0].title) == fam or fam in _norm(x[0].title))]
+    # Excel limits sheet names to 31 characters: a sheet named with the first 31 characters of the family counts
+    named = [x for x in sheets if fam and (_norm(x[0].title) == fam or fam in _norm(x[0].title) or
+                                           (len(x[0].title) == 31 and fam.startswith(_norm(x[0].title))))]
     if named:
         exact = [x for x in named if _norm(x[0].title) == fam]
         sheets = exact or named
     all_cols, rows = [], {}
     for si, (ws, top, h) in enumerate(sheets):
         ids, data_start, cols = _parse_sheet(ws, top, h)
+        if fam and len(ws.title) == 31 and _norm(ws.title) != fam and fam.startswith(_norm(ws.title)):
+            # the sheet name is the family cut by Excel: label its columns with the full family name
+            for c in cols:
+                c["labels"] = [family if lb == ws.title else lb for lb in c["labels"]]
         all_cols += cols
         for n, r in enumerate(ws.iter_rows(min_row=data_start + 1, values_only=True)):
             if not r or all(v in (None, "") for v in r):

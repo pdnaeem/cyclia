@@ -141,4 +141,49 @@ categories that are zero) fixed in the solve and in the EPD check.
 Benchmark against ecoinvent recorded: 100 % of 2,500 results within 0.1 % (docs/VALIDATION_ECOINVENT.md). The
 land use item of the earlier benchmarks is closed.
 
+
+## 2k. 1.4.2
+
+Documentation, website and in-app wording; release history moved to this file. The calculation is unchanged.
+
+## 2l. 1.5.0
+
+Stage P0 of the development plan (docs/quality/ACCEPTANCE_1.5.0.md): comparison with Brightway on every platform,
+comparative conclusions with their sampling error, corrections to social screening (waste treatment), MFA rates and
+AWARE notes, validation of every ecoinvent method.
+
+## 2m. 1.6.0 to 1.6.2
+
+Custom data entry (docs/quality/ACCEPTANCE_1.6.0.md, 1.6.1, 1.6.2):
+- own databases, flows, processes, exchanges and factors, with identifiers, provenance, history and unit checks;
+- a factor that is not known is never counted as zero;
+- parameters, formulas and their uncertainty in the Monte Carlo;
+- co-products with five allocation bases;
+- user-defined units;
+- diagram editors for custom processes and model inventories;
+- versions with undo and restore;
+- the Benchmark Centre;
+- recursive provenance of results.
+
+## 2n. 1.7.0
+
+ISO 15686-5 life cycle costing (escalation, residual value, price uncertainty), MFA linked to the LCA with credits,
+social subcategory assessment (UNEP 2020, Type I), comparison of allocation choices of a model, structure checks of
+AWARE, LANCA and USEtox packages (docs/quality/ACCEPTANCE_1.7.0.md).
+
+## 2o. 1.8.0 and 1.8.1
+
+Professional platform (docs/quality/ACCEPTANCE_1.8.0.md): supplier data requests, collaborative critical review,
+optimisation of discrete choices, Sobol indices with parameters of custom data, regionalised factors with country
+fallback and coverage. 1.8.1 corrected the recording of ecoinvent benchmarks in the Benchmark Centre and the review
+merge on coarse clocks.
+
+## 2p. 1.8.2
+
+Scientific reliability release after the audit of 1.8.1 (docs/quality/ACCEPTANCE_1.8.2.md): life cycle costing
+through every level of sub-models, finite and non-negative MFA inputs, finite social weights on one activity
+variable, NaN and Infinity refused in every request, sheet names cut by Excel matched in the ecoinvent results.
+Open: a fresh ecoinvent benchmark on 1.8.2 (the recorded one is the 1.3.10 run of 1.4.1), ReCiPe and CML reference
+comparisons, openLCA, the official AWARE, LANCA and USEtox packages.
+
 ---

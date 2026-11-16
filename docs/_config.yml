@@ -1,10 +1,14 @@
 # GitHub Pages site for Cyclia (Settings > Pages > Deploy from a branch > main, /docs)
 title: Cyclia
-description: Free, open-source life cycle assessment (LCA) software for students, researchers and consultants.
+tagline: Free, open-source LCA software
+description: >-
+  Cyclia is free, open-source life cycle assessment (LCA) software for Windows, macOS and Linux: an ISO 14040/14044
+  study without programming, with ecoinvent, your own data, EPD, carbon footprint, uncertainty and costing.
 url: https://pdnaeem.github.io
 baseurl: /cyclia
 author: Naeem Ur Rehman
 lang: en
+locale: en_GB
 theme: jekyll-theme-primer
 plugins:
   - jekyll-seo-tag
@@ -14,13 +18,61 @@ relative_links:
   enabled: true
   collections: false
 image: /images/social-preview.png
+logo: /images/icon.png
 social:
-  name: Naeem Ur Rehman
+  name: Cyclia
   links:
-    - https://github.com/pdnaeem
+    - https://github.com/pdnaeem/cyclia
+    - https://doi.org/10.5281/zenodo.23853747
     - https://www.linkedin.com/in/pdnaeem/
+# Search engine verification: use the "HTML file" method of Google Search Console and Bing Webmaster Tools and put
+# the downloaded file (googlexxxx.html, BingSiteAuth.xml) in this docs folder. See maintainers/GITHUB_SETUP.md.
 exclude:
   - maintainers/
   - examples/*.csv
   - examples/*.json
   - examples/*.xml
+  - README.md
+# titles and descriptions of the documentation pages (search results show these)
+defaults:
+  - scope: { path: "" }
+    values:
+      image: /images/social-preview.png
+  - scope: { path: "USER_GUIDE.md" }
+    values:
+      title: "User guide: how to do a life cycle assessment in Cyclia"
+      description: "Step-by-step guide to a complete ISO 14040/14044 life cycle assessment in Cyclia, the free LCA software: databases, goal and scope, inventory, impact assessment, interpretation, reports, EPD and your own data."
+  - scope: { path: "METHODS.md" }
+    values:
+      title: "Calculation methods and equations"
+      description: "How Cyclia calculates LCA results: matrix inventory model, characterisation, allocation, Monte Carlo and Sobol, life cycle costing (ISO 15686-5), MFA, social LCA and regionalisation, with tests."
+  - scope: { path: "VALIDATION_ECOINVENT.md" }
+    values:
+      title: "Validation against ecoinvent's LCIA results"
+      description: "Benchmark of Cyclia against ecoinvent's published LCIA results (EF 3.1, cut-off): 100 % of 2,500 results within 0.1 %, run with Cyclia 1.3.10."
+  - scope: { path: "CROSS_VALIDATION.md" }
+    values:
+      title: "Cross validation with Brightway and an independent solver"
+      description: "Independent second calculation, comparison with Brightway on any database, and characterisation factor matching against openLCA and Brightway."
+  - scope: { path: "FEATURE_STATUS.md" }
+    values:
+      title: "Feature status: what is validated, implemented or partial"
+      description: "The status of every Cyclia feature, with the evidence behind it and what is not validated yet."
+  - scope: { path: "CHANGELOG.md" }
+    values:
+      title: "Changelog"
+      description: "Changes in every Cyclia release, with corrections and changed results."
+  - scope: { path: "ROADMAP.md" }
+    values:
+      title: "Roadmap, standards and comparison with other LCA software"
+      description: "Standards Cyclia follows (ISO 14040/14044, ISO 14067, ISO 14025, EN 15804+A2, PEF) and a comparison with openLCA, SimaPro, Sphera and Brightway."
+  - scope: { path: "DEVELOPMENT_PLAN.md" }
+    values:
+      title: "Development plan"
+      description: "Planned work on Cyclia in order of priority, with acceptance criteria."
+  - scope: { path: "releases" }
+    values:
+      sitemap: false
+  - scope: { path: "quality" }
+    values:
+      sitemap: false

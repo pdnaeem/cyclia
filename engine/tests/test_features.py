@@ -42,7 +42,8 @@ class Api:
                     raise AssertionError(f"{path} should have failed")
                 return out
         except urllib.error.HTTPError as e:
-            out = json.loads(e.read() or b"{}")
+            with e:
+                out = json.loads(e.read() or b"{}")
             if ok:
                 raise AssertionError(f"{method} {path}: {e.code} {out}")
             out["_code"] = e.code
@@ -61,6 +62,7 @@ class Api:
 
     def close(self):
         self.httpd.shutdown()
+        self.httpd.server_close()
         self.st.ws.close_all()
 
 
@@ -702,7 +704,7 @@ class TestOfficial(unittest.TestCase):
             ws = wb.create_sheet("Other method")
             ws.append(idh + ["something"])
             ws.append(["x", "y", "GLO", "z", "kg", 1.0])
-            ws = wb.create_sheet(demo.FAMILY)
+            ws = wb.create_sheet(demo.FAMILY[:31])       # Excel cuts sheet names at 31 characters
             ws.append([""] * 5 + [m["category"] for m in meths])
             ws.append(idh + [m["indicator"] for m in meths])
         for k, a in enumerate(acts):

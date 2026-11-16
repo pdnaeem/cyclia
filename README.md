@@ -20,6 +20,7 @@
 
 <p align="center">
   <a href="https://github.com/pdnaeem/cyclia/releases/latest"><b>Download</b></a>
+  &nbsp;·&nbsp; <a href="https://pdnaeem.github.io/cyclia/"><b>Website</b></a>
   &nbsp;·&nbsp; <a href="docs/USER_GUIDE.md">User guide</a>
   &nbsp;·&nbsp; <a href="docs/METHODS.md">Methods</a>
   &nbsp;·&nbsp; <a href="docs/VALIDATION_ECOINVENT.md">Validation</a>
@@ -27,7 +28,15 @@
   &nbsp;·&nbsp; <a href="#cite-cyclia">Cite</a>
 </p>
 
-![Cyclia LCA software showing impact assessment results per functional unit with guidance for interpretation](docs/images/results.png)
+![Cyclia LCA software: contribution analysis of a concrete wall by input, supply-chain process and elementary flow](docs/images/contributions.png)
+
+<table>
+<tr>
+<td width="33%" valign="top"><b>A complete ISO 14044 study</b><br>Six guided steps from goal and scope to a Word report with a methods paragraph for your thesis or paper.</td>
+<td width="33%" valign="top"><b>Your data, your databases</b><br>ecoinvent with your own licence, free databases, or your own processes and factors, with source and history kept.</td>
+<td width="33%" valign="top"><b>Checked, not assumed</b><br>Exact reference systems, comparison with Brightway on any database, and a benchmark against ecoinvent's own results.</td>
+</tr>
+</table>
 
 ## Contents
 
@@ -42,7 +51,7 @@
 
 ## What is Cyclia?
 
-Cyclia is a free desktop application for **life cycle assessment (LCA)**. It calculates the environmental impact
+Cyclia is a free, open-source desktop application for **life cycle assessment (LCA)** on Windows, macOS and Linux. It calculates the environmental impact
 of a product, material, building or service, from raw material extraction to end of life.
 
 Cyclia is made for people who need a credible, publishable LCA and do not program: master's and PhD students,
@@ -62,12 +71,12 @@ Cyclia checks its own calculations against independent references:
 
 | Check | Result |
 |---|---|
-| Comparison with ecoinvent's published LCIA results (EF 3.1, cut-off, 100 datasets, 25 categories) | **100 % of 2,500 results within 0.1 %**, median deviation 3.9e-07 % ([report](docs/VALIDATION_ECOINVENT.md)) |
+| Comparison with ecoinvent's published LCIA results (EF 3.1, cut-off, 100 datasets, 25 categories) | **100 % of 2,500 results within 0.1 %**, median deviation 3.9e-07 %, run with Cyclia 1.3.10; not yet repeated on the current release ([report](docs/VALIDATION_ECOINVENT.md)) |
 | Validation suite of 35 product systems with exact known answers | Run it in the app (Toolbox > Validation) and attach the report to your study |
 | Independent second calculation (rebuilt matrices, different solver) | Built in ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Comparison with Brightway (bw2calc) on the same database | All results within 1e-6, largest difference 1.4e-12; runs in the app on any database ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Characterisation factors compared with openLCA, Brightway or CSV factor sets | Flow by flow, with the effect of every difference |
-| Automated tests of the calculation engine | 328 tests (1.8.1), run on Windows, macOS and Linux for every change. A separate workflow installs Brightway at pinned versions and fails if its comparison tests are skipped |
+| Automated tests of the calculation engine | 343 tests (1.8.2), run on Windows, macOS and Linux for every change. A separate workflow installs Brightway at pinned versions and fails if its comparison tests are skipped |
 | Scientific Benchmark Centre | In the app (Toolbox > Validation): every check with its reference, result, differences and status; a check that did not run is never shown as validated |
 
 The status of every feature, including what is not validated yet, is listed in
@@ -134,9 +143,11 @@ The status of every feature, including what is not validated yet, is listed in
 **Teaching**
 - Exercises with automatic checking and an answer key
 
-| Guided first start | Impact assessment | Dark mode |
+| Inventory | Supply chain | Uncertainty |
 |---|---|---|
-| ![Cyclia welcome screen with a guided first LCA study](docs/images/welcome.png) | ![Choosing impact categories in Cyclia](docs/images/impact-assessment.png) | ![Cyclia life cycle inventory in dark mode](docs/images/dark-mode.png) |
+| ![Life cycle inventory with stages, formulas and data quality in Cyclia](docs/images/inventory.png) | ![Sankey diagram of the supply chain in Cyclia](docs/images/supply-chain.png) | ![Monte Carlo uncertainty of a climate change result in Cyclia](docs/images/uncertainty.png) |
+| **Your own data** | **Benchmark Centre** | **Dark mode** |
+| ![Entering your own process data in Cyclia](docs/images/own-data-lines.png) | ![Scientific Benchmark Centre with every validation check](docs/images/validation.png) | ![Cyclia contribution analysis in dark mode](docs/images/dark-mode.png) |
 
 ## Download and install
 
@@ -186,7 +197,7 @@ and to check for updates.
 
 If Cyclia helps your research, please cite it:
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.8.1)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.8.2)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [CITATION.cff](CITATION.cff). In the app,

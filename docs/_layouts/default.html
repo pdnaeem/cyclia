@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="{{ site.lang | default: 'en' }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d2620">
+{% seo %}
+<link rel="icon" type="image/png" href="{{ '/images/icon.png' | relative_url }}">
+<link rel="preload" href="{{ '/assets/fonts/fraunces.woff2' | relative_url }}" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="{{ '/assets/fonts/instrument-sans.woff2' | relative_url }}" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{{ '/assets/docs.css' | relative_url }}">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="{{ '/' | relative_url }}"><img src="{{ '/images/icon.png' | relative_url }}" alt="" width="28" height="28">Cyclia</a>
+    <nav aria-label="Documentation">
+      <a href="{{ '/USER_GUIDE.html' | relative_url }}">Guide</a>
+      <a href="{{ '/METHODS.html' | relative_url }}">Methods</a>
+      <a href="{{ '/VALIDATION_ECOINVENT.html' | relative_url }}">Validation</a>
+      <a href="{{ '/FEATURE_STATUS.html' | relative_url }}">Status</a>
+      <a href="{{ '/CHANGELOG.html' | relative_url }}">Changelog</a>
+      <a href="https://github.com/pdnaeem/cyclia">GitHub</a>
+    </nav>
+    <a class="dl" href="https://github.com/pdnaeem/cyclia/releases/latest">Download</a>
+  </div>
+</header>
+<div class="layout wrap">
+  <aside class="toc" aria-label="On this page"><p>On this page</p><ol id="toc"></ol></aside>
+  <main id="content" class="doc">
+{{ content }}
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p><a href="{{ '/' | relative_url }}">Cyclia</a>, free and open-source LCA software · MIT licence · <a href="https://doi.org/10.5281/zenodo.23853747">Cite Cyclia</a> · <a href="https://github.com/pdnaeem/cyclia/edit/main/docs/{{ page.path }}">Suggest a correction to this page</a></p>
+  </div>
+</footer>
+<script>
+(function () {
+  var hs = document.querySelectorAll(".doc h2[id]"), toc = document.getElementById("toc");
+  if (hs.length < 3) { document.querySelector(".toc").remove(); document.querySelector(".layout").classList.add("single"); return; }
+  hs.forEach(function (h) {
+    var li = document.createElement("li"), a = document.createElement("a");
+    a.href = "#" + h.id; a.textContent = h.textContent; li.appendChild(a); toc.appendChild(li);
+  });
+  if ("IntersectionObserver" in window) {
+    var links = toc.querySelectorAll("a");
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        links.forEach(function (l) { l.classList.toggle("on", l.getAttribute("href") === "#" + e.target.id); });
+      });
+    }, { rootMargin: "-10% 0px -80% 0px" });
+    hs.forEach(function (h) { io.observe(h); });
+  }
+})();
+</script>
+</body>
+</html>

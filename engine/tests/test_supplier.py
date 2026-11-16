@@ -95,6 +95,9 @@ class TestSupplierRequest(Base):
         self.assertEqual(it["data"]["data_type"], "primary")
         self.assertIn("plant A, 2025", it["source"])                       # the earlier source is kept
         self.assertEqual(supplier.requests(self.st, self.steel)[0]["status"], "received")
+        h = [x for x in cd.history(self.st, self.steel) if x["action"] == "supplier data applied"]
+        self.assertEqual(len(h), 1)
+        self.assertEqual(h[0]["author"], "me")
 
     def test_line_changed_after_request_is_not_overwritten(self):
         wb = self.request()

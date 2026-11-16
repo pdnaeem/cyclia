@@ -110,6 +110,21 @@ Still open, with the reason:
 These methods are declared complete only when their official factors, units, geographical mapping and
 calculations are validated.
 
+## Release 1.8.2: scientific reliability
+
+Done, after the audit of 1.8.1 (docs/quality/ACCEPTANCE_1.8.2.md):
+- life cycle costing through every level of sub-models;
+- MFA input checks;
+- social weights on one activity variable;
+- NaN and Infinity refused in every request.
+
+Next validation steps, which need software or data outside the project:
+- a fresh EF 3.1 benchmark against ecoinvent on the current release (the user's licence; the tool records it in the
+  Benchmark Centre);
+- ReCiPe 2016 and CML-IA comparisons with ecoinvent's results (the same tool, every installed method);
+- an openLCA 2 run of the comparison kit;
+- the official AWARE 2.0, LANCA and USEtox 2 packages and their reference results.
+
 ## Release 1.8.0: professional platform
 
 Done in 1.8.0:

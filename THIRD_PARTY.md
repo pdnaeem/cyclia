@@ -30,3 +30,7 @@ illustrative numbers written for Cyclia and must not be cited.
 
 - **Inter** (The Inter Project Authors), SIL Open Font License 1.1. Bundled in `app/ui/fonts/` as a Latin
   subset; licence text in `app/ui/fonts/LICENSE-Inter.txt`.
+- **Fraunces** (The Fraunces Project Authors), **Instrument Sans** (The Instrument Sans Project Authors) and
+  **JetBrains Mono** (The JetBrains Mono Project Authors), SIL Open Font License 1.1. Used by the website only;
+  bundled in `docs/assets/fonts/` as Latin subsets (Fraunces and Instrument Sans with reduced variation axes);
+  licence texts in the same folder.

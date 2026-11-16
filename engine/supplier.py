@@ -16,6 +16,7 @@ Rules:
 import datetime
 import json
 import math
+import os
 import secrets
 
 import custom_data as cd
@@ -365,6 +366,10 @@ def apply_response(store, path, author=""):
            "errors": pv["errors"], "extra": pv["extra"], "source": src}
     store.x("UPDATE supplier_requests SET status=?, received=?, result=? WHERE id=?",
             ("received", _now(), json.dumps(res), pv["request"]))
+    # one entry in the process history that ties the changed lines to the request and the file
+    cd._log(store, uid, "process", "supplier data applied", author or sup["company"],
+            {"request": pv["request"], "file": os.path.basename(str(path)), "supplier": sup, "lines": applied,
+             "conflicts": len(pv["conflicts"]), "errors": len(pv["errors"]), "extra": len(pv["extra"])})
     return res
 
 

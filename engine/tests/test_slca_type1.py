@@ -55,7 +55,8 @@ class TestType1(unittest.TestCase):
 
     def test_rejections(self):
         bad = [dict(stakeholder="workers", subcategory="Happiness"), dict(stakeholder="planet"),
-               dict(score=3), dict(score="1.5"), dict(weight=0), dict(data_type="rumour"), dict(prp="")]
+               dict(score=3), dict(score="1.5"), dict(weight=0), dict(weight=float("inf")), dict(weight=float("nan")),
+               dict(weight="Infinity"), dict(data_type="rumour"), dict(prp="")]
         base = {"stakeholder": "workers", "subcategory": "Fair salary", "unit": "u", "indicator": "i", "prp": "law",
                 "score": 0, "weight": 1, "weight_unit": "h", "data_type": "secondary generic", "evidence": "e",
                 "source": "s"}
@@ -63,12 +64,45 @@ class TestType1(unittest.TestCase):
             with self.subTest(b=b), self.assertRaises(t1.SocialError):
                 t1.save_row(self.st, self.m, {**base, **b})
 
-    def test_mixed_weight_units_warn(self):
-        self.row("a", "Fair salary", 1, 3)
-        t1.save_row(self.st, self.m, {"stakeholder": "workers", "subcategory": "Fair salary", "unit": "b",
-                                      "indicator": "i", "prp": "law", "score": 0, "weight": 1, "weight_unit": "EUR",
+    def other(self, unit, w, wu, score=0, sub="Fair salary"):
+        t1.save_row(self.st, self.m, {"stakeholder": "workers", "subcategory": sub, "unit": unit,
+                                      "indicator": "i", "prp": "law", "score": score, "weight": w, "weight_unit": wu,
                                       "data_type": "secondary generic", "evidence": "e", "source": "s"})
-        self.assertTrue(t1.assess(self.st, self.m)["warnings"])
+
+    def test_mixed_weight_units_give_no_score(self):
+        self.row("a", "Fair salary", 1, 3)
+        self.other("b", 1, "EUR")
+        self.row("c", "Working hours", 1, 2)
+        r = t1.assess(self.st, self.m)
+        by = {x["subcategory"]: x for x in r["subcategories"]}
+        self.assertTrue(r["warnings"])
+        self.assertIsNone(by["Fair salary"]["score"])               # worker hours and EUR are not combined
+        self.assertIn("No score", by["Fair salary"]["error"])
+        self.assertAlmostEqual(by["Working hours"]["score"], 1.0)  # the other subcategory is unaffected
+        w = [s for s in r["by_stakeholder"] if s["stakeholder"] == "workers"][0]
+        self.assertEqual((w["assessed"], w["mean_score"]), (1, 1.0))
+
+    def test_convertible_units_are_combined(self):
+        # 2 h with +1 and 60 min (1 h) with -2: (2 x 1 + 1 x -2) / 3 = 0; coverage 3 h of 6 h
+        self.other("a", 2, "h", 1)
+        self.other("b", 60, "min", -2)
+        t1.set_scope(self.st, self.m, 6, "h")
+        x = [x for x in t1.assess(self.st, self.m)["subcategories"] if x["subcategory"] == "Fair salary"][0]
+        self.assertAlmostEqual(x["score"], 0.0, places=12)
+        self.assertAlmostEqual(x["coverage"], 0.5, places=12)
+
+    def test_infinite_total_refused(self):
+        for t in (float("inf"), float("nan"), "Infinity", 0, -1):
+            with self.subTest(t=t), self.assertRaises(t1.SocialError):
+                t1.set_scope(self.st, self.m, t, "h")
+
+    def test_contradictory_weights_of_one_organisation(self):
+        self.other("a", 2, "h", 1)
+        t1.save_row(self.st, self.m, {"stakeholder": "workers", "subcategory": "Fair salary", "unit": "a",
+                                      "indicator": "other", "prp": "law", "score": 0, "weight": 5, "weight_unit": "h",
+                                      "data_type": "secondary generic", "evidence": "e", "source": "s"})
+        x = [x for x in t1.assess(self.st, self.m)["subcategories"] if x["subcategory"] == "Fair salary"][0]
+        self.assertIsNone(x["score"])
 
 
 if __name__ == "__main__":

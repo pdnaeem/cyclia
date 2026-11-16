@@ -22,6 +22,9 @@ Cyclia ships no social data and invents none. The result is the assessment of th
 taken from a database.
 """
 import datetime
+import math
+
+import units
 
 SCALE = {2: "ideal", 1: "progressive", 0: "compliant", -1: "risky", -2: "very poor"}
 DATA_TYPES = ("site-specific primary", "secondary specific", "secondary generic", "expert judgement")
@@ -94,8 +97,8 @@ def save_row(store, model_id, d):
     except (TypeError, ValueError):
         raise SocialError("Give the activity variable (weight) of the assessed organisation, e.g. worker hours per "
                           "functional unit.")
-    if not w > 0:
-        raise SocialError("The weight must be positive.")
+    if not math.isfinite(w) or not w > 0:
+        raise SocialError("The weight must be a positive, finite number.")
     dt = d.get("data_type") or ""
     if dt not in DATA_TYPES:
         raise SocialError("Choose the data type: " + ", ".join(DATA_TYPES) + ".")
@@ -134,10 +137,20 @@ def set_scope(store, model_id, total_weight, weight_unit, excluded=""):
         t = float(total_weight)
     except (TypeError, ValueError):
         raise SocialError("Give the total activity variable of the product system.")
-    if not t > 0:
-        raise SocialError("The total must be positive.")
+    if not math.isfinite(t) or not t > 0:
+        raise SocialError("The total must be a positive, finite number.")
     store.x("INSERT OR REPLACE INTO slca_scope VALUES(?,?,?,?)", (int(model_id), t, _txt(weight_unit, "The unit"),
                                                                    _txt(excluded, "Excluded", False, 3000)))
+
+
+def _to(unit, target):
+    """Factor from a weight unit to the target unit: 1 for the same unit (ignoring case and spaces), the unit
+    conversion when both are known units of the same kind (h and min), else None."""
+    a, b = (unit or "").strip().lower(), (target or "").strip().lower()
+    if a == b:
+        return 1.0
+    f = units.factor(unit, target) if unit and target else None
+    return f if f and math.isfinite(f) and f > 0 else None
 
 
 def assess(store, model_id):
@@ -147,13 +160,17 @@ def assess(store, model_id):
     sc = store.one("SELECT * FROM slca_scope WHERE model_id=?", (int(model_id),))
     total = sc["total_weight"] if sc else None
     unit = sc["weight_unit"] if sc else ""
-    units_used = {r["weight_unit"] for r in rows}
     warn = []
-    if len(units_used) > 1:
-        warn.append("The rows use different weight units (" + ", ".join(sorted(units_used)) + "); weighting across "
-                    "them is not meaningful. Use one activity variable.")
-    if sc and rows and units_used and unit not in units_used:
-        warn.append(f"The total is given in {unit}, the rows in {', '.join(sorted(units_used))}.")
+    # one activity variable: the unit of the scope, or of the first row; rows in other units are converted when
+    # the units are of the same kind, and otherwise their subcategory gets no score (no mixing of kinds)
+    base_unit = unit or (rows[0]["weight_unit"] if rows else "")
+    for r in rows:
+        f = _to(r["weight_unit"], base_unit)
+        r["w"] = r["weight"] * f if f else None
+    bad = sorted({r["weight_unit"] for r in rows if r["w"] is None})
+    if bad:
+        warn.append(f"Weights in {', '.join(bad)} cannot be converted to {base_unit}: the subcategories with these rows "
+                    "get no score. Use one activity variable for the whole assessment.")
     excluded = [x.strip() for x in ((sc["excluded"] if sc else "") or "").split("\n") if x.strip()]
     out, missing = [], []
     for sh, subs in SUBCATEGORIES.items():
@@ -163,34 +180,57 @@ def assess(store, model_id):
                 if not any(e.lower().startswith(sub.lower()) for e in excluded):
                     missing.append({"stakeholder": sh, "subcategory": sub})
                 continue
-            # one organisation counts once per subcategory: its rows are averaged first (equal weight per indicator)
             per_unit = {}
             for r in rs:
                 per_unit.setdefault(r["unit"], []).append(r)
-            wsum = sum(v[0]["weight"] for v in per_unit.values())
-            score = sum(v[0]["weight"] * (sum(x["score"] for x in v) / len(v)) for v in per_unit.values()) / wsum
-            primary = sum(v[0]["weight"] for v in per_unit.values() if any(x["data_type"] == "site-specific primary"
-                                                                          for x in v)) / wsum
+            hot = [{"unit": r["unit"], "indicator": r["indicator"], "score": r["score"], "evidence": r["evidence"]}
+                   for r in rs if r["score"] <= -1]
+            # an organisation has one activity variable: its rows must agree on it
+            ws = {}
+            reason = ""
+            for k, v in per_unit.items():
+                vals = {round(x["w"], 12) if x["w"] is not None else None for x in v}
+                if None in vals:
+                    reason = "weights in a unit that cannot be converted"
+                elif len(vals) > 1:
+                    reason = f"'{k}' has different weights in its rows"
+                ws[k] = v[0]["w"]
+            if reason:
+                out.append({"stakeholder": sh, "subcategory": sub, "score": None, "level": "", "organisations":
+                            len(per_unit), "weight": None, "coverage": None, "primary_share": None, "hotspots": hot,
+                            "error": "No score: " + reason + "."})
+                continue
+            wsum = sum(ws.values())
+            score = sum(ws[k] * (sum(x["score"] for x in v) / len(v)) for k, v in per_unit.items()) / wsum
+            primary = sum(ws[k] for k, v in per_unit.items() if any(x["data_type"] == "site-specific primary"
+                                                                  for x in v)) / wsum
             out.append({"stakeholder": sh, "subcategory": sub, "score": score, "level": SCALE[round(score)] if
                         round(score) in SCALE else "", "organisations": len(per_unit), "weight": wsum,
-                        "coverage": (wsum / total) if total else None, "primary_share": primary,
-                        "hotspots": [{"unit": r["unit"], "indicator": r["indicator"], "score": r["score"],
-                                      "evidence": r["evidence"]} for r in rs if r["score"] <= -1]})
+                        "coverage": (wsum / total) if total else None, "primary_share": primary, "hotspots": hot})
+    for x in out:
+        if x["coverage"] is not None and x["coverage"] > 1 + 1e-9:
+            warn.append(f"{x['subcategory']}: the assessed weight exceeds the total of the product system "
+                        f"({100 * x['coverage']:.0f} %). Check the total in the scope.")
     by_sh = []
     for sh in SUBCATEGORIES:
         xs = [x for x in out if x["stakeholder"] == sh]
-        by_sh.append({"stakeholder": sh, "assessed": len(xs), "of": len(SUBCATEGORIES[sh]),
-                      "mean_score": (sum(x["score"] for x in xs) / len(xs)) if xs else None,
-                      "lowest": min((x["score"] for x in xs), default=None),
+        sc_ = [x["score"] for x in xs if x["score"] is not None]
+        by_sh.append({"stakeholder": sh, "assessed": len(sc_), "of": len(SUBCATEGORIES[sh]),
+                      "mean_score": (sum(sc_) / len(sc_)) if sc_ else None,
+                      "lowest": min(sc_, default=None),
                       "missing": [m["subcategory"] for m in missing if m["stakeholder"] == sh]})
     n_all = sum(len(v) for v in SUBCATEGORIES.values())
+    for r in rows:
+        r.pop("w", None)
     return {"subcategories": out, "by_stakeholder": by_sh, "missing": missing, "excluded": excluded,
-            "rows": rows, "total_weight": total, "weight_unit": unit, "warnings": warn,
-            "completeness": len(out) / n_all, "scale": SCALE,
+            "rows": rows, "total_weight": total, "weight_unit": base_unit, "warnings": warn,
+            "completeness": sum(1 for x in out if x["score"] is not None) / n_all, "scale": SCALE,
             "note": "Type I (reference scale) assessment after the UNEP Guidelines for Social LCA (2020): each "
                     "organisation or process is scored against a performance reference point from -2 (very poor) to "
                     "+2 (ideal), 0 meaning compliance. A subcategory score is the mean over the assessed organisations "
-                    "weighted by their activity variable (indicators of one organisation averaged first). Coverage is "
-                    "the assessed weight over the total of the product system. Subcategories are not aggregated across "
-                    "stakeholders into one score: each is reported, with the lowest score per stakeholder. Missing "
-                    "subcategories are listed unless excluded with a reason."}
+                    "weighted by their activity variable (indicators of one organisation averaged first). Weights in "
+                    "units of the same kind are converted; a subcategory with weights that cannot be put on one "
+                    "activity variable gets no score. Coverage is the assessed weight over the total of the product "
+                    "system. Subcategories are not aggregated across stakeholders into one score: each is reported, "
+                    "with the lowest score per stakeholder. Missing subcategories are listed unless excluded with a "
+                    "reason."}
