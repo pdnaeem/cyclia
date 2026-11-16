@@ -726,6 +726,16 @@
           <p class="hint">All the evidence for Cyclia's calculations in this installation, in one table: for every check and method, the reference, Cyclia's result, the differences, the missing flows and the status. Only checks that ran here with every result within its tolerance count as validated; "Not run" and "Not available" are not validation. The checks below add their results here when they finish.</p>
           <div class="row"><button class="primary" id="btnBenchIpcc">Run the IPCC 2021 check</button><button id="btnBenchRefresh">Refresh</button><button id="btnBenchExport">Export (Excel)</button></div>
           <div class="table-wrap"><table id="benchTable"></table></div>
+          <p class="hint">Publish benchmark reports writes one Markdown report per method family (ReCiPe, CML-IA, IPCC, EF) from the ecoinvent benchmarks run in this project: deviation statistics per impact category, the ecoinvent version and the environment. No ecoinvent value is written, so the reports can be published with the source code (docs/benchmarks).</p>
+          <div class="row"><button id="btnBenchPublish">Publish benchmark reports</button></div>
+          <div id="benchPublishOut"></div>
+        </div>
+        <div class="block" id="regressionBox">
+          <h2>Full-library regression</h2>
+          <p class="hint">Records the score of every dataset of the libraries in this project under every impact category, the result of every model and the factor matching of every category, then compares a later state with that record: after an update of Cyclia, a re-import or a change of method. Differences larger than a relative 1e-9 are listed. A snapshot of ecoinvent contains ecoinvent results: keep it with your licence.</p>
+          <div class="row"><button class="primary" id="btnRegRecord">Record snapshot</button></div>
+          <div class="row"><label class="wide">Snapshot to compare with<span class="pathpick"><input id="rgPath" placeholder="... regression ....json.gz"><button data-pick="file" data-target="rgPath" data-ext="gz">Browse</button></span></label><button id="btnRegCompare">Compare</button></div>
+          <div id="rgOut"></div>
         </div>
         <div class="block">
           <h2>Validation suite</h2>

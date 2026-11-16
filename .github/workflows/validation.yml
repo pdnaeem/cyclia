@@ -1,7 +1,8 @@
 # Scientific validation on every push and pull request.
 #  - "tests": the full test suite, as users get it (Brightway tests skip when Brightway is absent).
-#  - "brightway": the same suite with Brightway installed from pinned commits. Here a skipped Brightway test is a
-#    failure (CYCLIA_REQUIRE_BRIGHTWAY=1), so the comparison with an independent implementation always runs.
+#  - "brightway": the release gate (engine/tools/release_gate.py) with Brightway installed from pinned commits: the
+#    suite with Brightway required (a skipped test is a failure), the full-library regression, the validation suite
+#    and the IPCC check. The installer build (build.yml) runs the same gate and builds nothing when it fails.
 #  - "validation-suite": the 35 systems with exact answers and the IPCC 2021 check.
 name: Validation
 
@@ -43,11 +44,8 @@ jobs:
         run: |
           python -m pip install -r engine/requirements.txt
           python -m pip install -r engine/tools/brightway-pins.txt
-      - name: Test suite with Brightway required
-        working-directory: engine
-        env:
-          CYCLIA_REQUIRE_BRIGHTWAY: "1"
-        run: python -m unittest discover -s tests -v
+      - name: Release gate (suite with Brightway required, regression, validation suite, IPCC)
+        run: python engine/tools/release_gate.py
 
   validation-suite:
     runs-on: ubuntu-latest

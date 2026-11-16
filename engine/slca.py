@@ -23,6 +23,7 @@ import os
 import numpy as np
 
 import calc
+import numcheck
 
 STAKEHOLDERS = ("workers", "local community", "society", "consumers", "value chain actors", "children")
 RISK_FACTORS = {"no risk": 0.0, "very low": 0.01, "low": 0.1, "medium": 1.0, "high": 10.0, "very high": 100.0}
@@ -41,10 +42,9 @@ def import_data(store, text, source="", replace=True, demo=False):
     for n, r in enumerate(rdr, 2):
         match = str(r.get(cols["match"]) or "").strip()
         loc = str(r.get(cols.get("location", "")) or "").strip().upper() if "location" in cols else ""
-        try:
-            wh = float(str(r.get(cols["worker_hours"]) or "").replace(",", "."))
-        except ValueError:
-            rejected.append({"row": n, "reason": "worker_hours is not a number"})
+        wh = numcheck.parse(r.get(cols["worker_hours"]), comma=True)
+        if wh is None or wh < 0:
+            rejected.append({"row": n, "reason": "worker_hours must be a finite number, zero or more"})
             continue
         st = str(r.get(cols["stakeholder"]) or "").strip().lower()
         ind = str(r.get(cols["indicator"]) or "").strip()
@@ -288,9 +288,8 @@ def import_olca_social(store, path, mapping_text="", replace=True, source=""):
             if not st:
                 no_stake.add(ind["category"] or ind["name"])
                 continue
-            try:
-                av = float(a.get("activityValue") or 0.0)
-            except (TypeError, ValueError):
+            av = numcheck.parse(a.get("activityValue") or 0.0)
+            if av is None:
                 av = 0.0
             rows.append((name, (loc or "").upper(), av, st, ind["name"], OLCA_RISK[rl], f"{label}",
                          str(a.get("rawAmount") or ""), ind["unit"], str(a.get("quality") or ""), ind["activity_unit"]))

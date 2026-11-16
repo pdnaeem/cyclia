@@ -1,8 +1,7 @@
 """Teaching mode: exercises on the demo database with answers computed live by the engine, so the answer key is
 always consistent with the data. Students check their own answers; teachers export the key."""
-import math
-
 import calc
+import numcheck
 import units
 from importers import demo
 
@@ -165,13 +164,10 @@ def check(store, ex_id, answer):
     if not e:
         raise ValueError("Unknown exercise.")
     if e.get("choice"):
-        ok = int(answer) == e["answer"]
+        ok = numcheck.integer(answer, "The choice", lo=0, hi=len(e["options"]) - 1) == e["answer"]
         return {"correct": ok, "explanation": e["explanation"] if ok else "Not quite. Think about what the statement assumes.",
                 "expected": e["options"][e["answer"]] if ok else None}
-    try:
-        val = float(str(answer).replace(",", "."))
-    except (TypeError, ValueError):
-        raise ValueError("Enter a number.")
+    val = numcheck.finite(answer, "The answer", comma=True)
     exp, how = e["fn"](store)
     ok = abs(val - exp) <= e["tol"] * max(abs(exp), 1e-12)
     close = abs(val - exp) <= 0.1 * max(abs(exp), 1e-12)

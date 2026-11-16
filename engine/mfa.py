@@ -20,10 +20,12 @@ import math
 
 import numpy as np
 
+import numcheck
+
 
 def _interp(values, years):
     """Linear interpolation between the given years, constant before the first and after the last one."""
-    pts = sorted((int(k), float(v)) for k, v in (values or {}).items())
+    pts = sorted((_year(k, "A year"), float(v)) for k, v in (values or {}).items())
     if not pts:
         return np.zeros(len(years))
     return np.interp(years, [p[0] for p in pts], [p[1] for p in pts])
@@ -61,16 +63,8 @@ def retirement(lifetime, n):
 
 
 def _finite(v, what, low=None):
-    """A finite number (not NaN or infinite), at least low when given."""
-    try:
-        x = float(v)
-    except (TypeError, ValueError):
-        raise ValueError(f"{what} must be a number.")
-    if not math.isfinite(x):
-        raise ValueError(f"{what} must be a finite number.")
-    if low is not None and x < low:
-        raise ValueError(f"{what} must be at least {low:g}.")
-    return x
+    """A finite number (not NaN, infinite or a yes/no), at least low when given: the common validator."""
+    return numcheck.finite(v, what, lo=low)
 
 
 def validate(defn):
@@ -106,25 +100,31 @@ def validate(defn):
             raise ValueError("Every external inflow must go to a defined process.")
         for yr, v in (e.get("values") or {}).items():
             try:
-                int(yr)
-            except (TypeError, ValueError):
+                _year(yr, "")
+            except ValueError:
                 raise ValueError(f"The inflow to '{e['to']}' has the year '{yr}', which is not a whole number.")
             # an inflow enters the system; material leaving it is a flow to a sink, never a negative inflow
             # (a negative inflow would be offset against the losses and hide a mass balance error)
             _finite(v, f"The inflow to '{e['to']}' in {yr}", 0)
     y = defn.get("years") or []
-    try:
-        bad = len(y) != 2 or int(y[1]) < int(y[0])
-    except (TypeError, ValueError):
-        bad = True
-    if bad:
+    if not isinstance(y, (list, tuple)) or len(y) != 2:
         raise ValueError("Give the first and last year, e.g. [2020, 2050].")
+    ys = [_year(v, "The first year" if i == 0 else "The last year") for i, v in enumerate(y)]
+    if ys[1] < ys[0]:
+        raise ValueError("The last year comes before the first year.")
+    if ys[1] - ys[0] > 1000:
+        raise ValueError("A material flow analysis covers at most 1000 years.")
     return True
+
+
+def _year(v, what):
+    """A calendar year: a whole number. 2020.5 is refused, never truncated (1.8.3)."""
+    return numcheck.year(v, what or "The year")
 
 
 def run(defn):
     validate(defn)
-    years = list(range(int(defn["years"][0]), int(defn["years"][1]) + 1))
+    years = list(range(_year(defn["years"][0], "The first year"), _year(defn["years"][1], "The last year") + 1))
     ny = len(years)
     procs = defn["processes"]
     ids = [p["id"] for p in procs]

@@ -16,6 +16,7 @@ import sqlite3
 import threading
 import time
 
+import numcheck
 from canon import canon
 
 SCHEMA_VERSION = 4
@@ -159,6 +160,63 @@ def _cols(conn, schema, table):
 def _tables(conn, schema):
     return {r[0] for r in conn.execute(f"SELECT name FROM {schema}.sqlite_master WHERE type='table'")}
 
+
+
+INPUT_LIMITS = {"amount": (0.0, None), "input_amount": (0.0, None), "year": (0.0, 1000.0), "data_year": (1900.0, 2100.0),
+                "unit_cost": (None, None), "replace_every": (0.01, 1000.0), "cost_gsd": (1.0, None)}
+
+
+def _finite_input(k, v):
+    """A finite number within the range of the line field (1.8.3: also on paths that do not pass the API checks)."""
+    lo, hi = INPUT_LIMITS[k]
+    return numcheck.finite(v, k.replace("_", " ").capitalize(), lo, hi)
+
+
+def finite(v, what, lo=None, hi=None, lo_open=False):
+    """A finite number in range: the common validator (numcheck), which also refuses booleans and 1e309."""
+    return numcheck.finite(v, what, lo, hi, lo_open=lo_open)
+
+
+def check_fixed(fixed):
+    """Fixed impact values of a line (an EPD): every value finite (1.8.4)."""
+    if not fixed:
+        return None
+    if isinstance(fixed, str):
+        fixed = json.loads(fixed)
+    if not isinstance(fixed, dict) or not isinstance(fixed.get("impacts", []), list):
+        raise ValueError("Fixed impact values are a list of categories with values.")
+    for x in fixed.get("impacts") or []:
+        if not isinstance(x, dict) or not x.get("category"):
+            raise ValueError("Each fixed impact value needs its category.")
+        finite(x.get("value") if x.get("value") not in (None, "") else 0, f"The value for {x['category']}")
+    return fixed
+
+
+def _scope_num(scope, key, what, lo=None, hi=None, lo_open=False):
+    numcheck.optional(scope.get(key), what, lo=lo, hi=hi, lo_open=lo_open)
+
+
+def check_scope_numbers(scope):
+    """Every number of the goal and scope must be finite and in its range (1.8.3). A JSON reader refuses NaN and
+    Infinity, but 1e309 still becomes infinity, and stored scopes reach the calculation by other paths too."""
+    _scope_num(scope, "alloc_share", "The allocation share", 0, 100, lo_open=True)
+    _scope_num(scope, "lcc_period", "The study period of the life cycle cost", 0, 1000)
+    _scope_num(scope, "lcc_rate", "The discount rate", -100, 1000, lo_open=True)
+    esc = scope.get("lcc_escalation")
+    if esc not in (None, "", {}):
+        if not isinstance(esc, dict):
+            raise ValueError("Price escalation is given per cost type.")
+        for k, v in esc.items():
+            _scope_num({"v": v}, "v", f"The price escalation of '{k}'", -100, 1000, lo_open=True)
+    for b in ("mass", "price", "energy", "physical"):
+        _scope_num(scope, f"main_{b}", f"The {b} of the main product", 0)
+    for cp in scope.get("coproducts") or []:
+        if not isinstance(cp, dict):
+            raise ValueError("Each co-product is a set of fields.")
+        for b in ("mass", "price", "energy", "physical"):
+            _scope_num(cp, b, f"Co-product '{cp.get('name', '')}': {b}", 0)
+    _scope_num(scope, "aware_lat", "The latitude", -90, 90)
+    _scope_num(scope, "aware_lon", "The longitude", -180, 180)
 
 class ProjectStore:
     def __init__(self, path, library_path):
@@ -653,30 +711,11 @@ class ProjectStore:
         name = str(data.get("name") or "").strip()
         if not name:
             raise ValueError("Give the model a name.")
-        try:
-            amount = float(data.get("amount") or 1)
-        except (TypeError, ValueError):
-            raise ValueError("The functional unit amount must be a number.")
-        if not amount > 0:
-            raise ValueError("The functional unit amount must be greater than zero.")
+        amount = numcheck.optional(data.get("amount"), "The functional unit amount", default=1.0, lo=0, lo_open=True)
         scope = data.get("scope") or {}
-        share = scope.get("alloc_share", "")
-        if share not in ("", None):
-            try:
-                share = float(share)
-            except (TypeError, ValueError):
-                raise ValueError("Allocation share must be a number between 0 and 100.")
-            if not 0 < share <= 100:
-                raise ValueError("Allocation share must be between 0 and 100 %.")
-        for cp in scope.get("coproducts") or []:
-            for k in ("mass", "price", "energy"):
-                v = cp.get(k)
-                if v not in (None, ""):
-                    try:
-                        if float(v) < 0:
-                            raise ValueError
-                    except (TypeError, ValueError):
-                        raise ValueError(f"Co-product '{cp.get('name', '')}': {k} must be a positive number.")
+        if not isinstance(scope, dict):
+            raise ValueError("The goal and scope must be a set of fields.")
+        check_scope_numbers(scope)
         js = json.dumps(scope)
         if data.get("id"):
             if not self.one("SELECT id FROM main.models WHERE id=?", (data["id"],)):
@@ -735,14 +774,21 @@ class ProjectStore:
                 ref_db, ref_key = r["name"], r["key"]
             elif kind == "flow":
                 ref_key = self.one("SELECT uuid FROM flows WHERE id=?", (ref_id,))["uuid"]
+        amount = _finite_input("amount", amount)
+        if fixed:
+            fixed = check_fixed(fixed)
+        if input_amount is not None:
+            input_amount = _finite_input("input_amount", input_amount)
+        if year:
+            year = _finite_input("year", year)
         ped = json.dumps([min(5, max(1, int(v))) for v in (pedigree or [3, 3, 3, 3, 3])][:5])
         pos = (self.one("SELECT MAX(position) AS p FROM main.model_inputs WHERE model_id=?", (model_id,))["p"] or 0) + 1
         return self.x("INSERT INTO main.model_inputs(model_id,kind,ref_id,amount,label,comment,position,stage,"
                       "input_amount,input_unit,avoided,pedigree,ref_db,ref_key,formula,year,fixed) "
                       "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                      (model_id, kind, ref_id, float(amount), label or "", comment or "", pos, stage or "",
-                       input_amount if input_amount is not None else float(amount), input_unit, 1 if avoided else 0,
-                       ped, ref_db, ref_key, formula or None, float(year or 0), json.dumps(fixed) if fixed else None))
+                      (model_id, kind, ref_id, amount, label or "", comment or "", pos, stage or "",
+                       input_amount if input_amount is not None else amount, input_unit, 1 if avoided else 0,
+                       ped, ref_db, ref_key, formula or None, year or 0.0, json.dumps(fixed) if fixed else None))
 
     def _model_depends_on(self, model_id, target):
         stack, seen = [model_id], set()
@@ -760,27 +806,46 @@ class ProjectStore:
         return self.one("SELECT * FROM main.model_inputs WHERE id=?", (input_id,))
 
     def update_input(self, input_id, fields):
+        """Change fields of a line. Every value is checked first; then all are written in one transaction, so a
+        refused value leaves the line exactly as it was (1.8.4)."""
         allowed = {"amount", "label", "comment", "stage", "input_amount", "input_unit", "avoided", "pedigree",
                    "formula", "year", "fixed", "ref_id", "ref_db", "ref_key", "data_type", "source_ref", "data_year",
                    "supplier", "verified", "unit_cost", "pef", "cost_type", "replace_every", "cost_gsd"}
-        with self.lock:
-            for k, v in fields.items():
-                if k not in allowed:
-                    continue
-                if k == "pedigree":
+        clean = {}
+        for k, v in fields.items():
+            if k not in allowed:
+                continue
+            if k == "pedigree":
+                try:
                     v = json.dumps([min(5, max(1, int(x))) for x in v][:5])
-                elif k in ("avoided", "verified"):
-                    v = 1 if v else 0
-                elif k == "pef":
+                except (TypeError, ValueError):
+                    raise ValueError("Data-quality scores must be whole numbers 1 to 5.")
+            elif k in ("avoided", "verified"):
+                v = 1 if v else 0
+            elif k == "pef":
+                try:
                     v = json.dumps([min(5, max(1, int(x))) for x in v][:4]) if v else None
-                elif k in ("data_year", "unit_cost", "replace_every", "cost_gsd"):
-                    v = None if v in (None, "") else float(v)
-                elif k == "fixed":
-                    v = json.dumps(v) if v else None
-                elif k == "formula":
-                    v = (v or "").strip() or None
-                self.conn.execute(f"UPDATE main.model_inputs SET {k}=? WHERE id=?", (v, input_id))
-            self.conn.commit()
+                except (TypeError, ValueError):
+                    raise ValueError("PEF scores must be whole numbers 1 to 5.")
+            elif k in ("data_year", "unit_cost", "replace_every", "cost_gsd"):
+                v = None if v in (None, "") else _finite_input(k, v)
+            elif k in ("amount", "input_amount", "year"):
+                v = _finite_input(k, v)
+            elif k == "fixed":
+                v = json.dumps(check_fixed(v)) if v else None
+            elif k == "formula":
+                v = (v or "").strip() or None
+            clean[k] = v
+        if not clean:
+            return
+        with self.lock:
+            try:
+                for k, v in clean.items():
+                    self.conn.execute(f"UPDATE main.model_inputs SET {k}=? WHERE id=?", (v, input_id))
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
 
     def delete_input(self, input_id):
         self.x("DELETE FROM main.model_inputs WHERE id=?", (input_id,))
@@ -848,15 +913,18 @@ class ProjectStore:
         if clash and clash["id"] != data.get("id"):
             raise ValueError(f"A parameter called '{name}' already exists here.")
         f = (data.get("formula") or "").strip() or None
-        try:
-            value = float(data.get("value") or 0)
-        except (TypeError, ValueError):
-            raise ValueError("The parameter value must be a number.")
+        value = finite(data.get("value") if data.get("value") not in (None, "") else 0, "The parameter value")
         if f:
             fm.parse(f)
-        utype = int(data.get("utype") or 0)
+        try:
+            utype = int(data.get("utype") or 0)
+        except (TypeError, ValueError):
+            raise ValueError("Unknown uncertainty type.")
+        if utype not in (0, 1, 2, 3, 4):
+            raise ValueError("Unknown uncertainty type.")
         vals = [data.get(k) for k in ("p1", "p2", "p3")]
-        vals = [float(v) if v not in (None, "") else None for v in vals]
+        vals = [finite(v, f"The uncertainty value {k}") if v not in (None, "") else None
+                for k, v in zip(("p1", "p2", "p3"), vals)]
         if utype == 1 and not (vals[0] and vals[0] > 0):
             raise ValueError("Lognormal: give the geometric standard deviation (above 1) as p1.")
         if utype == 2 and not (vals[0] and vals[0] > 0):
@@ -892,10 +960,7 @@ class ProjectStore:
         for k, v in (data.get("overrides") or {}).items():
             if v in (None, ""):
                 continue
-            try:
-                ov[k] = float(v)
-            except (TypeError, ValueError):
-                raise ValueError(f"Scenario value for '{k}' must be a number.")
+            ov[k] = finite(v, f"Scenario value for '{k}'")
         clash = self.one("SELECT id FROM main.scenarios WHERE name=?", (name,))
         if clash and clash["id"] != data.get("id"):
             raise ValueError("A scenario with that name already exists.")
@@ -917,10 +982,7 @@ class ProjectStore:
         for k in ("family", "category", "flow_uuid"):
             if not str(data.get(k) or "").strip():
                 raise ValueError("A site-specific factor needs a method, a category and a flow.")
-        try:
-            v = float(data.get("value"))
-        except (TypeError, ValueError):
-            raise ValueError("The site-specific factor must be a number.")
+        v = finite(data.get("value"), "The site-specific factor")
         f = self.one("SELECT name, compartment, subcompartment FROM flows WHERE uuid=?", (data["flow_uuid"],))
         if not f:
             raise ValueError("That elementary flow is not in the library.")
@@ -964,7 +1026,9 @@ class ProjectStore:
         clash = self.one("SELECT id FROM main.bg_scenarios WHERE name=?", (name,))
         if clash and clash["id"] != data.get("id"):
             raise ValueError("A background scenario with that name already exists.")
-        row = (name, kind, data.get("description", ""), float(data.get("base_year") or 2020), json.dumps(rules))
+        base = finite(data.get("base_year") if data.get("base_year") not in (None, "") else 2020, "The base year",
+                      1900, 2300)
+        row = (name, kind, data.get("description", ""), base, json.dumps(rules))
         if data.get("id"):
             self.x("UPDATE main.bg_scenarios SET name=?, kind=?, description=?, base_year=?, rules=? WHERE id=?",
                    row + (data["id"],))

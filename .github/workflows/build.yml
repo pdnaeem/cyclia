@@ -1,4 +1,4 @@
-# Builds Cyclia installers for Windows, macOS and Linux.
+# Builds Cyclia installers for Windows, macOS and Linux, after the scientific release gate has passed.
 #  - Run by hand from the Actions tab: installers appear as downloadable artifacts.
 #  - Push a tag such as v1.1.0: installers are also published as a GitHub Release, which the app's
 #    auto-updater reads. Set "owner" in app/package.json (build.publish) to your GitHub user first.
@@ -17,7 +17,26 @@ permissions:
   contents: write
 
 jobs:
+  # 1.9.0: no installer is built unless the science passes. The gate runs the whole test suite with Brightway
+  # required (a skipped Brightway comparison fails the gate), the full-library regression of the reference
+  # libraries, the 35 validation systems and the IPCC 2021 check (engine/tools/release_gate.py).
+  scientific-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install engine requirements and pinned Brightway
+        run: |
+          python -m pip install -r engine/requirements.txt
+          python -m pip install -r engine/tools/brightway-pins.txt
+      - name: Release gate
+        run: python engine/tools/release_gate.py
+
   build:
+    needs: scientific-gate
     strategy:
       fail-fast: false
       matrix:

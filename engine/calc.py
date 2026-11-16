@@ -79,6 +79,7 @@ class MatrixCache:
             self.b_cols = np.array([self.act_index[b["activity_id"]] for b in keepb], dtype=np.int64)
             self.b_amt = np.array([b["amount"] for b in keepb], dtype=float)
             self.b_unc = _unc_arrays(keepb)
+            _finite_inventory(store, self.diag, self.t_amt, self.b_amt, self.act_ids, keep, keepb)
             self.A = self.build_A(self.t_amt)
             self.B = self.build_B(self.b_amt)
             self.lu = factorise(self.A)
@@ -184,6 +185,40 @@ def invalidate():
         _variants.clear()
 
 
+def _finite_inventory(store, diag, t_amt, b_amt, act_ids, tech, bio):
+    """1.8.4: a NaN or infinite amount in any dataset would spread to every result that uses it. The library is
+    checked when its matrices are built, and the datasets with such amounts are named."""
+    bad = set()
+    if not np.isfinite(diag).all():
+        bad |= {int(act_ids[i]) for i in np.where(~np.isfinite(diag))[0]}
+    if len(t_amt) and not np.isfinite(t_amt).all():
+        bad |= {int(tech[i]["output_id"]) for i in np.where(~np.isfinite(t_amt))[0]}
+    if len(b_amt) and not np.isfinite(b_amt).all():
+        bad |= {int(bio[i]["activity_id"]) for i in np.where(~np.isfinite(b_amt))[0]}
+    if bad:
+        ids = sorted(bad)[:8]
+        names = [r["name"] for r in store.q(f"SELECT name FROM activities WHERE id IN ({','.join('?' * len(ids))})", ids)]
+        raise LCAError(f"{len(bad)} dataset(s) in the library have an amount that is not a finite number (NaN or "
+                       f"infinite), for example: {'; '.join(names)}. Re-import or correct them before calculating.")
+
+
+def check_finite_results(res):
+    """1.8.4: no result is reported unless it is a finite number. Raises with the categories and lines that are
+    not (a last guard: the inputs are checked where they are saved and when the matrices are built)."""
+    cats, lines = [], []
+    for k, r in enumerate(res.get("results") or []):
+        if r.get("total") is None or not math.isfinite(float(r["total"])):
+            cats.append(r.get("category") or str(r.get("method_id")))
+    for l in res.get("lines") or []:
+        if any(not math.isfinite(float(v)) for v in l.get("impact") or []):
+            lines.append(l.get("name") or str(l.get("input_id")))
+    if cats or lines:
+        raise LCAError("The calculation gave a result that is not a finite number"
+                       + (f" in {', '.join(cats[:5])}" if cats else "")
+                       + (f"; lines concerned: {', '.join(lines[:5])}" if lines else "")
+                       + ". Check the amounts, parameters and factors of these lines; nothing is reported.")
+
+
 def get_mc(store, bg=None):
     """Matrices of the library, or of a background scenario (prospective or consequential) applied to it.
     bg: None or {"id": scenario id, "year": target year}."""
@@ -232,7 +267,12 @@ class Methods:
             for r in store.q("SELECT flow_id, value FROM cfs WHERE method_id=?", (mid,)):
                 j = mc.flow_index.get(r["flow_id"])
                 if j is not None:
-                    self.C[i, j] += r["value"]
+                    # SQLite stores NaN as NULL: an empty factor is as invalid as a NaN one
+                    self.C[i, j] += r["value"] if r["value"] is not None else float("nan")
+        if not np.isfinite(self.C).all():
+            i = int(np.where(~np.isfinite(self.C).all(axis=1))[0][0])
+            raise LCAError(f"The impact category '{self.rows[i]['category']}' has a characterisation factor that is not "
+                           "a finite number (NaN or infinite). Re-import the method or correct the factor.")
         self.Q = (sp.csr_matrix(self.C) @ mc.B).toarray() if mc.n else np.zeros((k, 0))
         self.regional = 0
         self.regional_fallback = 0
@@ -249,9 +289,13 @@ class Methods:
                 f = mc.flow_index.get(r["flow_id"])
                 if f is None:
                     continue
-                table.setdefault((self.ids.index(r["method_id"]), f), {})[str(r["location"]).upper()] = float(r["value"])
+                table.setdefault((self.ids.index(r["method_id"]), f), {})[str(r["location"]).upper()] = \
+                    float(r["value"]) if r["value"] is not None else float("nan")
             ei, ej, eb, ev, ek = [], [], [], [], []
             for (i, f), locs in table.items():
+                if not all(math.isfinite(v) for v in locs.values()):
+                    raise LCAError(f"The impact category '{self.rows[i]['category']}' has a regional factor that is "
+                                   "not a finite number. Re-import the regional factors.")
                 start, end = Bc.indptr[f], Bc.indptr[f + 1]
                 for j, b in zip(Bc.indices[start:end], Bc.data[start:end]):
                     loc = loc_of[j]
@@ -291,6 +335,9 @@ class Methods:
                     j = mc.flow_index.get(uu[x["flow_uuid"]])
                     if j is not None:
                         i = self.keys.index(key)
+                        if x["value"] is None or not math.isfinite(float(x["value"])):
+                            raise LCAError(f"The site-specific factor for {x['flow_name']} ({x['category']}) is not a "
+                                           "finite number. Correct it in Toolbox > Site-specific factors.")
                         self.site.append({"category": x["category"], "flow": x["flow_name"], "generic": float(self.C[i, j]),
                                           "site": float(x["value"]), "note": x["note"]})
                         self.Cd[i, j] = x["value"]
@@ -325,7 +372,11 @@ class Methods:
         """EPD / fixed impact values per unit, matched to the selected categories by method key."""
         vals = {(x.get("family"), x.get("category"), x.get("indicator")): float(x.get("value") or 0)
                 for x in (fixed or {}).get("impacts", [])}
-        return np.array([vals.get(k, 0.0) for k in self.keys])
+        out = np.array([vals.get(k, 0.0) for k in self.keys])
+        if not np.isfinite(out).all():
+            raise LCAError("A line with fixed impact values (EPD) has a value that is not a finite number. Correct "
+                           "the values of that line.")
+        return out
 
 
 def impacts(mc, M, acts, flows, fixed=None, lu=None, B=None, Q=None):
@@ -604,6 +655,13 @@ def pedigree_sigma(pedigree, kind, name):
 
 def _stats(col):
     col = np.asarray(col, dtype=float)
+    if not np.isfinite(col).all():
+        # 1.8.4: a run that gives NaN or infinity (an extreme draw, a parameter outside its valid range) would make
+        # every statistic meaningless: refuse rather than report
+        n_bad = int((~np.isfinite(col)).sum())
+        raise LCAError(f"{n_bad} of {col.size} Monte Carlo runs gave a result that is not a finite number. Check the "
+                       "uncertainty distributions of the parameters and lines (very wide or unbounded ones) and the "
+                       "formulas that use them.")
     mean = float(col.mean())
     scale = float(np.abs(col).max()) if col.size else 0.0
     if scale == 0 or float(col.std()) <= 1e-12 * scale:
@@ -904,6 +962,7 @@ def run(store, model_id, method_ids, top=12, mc_iterations=0, sensitivity_pct=10
                     "dataset_dq": ddq}
     out["foreground"] = hier.foreground_inventory(ctx, T)
     out["nested"] = len(T["models"]) > 1
+    check_finite_results(out)
     out["data_quality"] = data_quality(out)
     out["checks"] = checks(store, model_id, method_ids, out)
     out["findings"] = findings(out)

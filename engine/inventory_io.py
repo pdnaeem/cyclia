@@ -7,6 +7,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
+import numcheck
 import units
 
 COLUMNS = ["Type", "Database", "Dataset, flow or model name", "Location or compartment", "Amount", "Unit",
@@ -83,7 +84,10 @@ def _pedigree(v):
     if v in (None, ""):
         return [3, 3, 3, 3, 3]
     parts = [p for p in str(v).replace(";", ",").replace(" ", ",").split(",") if p]
-    vals = [int(float(p)) for p in parts]
+    vals = [numcheck.parse(p) for p in parts]
+    if any(x is None or x != int(x) for x in vals):
+        raise ValueError("data quality must be five whole scores from 1 to 5, e.g. 2,3,1,2,2")
+    vals = [int(x) for x in vals]
     if len(vals) != 5 or not all(1 <= x <= 5 for x in vals):
         raise ValueError("data quality must be five scores from 1 to 5, e.g. 2,3,1,2,2")
     return vals
@@ -113,10 +117,7 @@ def import_rows(store, model_id, path):
                 raise ValueError("Type must be dataset, emission, resource or model")
             if not name:
                 raise ValueError("name is empty")
-            try:
-                amount = float(amount)
-            except (TypeError, ValueError):
-                raise ValueError("Amount must be a number")
+            amount = numcheck.finite(amount, "Amount", comma=True)
             if amount < 0:
                 raise ValueError("Amount must be positive (use the Avoided product column for credits)")
             kind = TYPES[typ]

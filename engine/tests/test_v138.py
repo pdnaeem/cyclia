@@ -74,7 +74,7 @@ class TestNonFinite(Base):
                  extra_flows=[("fx", "missing supply", "PRODUCT_FLOW", "P")])
         with self.assertRaises(ValueError) as cm:
             staging.staged(self.st, self.dir, lambda s, p: jsonld.import_jsonld(s, tmp, "Inf", p))
-        self.assertIn("unresolved input amounts", str(cm.exception))
+        self.assertIn("finite number", str(cm.exception))      # 1.9.0: refused while reading, before staging
         self.assertFalse(any(d["name"] == "Inf" for d in self.st.databases()))
 
     def test_integrity_covers_uncertainty_production_and_types(self):

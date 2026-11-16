@@ -1,5 +1,112 @@
 # Changelog
 
+## 1.9.0 (2026-11-16)
+
+First step towards Cyclia 2.0 (docs/ROADMAP.md, section "Road to 2.0"): one number validator on every path,
+regression of every dataset under every impact category, publishable benchmark reports and a scientific release
+gate. Details and tests: docs/quality/ACCEPTANCE_1.9.0.md.
+
+- **Yes/no values are no longer read as numbers.** In Python and after JSON parsing, true equals 1 and false equals
+  0. A yes/no sent in place of a number therefore passed as an amount, a year, a factor or an identifier;
+  `{"model_id": true}` calculated model 1. One validator (engine/numcheck.py) now reads every number:
+  - the API: every identifier field (`*_id`, `*_ids`, `db_a`, `db_b`, `db_from`, `db_to`) is checked where the
+    request is read;
+  - the storage layer;
+  - background scenario rules, parameter sweeps and optimisation, the Circular Footprint Formula, correlations,
+    regional methods (months, coordinates, SQI weights), social screening, teaching answers, the inventory
+    template, the Brightway exchange file, linking factors;
+  - every importer.
+  It also refuses NaN, infinity (1e309 included), text, and fractions where a whole number is needed (int() used
+  to cut 2.5 to 2).
+- **Importers report the values they cannot use.** ecoSpold 1 and 2, SimaPro CSV and ILCD used to replace an
+  unusable number (text, NaN, infinity, yes/no) by 0 or leave the uncertainty out without a word. The import result
+  now lists how many values were unusable, with examples. An openLCA JSON-LD exchange amount that is not a finite
+  number stops the import, as before, now with the flow named.
+- **Full-library regression.** Every dataset of the shipped reference libraries is checked under every impact
+  category on every run of the test suite. So are every demo model and the factor matching of every category
+  (counts and a fingerprint of the matched factors). The reference is the snapshot committed in
+  engine/tests/data. The scores of all datasets come from one transposed solve per category. For an installed library
+  (ecoinvent too), Toolbox > Validation > Full-library regression records a snapshot and compares a later state with
+  it. engine/tools/regression.py does the same from the command line.
+- **Benchmark reports for publication.** Toolbox > Validation > Publish benchmark reports writes one Markdown report
+  per method family group (ReCiPe, CML-IA, IPCC, EF) from the ecoinvent benchmarks run in the project: deviation
+  statistics per category, the ecoinvent version and the environment, never an ecoinvent value. Benchmarks now keep
+  their statistics per category for this. docs/benchmarks lists what has been benchmarked; ReCiPe, CML-IA and IPCC
+  are listed as not run until a licence holder runs them.
+- **Scientific release gate.** engine/tools/release_gate.py runs:
+  - the whole suite with Brightway installed at pinned versions, where a skipped Brightway comparison is a failure;
+  - the regression;
+  - the 35 validation systems;
+  - the IPCC 2021 check.
+  The installer build (build.yml) now depends on it, so no installer is built when it fails.
+
+The results of valid data are unchanged: the engine of 1.8.4 reproduces the committed reference snapshot bit for
+bit (1,500 values).
+
+## 1.8.4 (2026-11-16)
+
+Numerical integrity on every path, after the audit of 1.8.3. Details and tests: docs/quality/ACCEPTANCE_1.8.4.md.
+
+- **Site-specific factors.** An infinite factor was stored and made the impact NaN. Factors must now be finite when
+  saved, and the calculation refuses a stored factor that is not.
+- **Fixed EPD values.** The interface checked them, but the storage did not; it now does, and the calculation
+  refuses a stored value that is not finite.
+- **Parameters, distributions and scenarios.** These must be finite:
+  - parameter values and the values of their distributions (GSD, standard deviation, minimum, mode, maximum), with
+    a known distribution type;
+  - scenario values;
+  - background scenarios: the base year, rule factors and their years, supplier shares, and the exchange amounts of
+    scenario files.
+- **One transaction per line change.** A change with a valid and an invalid field used to write the valid one,
+  leave the transaction open and commit it with the next change. Every field is now checked first and all are
+  written together, or none.
+- **The calculation checks again.**
+  - A dataset amount, characterisation factor (generic, regional or site-specific) or fixed value that is not finite
+    stops the calculation with the dataset or category named.
+  - A total or line contribution that is not finite is never reported.
+  - Monte Carlo runs that give a non-finite result are refused instead of entering the statistics.
+- **Other inputs.**
+  - LCIA tables with a non-finite factor are refused when imported.
+  - The alternatives, costs and limits of the optimisation of choices, and the bounds and limits of parameter
+    sweeps and optimisation, must be finite.
+  - So must the scenario year, latitude and longitude, the confidence level and the circularity indicator inputs
+    sent to the engine.
+
+The results of valid data are unchanged.
+
+## 1.8.3 (2026-11-16)
+
+Numerical safeguards after the audit of 1.8.2. Details and tests: docs/quality/ACCEPTANCE_1.8.3.md.
+
+- **Finite numbers in the goal and scope.** The engine's reader refused NaN and Infinity, but 1e309 still became
+  infinity, and the storage layer accepted any number. An infinite study period with a replacement interval could
+  make the life cycle cost loop without end. Every number of the scope must now be finite and in its range:
+  - the study period, 0 to 1000 years;
+  - the discount rate and the escalation rate of each cost type, above −100 %;
+  - the allocation share, above 0 and up to 100 %;
+  - the masses, prices, energy contents and physical properties of the main product and co-products, zero or
+    more;
+  - latitude and longitude.
+- **Finite numbers in model lines and the functional unit.** These must be finite and in range, also on paths that
+  do not go through the interface checks (imports, saved combinations, supplier data):
+  - the amount of the functional unit, above zero (0 is no longer read as 1);
+  - the amount of every line, zero or more;
+  - the year, 0 to 1000;
+  - the replacement interval, 0.01 to 1000 years;
+  - the price uncertainty, 1 or more;
+  - the data year, 1900 to 2100;
+  - the cost per unit. A negative cost is a revenue.
+- **Life cycle cost.**
+  - The stored numbers are checked again before calculating, so a scope saved by an earlier version cannot hang it.
+  - A cost item bought more than 10 000 times in the study period is refused, naming the line.
+- **MFA years are whole numbers.** [2020.5, 2022.5] used to become 2020 to 2022 without a word. Fractional or
+  infinite years, a last year before the first, more than 1000 years, and fractional years of inflows are refused.
+- More regression tests of life cycle costing through sub-models: the allocation share with two levels of
+  sub-models, and a replacement interval longer than the study period.
+
+**Changed behaviour.** A functional unit amount of 0 is refused; earlier versions read it as 1. The results are
+otherwise unchanged.
+
 ## 1.8.2 (2026-11-15)
 
 - 

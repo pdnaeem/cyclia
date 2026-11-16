@@ -1,6 +1,6 @@
 # Cyclia feature status
 
-Status of Cyclia 1.8.2, checked against the source code, the automated tests and the validation records. A feature
+Status of Cyclia 1.9.0, checked against the source code, the automated tests and the validation records. A feature
 counts as **validated** only when its calculation is compared with independent reference results. Interface
 elements alone do not count.
 
@@ -22,6 +22,10 @@ elements alone do not count.
 | Parameters, formulas, scenarios | Implemented | Tests of formula evaluation and scenario switching |
 | Comparison with Brightway | Validated | Brightway's calculation library (bw2calc) builds and solves its own matrices; all results agree within 1e-6 (largest difference 4.4e-13 on a 3,000-dataset test database); runs in the app on any database and in every release build ([cross validation](CROSS_VALIDATION.md)) |
 | Scientific Benchmark Centre | Implemented | Every check with reference, result, differences, missing flows and status; not-run and not-available checks are never counted as validated |
+| Full-library regression | Implemented | Every dataset of the reference libraries under every category, every demo model and the factor matching of every category, against a committed snapshot on every test run; the same check for any installed library in the app and on the command line. A regression shows that results did not change, not that they are correct |
+| Number validation | Implemented | One validator for the API, storage, modules and importers: NaN, infinity, yes/no, text and fractions in whole numbers are refused; importers report the values they could not use |
+| Release gate | Implemented | Installers are built only when the suite passes with Brightway required, with the regression, the validation suite and the IPCC check |
+| Benchmark reports for publication | Implemented | Deviation statistics per category and method family from the ecoinvent benchmarks; [status](https://github.com/pdnaeem/cyclia/tree/main/docs/benchmarks) |
 | Comparison with openLCA | Partial | Comparison kit with openLCA JSON-LD and an openLCA 2 script; the run with openLCA is still to be published |
 
 ## LCIA methods
@@ -30,7 +34,7 @@ elements alone do not count.
 |---|---|---|
 | EF 3.1 with JRC normalisation and weighting | Validated | Factors from ecoinvent's LCIA implementation file or the JRC package; ecoinvent benchmark over 25 categories |
 | IPCC 2021 GWP100, EN 15804+A2 split | Validated | 14 gases reproduce the published IPCC AR6 GWP100 values within 1e-12 in an independent check (Benchmark Centre, automated test); fossil, biogenic and land use change split tested |
-| ReCiPe 2016, CML-IA | Implemented | Read from the official factor files; the ecoinvent validation can now include every installed method of ecoinvent's results file; that run is still to be published |
+| ReCiPe 2016, CML-IA | Implemented | Read from the official factor files; the ecoinvent validation includes every installed method of ecoinvent's results file and writes a report per method for publication. The run against ecoinvent needs a licence holder and has not been published yet ([status](https://github.com/pdnaeem/cyclia/tree/main/docs/benchmarks)) |
 | Any method from a CSV table, flow mapping | Implemented | Missing-factor and unit checks per category |
 | Dynamic GWP | Validated | Validation system with an exact answer |
 | AWARE water scarcity (annual, monthly, GIS) | Implemented | Consumption = withdrawal minus return to fresh water, with the water balance and the part identified by outputs; hand-calculated reference tests. The factors are not bundled (licence); an imported package is checked for completeness, world fallback, monthly sets, range and source. Not declared complete until checked against the official package's reference results |

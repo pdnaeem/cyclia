@@ -7,6 +7,8 @@ and adds the exchanges to the matrix.
 """
 import json
 
+import numcheck
+
 import units
 
 
@@ -89,7 +91,7 @@ def link(store, db_id, product, unit, target_id, factor=None, location=None):
     t = store.one("SELECT id, unit, db_id FROM activities WHERE id=?", (target_id,))
     if not t:
         raise ValueError("The chosen dataset does not exist.")
-    fac = float(factor) if factor not in (None, "") else units.factor(unit, t["unit"]) if unit else 1.0
+    fac = numcheck.finite(factor, "The conversion factor", lo=0, lo_open=True) if factor not in (None, "") else units.factor(unit, t["unit"]) if unit else 1.0
     if fac is None:
         raise ValueError(f"'{unit}' cannot be converted to '{t['unit']}'. Enter a conversion factor.")
     rows = _rows(store, db_id, product, unit, location)

@@ -71,12 +71,14 @@ Cyclia checks its own calculations against independent references:
 
 | Check | Result |
 |---|---|
-| Comparison with ecoinvent's published LCIA results (EF 3.1, cut-off, 100 datasets, 25 categories) | **100 % of 2,500 results within 0.1 %**, median deviation 3.9e-07 %, run with Cyclia 1.3.10; not yet repeated on the current release ([report](docs/VALIDATION_ECOINVENT.md)) |
+| Comparison with ecoinvent's published LCIA results (EF 3.1, cut-off, 100 datasets, 25 categories) | **100 % of 2,500 results within 0.1 %**, median deviation 3.9e-07 %, run with Cyclia 1.3.10; not yet repeated on the current release ([report](docs/VALIDATION_ECOINVENT.md)). ReCiPe, CML-IA and IPCC have not been benchmarked against ecoinvent yet ([status](docs/benchmarks/README.md)) |
 | Validation suite of 35 product systems with exact known answers | Run it in the app (Toolbox > Validation) and attach the report to your study |
 | Independent second calculation (rebuilt matrices, different solver) | Built in ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Comparison with Brightway (bw2calc) on the same database | All results within 1e-6, largest difference 1.4e-12; runs in the app on any database ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Characterisation factors compared with openLCA, Brightway or CSV factor sets | Flow by flow, with the effect of every difference |
-| Automated tests of the calculation engine | 343 tests (1.8.2), run on Windows, macOS and Linux for every change. A separate workflow installs Brightway at pinned versions and fails if its comparison tests are skipped |
+| Automated tests of the calculation engine | 393 tests (1.9.0), run on Windows, macOS and Linux for every change |
+| Full-library regression | Every dataset of the shipped reference libraries under every impact category, every demo model and the factor matching of every category, compared on every change with a committed snapshot (relative tolerance 1e-9). The same check runs on any installed library, ecoinvent included, from the app or `engine/tools/regression.py` |
+| Release gate | No installer is built unless the whole suite passes with Brightway installed at pinned versions (a skipped Brightway test fails the build), together with the regression, the 35 validation systems and the IPCC 2021 check |
 | Scientific Benchmark Centre | In the app (Toolbox > Validation): every check with its reference, result, differences and status; a check that did not run is never shown as validated |
 
 The status of every feature, including what is not validated yet, is listed in
@@ -197,7 +199,7 @@ and to check for updates.
 
 If Cyclia helps your research, please cite it:
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.8.2)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.9.0)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [CITATION.cff](CITATION.cff). In the app,

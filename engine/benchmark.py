@@ -284,10 +284,18 @@ def record_ecoinvent(store, res):
             continue
         n = sum(c["n"] for c in cs)
         weak = [c["category"] for c in cs if c["within_1"] < 95]
+        # 1.9.0: deviation statistics per category are kept for the publishable report (statistics only: no
+        # ecoinvent value is stored here)
+        cats_kept = [{k: c.get(k) for k in ("category", "indicator", "unit", "n", "median", "p95", "max", "within_0_1",
+                                            "within_1", "median_signed", "hint")} for c in cs]
         record(store, "ecoinvent", fam, {
             "n": n, "median": float(sorted(c["median"] for c in cs)[len(cs) // 2]), "max": max(c["max"] for c in cs),
-            "within_0_1": sum(c["within_0_1"] * c["n"] for c in cs) / n, "weak": ", ".join(weak),
-            "missing_flows": "see report", "database": _db_label(res)})
+            "within_0_1": sum(c["within_0_1"] * c["n"] for c in cs) / n,
+            "within_1": sum(c["within_1"] * c["n"] for c in cs) / n, "weak": ", ".join(weak),
+            "missing_flows": "see report", "database": _db_label(res), "categories": cats_kept,
+            "datasets_compared": res.get("datasets_matched") or res.get("datasets"),
+            "datasets_in_file": res.get("datasets_in_file"), "inventory_checked": bool(res.get("inventory")),
+            "unlinked_inputs": res.get("unlinked_inputs")})
 
 
 def _db_label(res):
@@ -324,3 +332,164 @@ def excel(path, c):
     for col, w in zip("ABCDEFGHIJKL", (44, 40, 18, 18, 14, 14, 14, 12, 22, 12, 10, 60)):
         ws.column_dimensions[col].width = w
     wb.save(path)
+
+
+# ============================================================================ publishable benchmark reports (1.9.0)
+GROUPS = (("recipe", "ReCiPe"), ("cml", "CML-IA"), ("ipcc", "IPCC"), ("environmental footprint", "EF"),
+          ("ef v3", "EF"), ("ef 3", "EF"))
+
+
+def method_group(family):
+    """ReCiPe, CML-IA, IPCC or EF for a method family name; the family itself otherwise."""
+    low = (family or "").lower()
+    for k, g in GROUPS:
+        if k in low:
+            return g
+    if low.startswith("ef "):
+        return "EF"
+    return family
+
+
+def _status(sm):
+    if sm.get("within_0_1", 0) >= 95 and not sm.get("weak"):
+        return "Validated"
+    return "Validated except some categories" if sm.get("within_0_1", 0) >= 95 else "Deviations"
+
+
+def _pct(v, digits=3):
+    return "" if v is None else f"{v:.{digits}g}"
+
+
+def _slug(text):
+    import re
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def publication(store, cyclia_version=""):
+    """Markdown reports of the latest ecoinvent benchmark of every method family, grouped (ReCiPe, CML-IA, IPCC, EF).
+
+    The reports hold deviation statistics only (how far Cyclia's results are from ecoinvent's own results), never an
+    ecoinvent value, so they can be published. Returns {file name: text}; empty when no benchmark was run."""
+    latest = {}
+    for r in store.q("SELECT * FROM benchmark_runs WHERE kind='ecoinvent' ORDER BY id"):
+        latest[r["title"]] = dict(r) | {"summary": json.loads(r["summary"])}
+    by_group = {}
+    for fam, r in latest.items():
+        key = (method_group(fam), r["summary"].get("database") or "ecoinvent")
+        by_group.setdefault(key, []).append((fam, r))
+    files = {}
+    index = []
+    for (grp, db), runs in sorted(by_group.items()):
+        name = f"{_slug(grp)}-{_slug(db)}.md"
+        text = _report(grp, db, runs, cyclia_version)
+        files[name] = text
+        sms = [r["summary"] for _, r in runs]
+        statuses = {_status(sm) for sm in sms}
+        status = "Validated" if statuses == {"Validated"} else (
+            "Deviations" if "Deviations" in statuses else "Validated except some categories")
+        n = sum(sm.get("n", 0) for sm in sms)
+        index.append(f"| [{grp}]({name}) | {db} | {n:,} | {status} | "
+                     f"{max(r['time'] for _, r in runs)[:10]} | "
+                     f"{max((r['summary'].get('environment') or {}).get('cyclia', '') for _, r in runs)} |")
+    if files:
+        files["README.md"] = "\n".join([
+            "# Cyclia benchmarks against ecoinvent",
+            "",
+            "Each report compares Cyclia's results with ecoinvent's own cumulative LCIA results, for the method "
+            "family and the ecoinvent version named. The reports contain deviation statistics only; no ecoinvent value "
+            "is reproduced. They are produced by Cyclia (Validation > Benchmark Centre > Publish benchmark reports) "
+            "on a computer with an ecoinvent licence.",
+            "",
+            "| Method | Database | Results compared | Status | Date | Cyclia |",
+            "|---|---|---:|---|---|---|",
+            *index,
+            "",
+            "A method that is not listed here has not been benchmarked against ecoinvent and is not claimed as "
+            "validated. Status rule: 'Validated' when at least 95 % of all results agree within 0.1 % and every "
+            "category has at least 95 % of its results within 1 %.",
+            ""])
+    return files
+
+
+def _report(grp, db, runs, cyclia_version):
+    env = max(((r["summary"].get("environment") or {}) for _, r in runs), key=lambda e: e.get("date", ""))
+    sms = [r["summary"] for _, r in runs]
+    n = sum(sm.get("n", 0) for sm in sms)
+    lines = [f"# {grp} benchmark: Cyclia against ecoinvent's cumulative LCIA results", "", f"Database: {db}", ""]
+    for fam, r in runs:
+        sm = r["summary"]
+        lines += [f"**{fam}**: {_status(sm)}. {sm.get('within_0_1', 0):.2f} % of {sm.get('n', 0):,} results within "
+                  f"0.1 % of ecoinvent's value" + (f", {sm['within_1']:.2f} % within 1 %" if sm.get("within_1") is not None
+                                                  else "") + "." +
+                  (f" Categories with less than 95 % of results within 1 %: {sm['weak']}." if sm.get("weak") else ""), ""]
+    lines += ["## What was compared", "",
+              f"- Reference: ecoinvent's own cumulative LCIA results for {db}, the file ecoinvent provides to licence "
+              "holders with the database. Cyclia imported the same database (ecoSpold2) and the method, calculated "
+              "every sampled dataset with its full supply chain and compared the scores, result by result.",
+              f"- Results compared: {n:,} (datasets x impact categories)."]
+    d = next((sm.get("datasets_compared") for sm in sms if sm.get("datasets_compared")), None)
+    if d:
+        f = next((sm.get("datasets_in_file") for sm in sms if sm.get("datasets_in_file")), None)
+        lines.append(f"- Datasets: {d:,} compared" + (f" of {f:,} in the results file" if f else "") +
+                     ", matched by 'Activity UUID_Product UUID' (or by name, geography and product).")
+    if any(sm.get("inventory_checked") for sm in sms):
+        lines.append("- The cumulative inventory was compared with ecoinvent's cumulative LCI as well, which separates "
+                     "deviations caused by the inventory from those caused by the factors.")
+    lines += [f"- Software: Cyclia {env.get('cyclia') or cyclia_version}, Python {env.get('python', '')}, NumPy "
+              f"{env.get('numpy', '')}, SciPy {env.get('scipy', '')}, {env.get('platform', '')}; run on "
+              f"{env.get('date', '')[:10]}.", "",
+              "## Deviation per impact category", "",
+              "Deviation = |Cyclia - ecoinvent| / |ecoinvent| x 100, per dataset. Signed median: negative when Cyclia "
+              "is lower for most datasets.", "",
+              "| Method | Category | Indicator | Unit | Results | Median % | Signed median % | 95th percentile % | Max % "
+              "| Within 0.1 % | Within 1 % |",
+              "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|"]
+    notes = []
+    for fam, r in runs:
+        cats = r["summary"].get("categories")
+        if not cats:
+            notes.append(f"{fam}: this benchmark was recorded by a version before 1.9.0, which kept the family totals "
+                         "only. Run it again for the table per category.")
+            continue
+        for c in cats:
+            lines.append(f"| {fam} | {c['category']} | {c.get('indicator') or ''} | {c.get('unit') or ''} | "
+                         f"{c.get('n') or 0:,} | {_pct(c.get('median'))} | {_pct(c.get('median_signed'))} | "
+                         f"{_pct(c.get('p95'))} | {_pct(c.get('max'))} | {_pct(c.get('within_0_1'), 4)} % | "
+                         f"{_pct(c.get('within_1'), 4)} % |")
+            if c.get("hint") and (c.get("median") or 0) > 0.1:
+                notes.append(f"{c['category']}: {c['hint']}")
+    lines += [""]
+    if notes:
+        lines += ["## Notes", ""] + [f"- {x}" for x in notes] + [""]
+    lines += ["## How to read this", "",
+              "- 'Validated' requires that at least 95 % of all results agree within 0.1 % and that every category has "
+              "at least 95 % of its results within 1 %. A category below that is named above and its results should "
+              "not be published before the cause is found.",
+              "- The benchmark checks Cyclia's matrix calculation, its import of ecoinvent and the matching of the "
+              "method's factors to ecoinvent's elementary flows. It does not check the method itself: Cyclia uses the "
+              "factors as published.",
+              "- Only the ecoinvent version and system model named were compared. Another version or system model "
+              "needs its own run.",
+              "- No ecoinvent data is reproduced here: the report holds deviation statistics only.", "",
+              "## Reproduce", "",
+              "1. Import the ecoinvent database (ecoSpold2) and the method in Cyclia.",
+              "2. Validation > ecoinvent: choose ecoinvent's cumulative LCIA results file for the same version and "
+              "system model (optionally the cumulative LCI file too) and run the benchmark.",
+              "3. Validation > Benchmark Centre > Publish benchmark reports writes this file.", ""]
+    return "\n".join(lines)
+
+
+def write_publication(store, folder, cyclia_version=""):
+    """Write the reports of publication() into a folder; returns the paths written."""
+    import os
+    files = publication(store, cyclia_version)
+    if not files:
+        raise ValueError("No ecoinvent benchmark has been run in this project. Run Validation > ecoinvent first.")
+    os.makedirs(folder, exist_ok=True)
+    out = []
+    for name, text in files.items():
+        p = os.path.join(folder, name)
+        with open(p, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+        out.append(p)
+    return out

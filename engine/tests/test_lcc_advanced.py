@@ -118,6 +118,22 @@ class TestNestedLCC(unittest.TestCase):
         self.assertAlmostEqual(u["p97_5"] / u["median"], 2.0 ** 1.96, delta=0.4)
         self.assertAlmostEqual(u["p2_5"] / u["median"], 2.0 ** -1.96, delta=0.05)
 
+    def test_allocation_share_and_two_levels(self):
+        """1.8.3 regression: the share of the study's main product (50 %) and a grandchild. The grandchild pump is
+        replaced every 8 years inside a child bought once: 0, 8, 16 in 20 years, 4 of 8 years left at 20."""
+        g = self.child(replace_every=8)
+        c = self.st.save_model({"name": "assembly", "product": "a", "unit": "unit", "amount": 1,
+                                "scope": {"goal": "g", "boundary": "cradle-to-gate"}})
+        self.st.add_input(c, "model", g, 1.0)
+        r = self.parent({"lcc_period": 20, "alloc_share": 50}, [c])
+        self.assertAlmostEqual(r["total"], 0.5 * (300 - 100 * 4 / 8), places=9)
+        self.assertEqual(r["sub_model_items"][0]["path"], "assembly > child > pump")
+        self.assertEqual(r["sub_model_items"][0]["purchases"], 3)
+
+    def test_interval_longer_than_the_period(self):
+        r = self.parent({"lcc_period": 20}, [self.child(replace_every=30)])
+        self.assertAlmostEqual(r["total"], 100 - 100 * 10 / 30, places=9)   # one purchase, 10 of 30 years left
+
     def test_without_period_a_child_is_bought_once(self):
         r = self.parent({}, [self.child(replace_every=5)])
         self.assertAlmostEqual(r["total"], 100, places=9)

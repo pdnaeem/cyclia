@@ -1,15 +1,13 @@
 """Faster modelling: tables from papers to inventory lines, parameter sweeps and optimisation (with Pareto fronts),
 model templates, and comparisons between saved versions of a model."""
-import csv
-import io
 import json
 import math
-import os
 import re
 
 import numpy as np
 
 import calc
+import numcheck
 import units
 
 # ============================================================================ literature tables
@@ -194,14 +192,14 @@ def add_rows(store, model_id, rows, source=""):
             problems.append(f"Row {n}: choose a dataset or flow.")
             continue
         table = "activities" if kind == "activity" else "flows"
-        t = store.one(f"SELECT id, unit FROM {table} WHERE id=?", (int(r["ref_id"]),))
+        rid = numcheck.parse(r.get("ref_id"))
+        t = store.one(f"SELECT id, unit FROM {table} WHERE id=?", (int(rid),)) if rid is not None and rid == int(rid) else None
         if not t:
             problems.append(f"Row {n}: the chosen {kind} no longer exists.")
             continue
-        try:
-            amt = float(r["amount"])
-        except (TypeError, ValueError):
-            problems.append(f"Row {n}: amount is not a number.")
+        amt = numcheck.parse(r.get("amount"))
+        if amt is None:
+            problems.append(f"Row {n}: the amount must be a finite number.")
             continue
         unit = r.get("unit") or t["unit"]
         fac = units.factor(unit, t["unit"])
@@ -217,7 +215,7 @@ def add_rows(store, model_id, rows, source=""):
                         comment=("literature: " + source if source else "literature") + (f"; '{r.get('source_line', '')[:80]}'"
                                                                                        if r.get("source_line") else ""),
                         stage=r.get("stage", ""), input_amount=amt, input_unit=unit,
-                        avoided=bool(r.get("avoided")) or (float(r["amount"]) < 0), pedigree=[2, 3, 3, 3, 3])
+                        avoided=bool(r.get("avoided")) or (numcheck.parse(r.get("amount")) < 0), pedigree=[2, 3, 3, 3, 3])
     return {"added": len(ready), "problems": []}
 
 
@@ -253,10 +251,13 @@ def _check_params(ev, params):
         if name not in ev.free:
             raise ValueError(f"'{name}' is not a free parameter of this model (parameters defined by a formula cannot be "
                              "varied directly).")
-        lo, hi = float(p["lo"]), float(p["hi"])
+        lo = numcheck.finite(p.get("lo"), f"{name}: the lower bound")
+        hi = numcheck.finite(p.get("hi"), f"{name}: the upper bound")
         if not hi > lo:
             raise ValueError(f"{name}: the upper bound must be above the lower bound.")
-        out.append((name, lo, hi, int(p.get("n") or 11)))
+        n = numcheck.integer(p.get("n") if p.get("n") not in (None, "") else 11, f"{name}: the number of steps",
+                             lo=2, hi=200)
+        out.append((name, lo, hi, n))
     if not out:
         raise ValueError("Choose at least one parameter.")
     return out
@@ -290,10 +291,13 @@ def optimise(store, model_id, method_ids, params, objective=0, constraints=None,
     ps = _check_params(ev, params)[:6]
     names = [p[0] for p in ps]
     bounds = [(p[1], p[2]) for p in ps]
-    cons = [(int(c["index"]), float(c["max"])) for c in (constraints or []) if c.get("max") not in (None, "")]
     k = len(ev.method_ids)
-    if not 0 <= int(objective) < k:
+    cons = [(numcheck.integer(c.get("index"), "The category of a limit", lo=0, hi=k - 1),
+             numcheck.finite(c.get("max"), "A limit")) for c in (constraints or []) if c.get("max") not in (None, "")]
+    if numcheck.parse(objective) is None or not 0 <= numcheck.parse(objective) < k \
+            or numcheck.parse(objective) != int(numcheck.parse(objective)):
         raise ValueError("Choose the category to minimise.")
+    objective = int(numcheck.parse(objective))
     base_vals = {n: float(ev.free[n]["value"] or 0) for n in names}
     base = ev(base_vals)
     scale = max(abs(base[int(objective)]), 1e-12)
@@ -313,9 +317,10 @@ def optimise(store, model_id, method_ids, params, objective=0, constraints=None,
            if base[int(objective)] else None,
            "constraints": [{"index": i, "max": lim, "value": float(hb[i]), "met": hb[i] <= lim * (1 + 1e-6) + 1e-12}
                            for i, lim in cons]}
-    if second_objective is not None and second_objective != "" and int(second_objective) != int(objective):
-        j = int(second_objective)
-        n = int(max(50, min(int(samples or 400), 3000)))
+    if second_objective is not None and second_objective != "" and \
+            numcheck.integer(second_objective, "The second category", lo=0, hi=k - 1) != objective:
+        j = numcheck.integer(second_objective, "The second category", lo=0, hi=k - 1)
+        n = int(max(50, min(numcheck.integer(samples or 400, "The number of samples", lo=1), 3000)))
         smp = qmc.LatinHypercube(d=len(names), seed=seed).random(n)
         X = qmc.scale(smp, [b[0] for b in bounds], [b[1] for b in bounds])
         pts = []
@@ -486,7 +491,7 @@ def apply_template(store, tpl, name=None, location=""):
             missing.append(ln.get("search") or ln.get("flow"))
             continue
         unit = ln.get("unit") or t["unit"]
-        amt = fm.evaluate(ln["formula"], vals) if ln.get("formula") else float(ln.get("amount") or 0)
+        amt = fm.evaluate(ln["formula"], vals) if ln.get("formula") else numcheck.finite(ln.get("amount") or 0, f"The amount of {ln.get('search') or ln.get('flow') or 'a line'}")
         fac = units.factor(unit, t["unit"])
         store.add_input(mid, kind, t["id"], abs(amt) * fac, label=t["name"] if kind == "flow" else "",
                         comment=f"from template '{tpl['name']}'; check the dataset choice", stage=ln.get("stage", ""),

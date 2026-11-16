@@ -13,6 +13,7 @@ import zipfile
 
 from openpyxl import Workbook, load_workbook
 
+import numcheck
 import units
 
 NS = uuid.UUID("8d1f7b8e-55a1-4a3c-a6d4-3c0e2f9b6a70")
@@ -180,7 +181,8 @@ def import_brightway_excel(store, path):
     for act in acts:
         prod = [e for e in act["exchanges"] if str(e.get("type", "")).lower() == "production"]
         unit = act["meta"].get("unit") or (prod[0].get("unit") if prod else "")
-        amount = float(act["meta"].get("production amount") or (prod[0].get("amount") if prod else 1) or 1)
+        amount = numcheck.finite(act["meta"].get("production amount") or (prod[0].get("amount") if prod else 1) or 1,
+                                 f"{act['name']}: the production amount", lo=0, lo_open=True)
         mid = store.save_model({"name": act["name"] or "Imported activity", "unit": unit or "unit", "amount": abs(amount),
                                 "product": act["meta"].get("reference product") or act["name"],
                                 "scope": {"imported_from": os.path.basename(path)}})
@@ -195,8 +197,8 @@ def import_brightway_excel(store, path):
             if t not in ("technosphere", "biosphere", "substitution"):
                 continue
             try:
-                amt = float(e.get("amount") or 0)
-            except (TypeError, ValueError):
+                amt = numcheck.finite(e.get("amount") or 0, "amount")
+            except ValueError:
                 problems.append(f"{act['name']}: amount of '{e.get('name')}' is not a number")
                 continue
             if t == "biosphere":

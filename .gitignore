@@ -18,3 +18,5 @@ node_modules/
 *benchmark*.xlsx
 *.7z
 *.spold
+*ecoinvent*.json
+*ecoinvent*.json.gz

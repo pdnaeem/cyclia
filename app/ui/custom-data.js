@@ -818,6 +818,30 @@
   window.loadBenchCentre = load;
   $("#btnBenchRefresh").addEventListener("click", (e) => guard(e.target, load));
   $("#btnBenchExport").addEventListener("click", (e) => guard(e.target, () => exportTo("/api/export/benchmark-centre", "Cyclia benchmark centre.xlsx", "xlsx")));
+  $("#btnBenchPublish").addEventListener("click", (e) => guard(e.target, async () => {
+    const r = await api("POST", "/api/benchmark/publish", {});
+    addExport(r);
+    $("#benchPublishOut").innerHTML = `<p class="ok">${r.files.length} file(s) written to ${esc(r.folder)}: ${r.files.map(esc).join(", ")}. Copy them to docs/benchmarks to publish them.</p>`;
+  }));
+  $("#btnRegRecord").addEventListener("click", (e) => guard(e.target, async () => {
+    const body = {};
+    if (desktop) { const p = await desktop.saveFile(`${(S.status && S.status.project) || "Cyclia"} regression.json.gz`, "gz"); if (!p) return; body.path = p; }
+    const { job } = await api("POST", "/api/regression/record", body);
+    const j = await watchJob(job);
+    if (j && j.result) {
+      addExport(j.result);
+      $("#rgOut").innerHTML = `<p class="ok">Snapshot of ${fmt(j.result.datasets)} datasets, ${fmt(j.result.categories)} impact categories and ${fmt(j.result.models)} models recorded.</p>`;
+      $("#rgPath").value = j.result.path;
+    }
+  }));
+  $("#btnRegCompare").addEventListener("click", (e) => guard(e.target, async () => {
+    if (!$("#rgPath").value.trim()) throw new Error("Choose a snapshot recorded earlier.");
+    const { job } = await api("POST", "/api/regression/compare", { path: $("#rgPath").value.trim() });
+    const j = await watchJob(job);
+    if (!j || !j.result) return;
+    const r = j.result;
+    $("#rgOut").innerHTML = `<p class="${r.passed ? "ok" : "danger"}"><b>${r.passed ? "No difference" : "Differences found"}</b>: ${fmt(r.values_compared)} values compared, ${fmt(r.values_different)} outside the tolerance.</p><pre class="code">${esc(r.text)}</pre>`;
+  }));
   $("#btnBenchIpcc").addEventListener("click", (e) => guard(e.target, async () => {
     const { job } = await api("POST", "/api/benchmark/ipcc", {});
     const j = await watchJob(job);

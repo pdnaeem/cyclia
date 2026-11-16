@@ -20,6 +20,7 @@ import os
 import secrets
 
 import custom_data as cd
+import numcheck
 import units
 
 SCHEMA = """
@@ -197,19 +198,7 @@ def _fmt(x):
 def _num(v, what):
     if v is None or (isinstance(v, str) and not v.strip()):
         return None
-    if isinstance(v, (int, float)) and not isinstance(v, bool):
-        x = float(v)
-    else:
-        s = str(v).strip().replace(" ", "").replace(" ", "")
-        if "," in s and "." not in s:
-            s = s.replace(",", ".")
-        try:
-            x = float(s)
-        except ValueError:
-            raise SupplierError(f"{what}: '{v}' is not a number.")
-    if not math.isfinite(x):
-        raise SupplierError(f"{what} is not a finite number.")
-    return x
+    return numcheck.finite(v, what, err=SupplierError, comma=True)
 
 
 def _cell(v):

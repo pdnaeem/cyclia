@@ -36,6 +36,7 @@ import numpy as np
 
 import calc
 import formula as fm
+import numcheck
 import units as unitconv
 from canon import canon_context
 
@@ -79,15 +80,10 @@ def _text(v, what, required=True, maxlen=500):
 
 
 def _number(v, what, allow_zero=False):
-    try:
-        x = float(v)
-    except (TypeError, ValueError):
-        if isinstance(v, str) and re.fullmatch(r"\s*-?\d+,\d+\s*", v):
-            raise CustomDataError(f"{what}: use a dot as the decimal separator ({v.strip().replace(',', '.')}, not "
-                                  f"{v.strip()}).")
-        raise CustomDataError(f"{what} must be a number.")
-    if not math.isfinite(x):
-        raise CustomDataError(f"{what} must be a finite number.")
+    if isinstance(v, str) and re.fullmatch(r"\s*-?\d+,\d+\s*", v):
+        raise CustomDataError(f"{what}: use a dot as the decimal separator ({v.strip().replace(',', '.')}, not "
+                              f"{v.strip()}).")
+    x = numcheck.finite(v, what, err=CustomDataError)
     if not allow_zero and x == 0:
         raise CustomDataError(f"{what} must not be zero.")
     return x

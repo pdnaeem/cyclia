@@ -14,6 +14,7 @@ import re
 import numpy as np
 
 import calc
+import numcheck
 import units
 
 UNASSIGNED = "Unassigned stage"
@@ -44,15 +45,24 @@ def _cost_items(ctx, model_id, mult, windows, path, depth, out, uncosted):
     share = calc.allocation_share(m["scope"])
     for inp in m["inputs"]:
         sign = -1.0 if inp["avoided"] else 1.0
+        name = inp["label"] or inp["target"]["name"]
         y = float(inp.get("year") or 0)
         R = float(inp.get("replace_every") or 0)
-        name = inp["label"] or inp["target"]["name"]
+        for v, what in ((y, "year"), (R, "replacement interval"), (inp.get("unit_cost") or 0, "cost per unit"),
+                        (inp.get("cost_gsd") or 1, "price uncertainty")):
+            if not math.isfinite(float(v)):
+                raise calc.LCAError(f"'{name}': the {what} must be a finite number.")
+        if y < 0 or R < 0:
+            raise calc.LCAError(f"'{name}': years and replacement intervals cannot be negative.")
         if inp.get("unit_cost") is not None:
             c1 = _input_amount(ctx, model_id, inp) * float(inp["unit_cost"]) * sign * share * mult
             purchases = []
             for start, end, life in windows:
                 t = start + y
                 while end is None or t < end - 1e-9:
+                    if len(purchases) >= MAX_PURCHASES:
+                        raise calc.LCAError(f"'{name}' would be bought more than {MAX_PURCHASES:,} times in the study "
+                                            "period: check its replacement interval.")
                     own = t + R if R > 0 else None
                     ends = [x for x in (own, life) if x is not None]
                     purchases.append((t, min(ends) if ends else None))
@@ -69,6 +79,9 @@ def _cost_items(ctx, model_id, mult, windows, path, depth, out, uncosted):
             for start, end, life in windows:
                 t = start + y
                 while end is None or t < end - 1e-9:
+                    if len(sw) >= MAX_PURCHASES:
+                        raise calc.LCAError(f"'{name}' would be bought more than {MAX_PURCHASES:,} times in the study "
+                                            "period: check its replacement interval.")
                     if R > 0 and end is not None:
                         sw.append((t, min(t + R, end), min(t + R, life) if life is not None else t + R))
                         t += R
@@ -78,6 +91,9 @@ def _cost_items(ctx, model_id, mult, windows, path, depth, out, uncosted):
             _cost_items(ctx, inp["ref_id"], mult * k, sw, path + [name], depth + 1, out, uncosted)
         else:
             uncosted.append(path + [name])
+
+
+MAX_PURCHASES = 10_000     # per cost item: a guard against a replacement interval far shorter than the period
 
 
 class _OneLine:
@@ -119,11 +135,14 @@ def lcc(ctx, model_id, iterations=2000, seed=42):
 
     if not has_cost(model_id):
         return None
-    rate = float(sc.get("lcc_rate") or 0) / 100.0
+    # scopes saved before 1.8.3 may hold any number: check them here too
+    import store as store_mod
     try:
-        period = float(sc.get("lcc_period") or 0)
-    except (TypeError, ValueError):
-        period = 0.0
+        store_mod.check_scope_numbers(sc)
+    except ValueError as e:
+        raise calc.LCAError(str(e) + " Correct it in Goal & scope, life cycle cost.")
+    rate = float(sc.get("lcc_rate") or 0) / 100.0
+    period = float(sc.get("lcc_period") or 0)
     if rate <= -1:
         raise calc.LCAError("The discount rate must be above -100 %.")
     esc = {}
@@ -292,7 +311,7 @@ def cff_lines(p):
     + (1-B) R3 (EER - LHV X_heat ESE,heat - LHV X_elec ESE,elec) + (1-R2-R3) ED
     Qsin, Qsout are given as the ratios Qsin/Qp and Qsout/Qp. Returns (role, amount, credit, unit) per line,
     where amounts are per unit of material (heat in MJ, electricity in MJ to be converted)."""
-    v = {k: float(p.get(k, CFF_DEFAULTS[k]) if p.get(k, "") != "" else CFF_DEFAULTS[k]) for k in CFF_DEFAULTS}
+    v = {k: numcheck.finite(p.get(k) if p.get(k) not in (None, "") else CFF_DEFAULTS[k], k) for k in CFF_DEFAULTS}
     for k in ("A", "B", "R1", "R2", "R3", "X_heat", "X_elec"):
         if not 0 <= v[k] <= 1:
             raise ValueError(f"{k} must be between 0 and 1.")
@@ -328,8 +347,9 @@ CFF_ENERGY = {"avoided_heat", "avoided_electricity"}
 def apply_cff(store, model_id, mass, unit, params, datasets, stage_production="", stage_eol=""):
     """Add the CFF lines for `mass` (in `unit`) of a material to a model. `datasets` maps a role to an activity id;
     a role with a zero amount needs no dataset. Returns the lines added and the coefficients."""
-    if not mass or float(mass) <= 0:
+    if mass in (None, ""):
         raise ValueError("Give the mass of the material (more than zero).")
+    mass = numcheck.finite(mass, "The mass of the material", lo=0, lo_open=True)
     lines, v = cff_lines(params)
     plan = []
     for role, coef, credit in lines:
@@ -600,7 +620,8 @@ def correlated_draws(rng, dist, size, correlations):
     import hier
     var_list = [{"key": ("p", p["name"]), "p": p} for p in dist]
     keys = {v["key"] for v in var_list}
-    pairs = [(("p", c["a"]), ("p", c["b"]), float(c["r"])) for c in correlations or []
+    pairs = [(("p", c["a"]), ("p", c["b"]), numcheck.finite(c.get("r"), f"The correlation of {c.get('a')} and {c.get('b')}",
+                                                            -1, 1)) for c in correlations or []
              if ("p", c.get("a")) in keys and ("p", c.get("b")) in keys and c.get("a") != c.get("b")]
     d = hier.draw(rng, var_list, size, pairs)
     return {k[1]: v for k, v in d.items()}

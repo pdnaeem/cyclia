@@ -40,6 +40,7 @@ import benchmark as bench_mod  # noqa: E402  (server.py has a route function nam
 import lci_check  # noqa: E402,F401  (used by trust; imported here so the packaged engine includes it)
 import staging  # noqa: E402
 import mfa  # noqa: E402
+import numcheck  # noqa: E402
 import regional  # noqa: E402
 import slca  # noqa: E402
 import calc  # noqa: E402
@@ -59,7 +60,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.8.2"
+VERSION = "1.9.0"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -170,23 +171,43 @@ class State:
         return {k: v for k, v in job.items() if k != "result"}
 
 
+_ID_FIELD = re.compile(r"^(?:\w+_id|db_(?:a|b|from|to))$")
+_IDS_FIELD = re.compile(r"^\w+_ids$")
+
+
 def _need(body, *keys):
+    """The required fields of a request. Identifier fields (model_id, db_a, method_ids ...) are checked here, so a route
+    cannot pass True (which int() reads as 1), 2.5 or text on to the engine (1.9.0)."""
     out = []
     for k in keys:
         if body.get(k) in (None, "", []):
             raise ApiError(f"Missing field: {k}")
-        out.append(body[k])
+        v = body[k]
+        if _ID_FIELD.match(k):
+            v = numcheck.integer(v, k, lo=1, err=ApiError)
+        elif _IDS_FIELD.match(k):
+            v = _ids(v, k)
+        out.append(v)
     return out
 
 
 def _num(v, field="Amount"):
-    try:
-        x = float(v)
-    except (TypeError, ValueError):
-        raise ApiError(f"{field} must be a number.")
-    if not math.isfinite(x):
-        raise ApiError(f"{field} must be a finite number.")
-    return x
+    """A finite number (the common validator: booleans, NaN, infinity and 1e309 are refused)."""
+    return numcheck.finite(v, field, err=ApiError)
+
+
+def _int(v, field="The value", lo=None):
+    """A whole number: True, 2.5 and "x" are refused (int() would accept or cut them)."""
+    return numcheck.integer(v, field, lo=lo, err=ApiError)
+
+
+def _ids(values, field="Identifiers"):
+    """A list of identifiers (whole numbers of at least 1)."""
+    if values is None:
+        return []
+    if not isinstance(values, (list, tuple)):
+        raise ApiError(f"{field} must be a list.")
+    return [numcheck.integer(v, field, lo=1, err=ApiError) for v in values]
 
 
 def _check_path(p, must_exist=True):
@@ -238,7 +259,7 @@ def _unlocked(store, model_id):
 
 def _bg(body):
     if body.get("bg_id"):
-        return {"id": int(body["bg_id"]), "year": float(body["bg_year"]) if body.get("bg_year") not in (None, "") else None}
+        return {"id": _int(body["bg_id"], "bg_id"), "year": _num(body["bg_year"], "The scenario year") if body.get("bg_year") not in (None, "") else None}
     return None
 
 
@@ -506,7 +527,7 @@ def ei_install(st, body, q):
     user, pw, version, model = _need(body, "username", "password", "version", "system_model")
     name = body.get("name") or f"ecoinvent {version} {model}"
     validate = bool(body.get("validate", True))
-    sample = int(body.get("sample") or 100)
+    sample = _int(body.get("sample") or 100, "sample")
 
     def job(store, progress):
         scale = 0.7 if validate else 1.0
@@ -574,7 +595,7 @@ def ei_validate(st, body, q):
         raise ApiError(f"'{db_name}' is not in the library. Install it first, or choose the database it was imported as.")
 
     def job(progress, cancelled):
-        r = _ei_validate(st, store, user, pw, version, model, db_name, int(body.get("sample") or 100), progress,
+        r = _ei_validate(st, store, user, pw, version, model, db_name, _int(body.get("sample") or 100, "sample"), progress,
                          inventories=bool(body.get("inventories", True)), all_methods=bool(body.get("all_methods")))
         if r.get("error"):
             raise ValueError(r["error"])
@@ -617,7 +638,7 @@ def unlinked_suggest(st, body, q, db_id):
 def unlinked_link(st, body, q, db_id):
     target = _need(body, "target_id")[0]
     try:
-        r = linking.link(st.store, int(db_id), body.get("product", ""), body.get("unit", ""), int(target), body.get("factor"),
+        r = linking.link(st.store, int(db_id), body.get("product", ""), body.get("unit", ""), _int(target, "target_id", 1), body.get("factor"),
                          location=body.get("location"))
     except ValueError as e:
         raise ApiError(str(e))
@@ -642,7 +663,7 @@ def unlinked_auto(st, body, q, db_id):
 @route("POST", "/api/validate")
 def validate(st, body, q):
     db = body.get("db_id")
-    return _calc_error(calc.validate_database, st.store, int(db) if db else None)
+    return _calc_error(calc.validate_database, st.store, _int(db, "db_id", 1) if db else None)
 
 
 def _read_table(path):
@@ -744,7 +765,7 @@ def explore_search(st, body, q):
 
 @route("POST", "/api/explore/export")
 def explore_export(st, body, q):
-    ids = [int(x) for x in (body.get("ids") or [])][:5000]
+    ids = _ids(body.get("ids") or [])[:5000]
     if not ids:
         raise ApiError("Select datasets first.")
     from openpyxl import Workbook
@@ -834,7 +855,7 @@ def model_save(st, body, q):
     store = st.store
     if body.get("id"):
         _unlocked(store, body["id"])
-        store.snapshot(int(body["id"]), "edit goal & scope")
+        store.snapshot(_int(body["id"], "id"), "edit goal & scope")
         if isinstance(body.get("scope"), dict):
             body["scope"].pop("locked", None)
     try:
@@ -943,7 +964,7 @@ def input_add(st, body, q, mid):
     store = st.store
     mid = int(mid)
     _unlocked(store, mid)
-    ref_id = int(body["ref_id"]) if body.get("ref_id") not in (None, "") else None
+    ref_id = _int(body["ref_id"], "ref_id") if body.get("ref_id") not in (None, "") else None
     if kind != "fixed" and ref_id is None:
         raise ApiError("Missing field: ref_id")
     formula = None
@@ -997,7 +1018,7 @@ def input_update(st, body, q, iid):
             fields["pef"] = None
         else:
             try:
-                v = [int(x) for x in v]
+                v = [_int(x, "PEF score") for x in v]
             except (TypeError, ValueError):
                 raise ApiError("PEF scores must be whole numbers 1 to 5.")
             if len(v) != 4 or not all(1 <= x <= 5 for x in v):
@@ -1039,7 +1060,7 @@ def input_update(st, body, q, iid):
             fields["unit_cost"] = _num(body["unit_cost"], "Cost per unit")
     if "pedigree" in fields:
         try:
-            ped = [int(x) for x in fields["pedigree"]]
+            ped = [_int(x, "Data-quality score") for x in fields["pedigree"]]
         except (TypeError, ValueError):
             raise ApiError("Data-quality scores must be whole numbers 1 to 5.")
         if len(ped) != 5 or not all(1 <= x <= 5 for x in ped):
@@ -1078,7 +1099,7 @@ def input_replace(st, body, q, iid):
     if not row or row["kind"] != "activity":
         raise ApiError("Only dataset lines can be replaced.")
     _unlocked(store, row["model_id"])
-    new_id = int(_need(body, "ref_id")[0])
+    new_id = _int(_need(body, "ref_id")[0], "ref_id", 1)
     a = store.one("SELECT a.unit, a.key, d.name FROM activities a JOIN databases d ON d.id=a.db_id WHERE a.id=?", (new_id,))
     if not a:
         raise ApiError("The chosen dataset does not exist.")
@@ -1204,22 +1225,22 @@ def scen_delete(st, body, q, sid):
 @route("POST", "/api/compare-scenarios")
 def scen_compare(st, body, q):
     mid, mids = _need(body, "model_id", "method_ids")
-    return _calc_error(calc.compare_scenarios, st.store, int(mid), [int(x) for x in mids], body.get("scenario_ids") or [],
+    return _calc_error(calc.compare_scenarios, st.store, int(mid), _ids(mids), body.get("scenario_ids") or [],
                        bg=_bg(body))
 
 
 # ------------------------------------------------------------------ calculate, analyses, export
 def _mc_key(model_id, method_ids, scenario, bg=None):
-    return (int(model_id), tuple(sorted(int(x) for x in method_ids)), scenario or None,
+    return (int(model_id), tuple(sorted(_ids(method_ids))), scenario or None,
             (bg or {}).get("id"), (bg or {}).get("year"))
 
 
 def _calc(st, body, top=12):
     mid, mids = _need(body, "model_id", "method_ids")
-    scen = int(body["scenario"]) if body.get("scenario") else None
+    scen = _int(body["scenario"], "scenario", 1) if body.get("scenario") not in (None, "", 0) else None
     bg = _bg(body)
-    res = _calc_error(calc.run, st.store, int(mid), [int(x) for x in mids], top=top,
-                      mc_iterations=int(body.get("mc_iterations") or 0),
+    res = _calc_error(calc.run, st.store, int(mid), _ids(mids), top=top,
+                      mc_iterations=_int(body.get("mc_iterations") or 0, "mc_iterations"),
                       sensitivity_pct=_num(body.get("sensitivity_pct") or 10, "Sensitivity range"),
                       nw_set=body.get("nw_set") or None, scenario=scen,
                       horizon=_num(body.get("horizon") or 100, "Time horizon"), bg=bg)
@@ -1244,16 +1265,16 @@ def calculate(st, body, q):
 @route("POST", "/api/uncertainty")
 def uncertainty(st, body, q):
     ids, mids = _need(body, "model_ids", "method_ids")
-    ids, mids = [int(x) for x in ids], [int(x) for x in mids]
-    scen = int(body["scenario"]) if body.get("scenario") else None
-    iterations = int(_num(body.get("iterations") or 200, "Iterations"))
+    ids, mids = _ids(ids), _ids(mids)
+    scen = _int(body["scenario"], "scenario") if body.get("scenario") else None
+    iterations = _int(body.get("iterations") or 200, "Iterations")
     store = st.store
     bg = _bg(body)
 
     def job(progress, cancelled):
         try:
             out = calc.full_mc(store, ids, mids, iterations, progress=progress, cancelled=cancelled, scenario=scen, bg=bg,
-                               confidence=float(body.get("confidence") or 0.95))
+                               confidence=_num(body.get("confidence") or 0.95, "The confidence level"))
         except calc.LCAError as e:
             raise ValueError(str(e))
         for m in out["models"]:
@@ -1267,12 +1288,12 @@ def uncertainty(st, body, q):
 def sobol(st, body, q):
     mid, mids = _need(body, "model_id", "method_ids")
     store = st.store
-    n = int(_num(body.get("n") or 512, "Sample size"))
-    scen = int(body["scenario"]) if body.get("scenario") else None
+    n = _int(body.get("n") or 512, "Sample size")
+    scen = _int(body["scenario"], "scenario") if body.get("scenario") else None
 
     def job(progress, cancelled):
         try:
-            return calc.sobol(store, int(mid), [int(x) for x in mids], n=n, scenario=scen, bg=_bg(body))
+            return calc.sobol(store, int(mid), _ids(mids), n=n, scenario=scen, bg=_bg(body))
         except calc.LCAError as e:
             raise ValueError(str(e))
     return {"job": st.start_job("Global sensitivity (Sobol)", job, exclusive=False)}
@@ -1284,14 +1305,14 @@ def supply_tree(st, body, q):
     if not g("model_id").isdigit() or not g("method_id").isdigit():
         raise ApiError("model_id and method_id are needed.")
     return _calc_error(calc.tree, st.store, int(g("model_id")), int(g("method_id")), g("node") or None,
-                       float(g("amount")) if g("amount") else None, int(g("scenario")) if g("scenario").isdigit() else None)
+                       _num(g("amount"), "The amount") if g("amount") else None, int(g("scenario")) if g("scenario").isdigit() else None)
 
 
 @route("POST", "/api/compare")
 def compare(st, body, q):
     ids, mids = _need(body, "model_ids", "method_ids")
-    return _calc_error(calc.compare, st.store, [int(x) for x in ids], [int(x) for x in mids],
-                       int(body["scenario"]) if body.get("scenario") else None, bg=_bg(body),
+    return _calc_error(calc.compare, st.store, _ids(ids), _ids(mids),
+                       _int(body["scenario"], "scenario") if body.get("scenario") else None, bg=_bg(body),
                        equivalence=str(body.get("equivalence") or "")[:2000])
 
 
@@ -1313,7 +1334,7 @@ def _writable(path):
 @route("POST", "/api/export/word")
 def export_word(st, body, q):
     res = _calc(st, body)
-    model = st.store.model(int(body["model_id"]))
+    model = st.store.model(_int(body["model_id"], "model_id"))
     path = _export_path(st, body, model, "docx")
     _writable(path)
     try:
@@ -1336,7 +1357,7 @@ def export_word(st, body, q):
 @route("POST", "/api/export/excel")
 def export_excel(st, body, q):
     res = _calc(st, body)
-    model = st.store.model(int(body["model_id"]))
+    model = st.store.model(_int(body["model_id"], "model_id"))
     path = _export_path(st, body, model, "xlsx")
     _writable(path)
     report.excel_results(path, model, res, VERSION, provenance=_prov(st, body))
@@ -1346,8 +1367,8 @@ def export_excel(st, body, q):
 def _prov(st, body):
     """Recursive provenance of the supply chain for the reports (left out, not failing, if it cannot be built)."""
     try:
-        return calc.provenance(st.store, int(body["model_id"]), [int(x) for x in body["method_ids"]],
-                               int(body["scenario"]) if body.get("scenario") else None, _bg(body))
+        return calc.provenance(st.store, _int(body["model_id"], "model_id"), _ids(body["method_ids"]),
+                               _int(body["scenario"], "scenario") if body.get("scenario") else None, _bg(body))
     except Exception as e:   # noqa: BLE001
         log.warning("provenance not built: %s", e)
         return None
@@ -1356,7 +1377,7 @@ def _prov(st, body):
 @route("POST", "/api/methods-text")
 def methods_text(st, body, q):
     res = _calc(st, body)
-    model = st.store.model(int(body["model_id"]))
+    model = st.store.model(_int(body["model_id"], "model_id"))
     return {"text": report.methods_paragraph(model, res, st.store.databases(), VERSION)}
 
 
@@ -1513,6 +1534,69 @@ def bench_export(st, body, q):
     return {"path": path, "file": os.path.basename(path)}
 
 
+@route("POST", "/api/benchmark/publish")
+def bench_publish(st, body, q):
+    """Markdown reports of the ecoinvent benchmarks (deviation statistics only), one per method family group, for
+    publication with the source code (docs/benchmarks)."""
+    folder = _check_path(body.get("folder") or os.path.join(st.exports, "benchmarks"), must_exist=False)
+    try:
+        paths = bench_mod.write_publication(st.store, folder, VERSION)
+    except ValueError as e:
+        raise ApiError(str(e))
+    except OSError as e:
+        raise ApiError(f"Cannot write the reports: {e}")
+    readme = next(p for p in paths if p.endswith("README.md"))
+    return {"folder": folder, "files": [os.path.basename(p) for p in paths], "path": readme,
+            "file": os.path.basename(readme)}
+
+
+@route("POST", "/api/regression/record")
+def regression_record(st, body, q):
+    """Snapshot of every dataset under every impact category, every model and the factor matching (regression.py)."""
+    import regression
+    path = _export_path(st, body, {"name": f"{st.project_name} regression"}, "json.gz")
+    if not path.endswith((".json", ".json.gz")):
+        path += ".json.gz"
+    _writable(path)
+    store, label = st.store, body.get("label") or st.project_name
+
+    def job(progress, cancelled):
+        try:
+            snap = regression.snapshot(store, label=label, progress=progress)
+        except calc.LCAError as e:
+            raise ValueError(str(e))
+        regression.save(snap, path)
+        return {"path": path, "file": os.path.basename(path), "datasets": len(snap["datasets"]),
+                "categories": len(snap["matching"]), "models": len(snap["models"])}
+    return {"job": st.start_job("Regression snapshot", job, exclusive=False)}
+
+
+@route("POST", "/api/regression/compare")
+def regression_compare(st, body, q):
+    """Compare the open project with a snapshot recorded earlier (by this or another version of Cyclia)."""
+    import regression
+    try:
+        ref = regression.load(_check_path(_need(body, "path")[0]))
+    except (ValueError, OSError) as e:
+        raise ApiError(f"Cannot read the snapshot: {e}")
+    store = st.store
+    mids = None
+    if ref.get("matching"):
+        keys = set(ref["matching"])
+        mids = [m["id"] for m in store.q("SELECT * FROM methods ORDER BY family, category, indicator")
+                if f"{m['family']} | {m['category']} | {m['indicator'] or m['category']}" in keys]
+
+    def job(progress, cancelled):
+        try:
+            new = regression.snapshot(store, mids, label=st.project_name, progress=progress)
+        except calc.LCAError as e:
+            raise ValueError(str(e))
+        rep = regression.compare(ref, new)
+        rep["text"] = regression.report_text(rep)
+        return rep
+    return {"job": st.start_job("Regression check", job, exclusive=False)}
+
+
 @route("POST", "/api/export/validation")
 def validation_doc(st, body, q):
     if not st.last_validation:
@@ -1528,8 +1612,8 @@ def bundle_export(st, body, q):
     ids, mids = _need(body, "model_ids", "method_ids")
     path = _check_path(body.get("path") or os.path.join(st.exports, f"{st.project_name} reproducibility "
                                                          f"{time.strftime('%Y%m%d-%H%M')}.zip"), False)
-    settings = {"model_ids": ids, "method_ids": mids, "scenario": int(body["scenario"]) if body.get("scenario") else None,
-                "bg": _bg(body), "nw_set": body.get("nw_set") or None, "mc_iterations": int(body.get("mc_iterations") or 0),
+    settings = {"model_ids": ids, "method_ids": mids, "scenario": _int(body["scenario"], "scenario") if body.get("scenario") else None,
+                "bg": _bg(body), "nw_set": body.get("nw_set") or None, "mc_iterations": _int(body.get("mc_iterations") or 0, "mc_iterations"),
                 "seed": 42}
     project = st.project_name
 
@@ -1582,7 +1666,7 @@ def bg_delete(st, body, q, sid):
 def bg_test(st, body, q, sid):
     """Apply the rules and report what they change, without a model."""
     year = body.get("year")
-    mc = _calc_error(calc.get_mc, st.store, {"id": int(sid), "year": float(year) if year not in (None, "") else None})
+    mc = _calc_error(calc.get_mc, st.store, {"id": int(sid), "year": _num(year, "The scenario year") if year not in (None, "") else None})
     return {"changes": mc.bg_report}
 
 
@@ -1716,7 +1800,7 @@ def lit_add(st, body, q, mid):
 
 def _sweep_args(body):
     mid, mids, params = _need(body, "model_id", "method_ids", "params")
-    return int(mid), [int(x) for x in mids], params, int(body["scenario"]) if body.get("scenario") else None, _bg(body)
+    return int(mid), _ids(mids), params, _int(body["scenario"], "scenario") if body.get("scenario") else None, _bg(body)
 
 
 @route("POST", "/api/sweep")
@@ -1736,9 +1820,9 @@ def optimise(st, body, q):
     def job(progress, cancelled):
         progress(10, "Searching the parameter space")
         try:
-            return productivity.optimise(store, mid, mids, params, objective=int(body.get("objective") or 0),
+            return productivity.optimise(store, mid, mids, params, objective=_int(body.get("objective") or 0, "objective"),
                                          constraints=body.get("constraints"), second_objective=body.get("second_objective"),
-                                         samples=int(body.get("samples") or 400), scenario=scen, bg=bg)
+                                         samples=_int(body.get("samples") or 400, "samples"), scenario=scen, bg=bg)
         except calc.LCAError as e:
             raise ValueError(str(e))
     return {"job": st.start_job("Optimisation", job, exclusive=False)}
@@ -1870,7 +1954,7 @@ def model_lock(st, body, q, mid):
 @route("POST", "/api/epd/check")
 def epd_check(st, body, q):
     res = _calc(st, body)
-    model = st.store.model(int(body["model_id"]))
+    model = st.store.model(_int(body["model_id"], "model_id"))
     prof = epd_profiles.get((model["scope"].get("epd") or {}).get("profile"), _profiles_dir(st))
     return {"checklist": standards.epd_checklist(model, res, prof), "modules": standards.by_module(res),
             "declared": standards.declared_modules(model, res), "columns": standards.COLUMNS}
@@ -1899,7 +1983,7 @@ def epd_info(st, body, q, mid):
 
 def _std_export(st, body, ext, fn, label):
     res = _calc(st, body, top=60)
-    model = st.store.model(int(body["model_id"]))
+    model = st.store.model(_int(body["model_id"], "model_id"))
     path = _export_path(st, dict(body, path=body.get("path")), dict(model, name=f"{model['name']} {label}"), ext)
     _writable(path)
     try:
@@ -1912,7 +1996,7 @@ def _std_export(st, body, ext, fn, label):
 @route("POST", "/api/export/ilcd-epd")
 def export_ilcd_epd(st, body, q):
     res = _calc(st, body, top=60)
-    model = st.store.model(int(body["model_id"]))
+    model = st.store.model(_int(body["model_id"], "model_id"))
     path = _export_path(st, dict(body, path=body.get("path")), dict(model, name=f"{model['name']} ILCD+EPD"), "zip")
     _writable(path)
     try:
@@ -2005,7 +2089,7 @@ def export_ghg(st, body, q):
 
 @route("POST", "/api/review")
 def review(st, body, q):
-    model = st.store.model(int(_need(body, "model_id")[0]))
+    model = st.store.model(_int(_need(body, "model_id")[0], "model_id", 1))
     res = None
     if body.get("method_ids"):
         try:
@@ -2032,7 +2116,7 @@ def review_save(st, body, q, mid):
 
 @route("POST", "/api/export/review")
 def export_review(st, body, q):
-    model = st.store.model(int(_need(body, "model_id")[0]))
+    model = st.store.model(_int(_need(body, "model_id")[0], "model_id", 1))
     res = _calc(st, body) if body.get("method_ids") else None
     chk = standards.review_checklist(model, res)
     path = _export_path(st, body, dict(model, name=f"{model['name']} critical review"), "xlsx")
@@ -2073,7 +2157,7 @@ def import_bw(st, body, q):
 def bench_ei(st, body, q):
     path = _check_path(_need(body, "path")[0])
     store = st.store
-    sample = int(body.get("sample") or 0)
+    sample = _int(body.get("sample") or 0, "sample")
 
     def job(progress, cancelled):
         try:
@@ -2169,7 +2253,7 @@ def cff_apply(st, body, q, mid):
     mass = _num(_need(body, "mass")[0], "Mass")
     try:
         res = analysis.apply_cff(store, int(mid), mass, body.get("unit") or "kg", body.get("params") or {},
-                                 {k: int(v) for k, v in (body.get("datasets") or {}).items() if v},
+                                 {k: _int(v, "dataset", 1) for k, v in (body.get("datasets") or {}).items() if v},
                                  body.get("stage_production") or "", body.get("stage_eol") or "")
     except ValueError as e:
         raise ApiError(str(e))
@@ -2186,12 +2270,13 @@ def db_compare(st, body, q):
                           if i["kind"] == "activity" and i["ref_id"] and not i["missing"]})
         if not act_ids:
             raise ApiError("No model of this project uses a dataset yet. Compare a sample instead.")
-    sample = int(_num(body.get("sample") or 100, "Sample size"))
+    sample = _int(body.get("sample") or 100, "Sample size")
     if not 5 <= sample <= 2000:
         raise ApiError("Sample size must be between 5 and 2000.")
 
     def job(progress, cancelled):
-        return analysis.compare_databases(store, int(a), int(b), [int(x) for x in mids], act_ids, sample, progress=progress)
+        return analysis.compare_databases(store, _int(a, "db_a", 1), _int(b, "db_b", 1), _ids(mids), act_ids, sample,
+                                          progress=progress)
     return {"job": st.start_job("Compare databases", job, exclusive=False)}
 
 
@@ -2199,12 +2284,13 @@ def db_compare(st, body, q):
 def relink(st, body, q, mid):
     store = st.store
     a, b = _need(body, "db_from", "db_to")
+    a, b = _int(a, "db_from", 1), _int(b, "db_to", 1)
     try:
         if body.get("apply"):
             for m_ in analysis.relink_plan(store, int(mid), int(a), int(b))["models"]:
                 _unlocked(store, m_["id"])
         res = analysis.relink_plan(store, int(mid), int(a), int(b), bool(body.get("apply")),
-                                   [int(x) for x in body.get("method_ids") or []])
+                                   _ids(body.get("method_ids") or []))
     except ValueError as e:
         raise ApiError(str(e))
     if res["applied"]:
@@ -2215,14 +2301,14 @@ def relink(st, body, q, mid):
 @route("POST", "/api/relink/undo")
 def relink_undo(st, body, q):
     ids = _need(body, "model_ids")[0]
-    res = analysis.undo_migration(st.store, [int(x) for x in ids])
+    res = analysis.undo_migration(st.store, _ids(ids))
     return res
 
 
 @route("POST", "/api/export/executive")
 def export_executive(st, body, q):
     res = _calc(st, body)
-    model = st.store.model(int(body["model_id"]))
+    model = st.store.model(_int(body["model_id"], "model_id"))
     path = _export_path(st, body, dict(model, name=f"{model['name']} summary"), "docx")
     _writable(path)
     report.executive_summary(path, model, res, VERSION)
@@ -2233,7 +2319,7 @@ def export_executive(st, body, q):
 def export_figures(st, body, q):
     import tempfile
     res = _calc(st, body)
-    model = st.store.model(int(body["model_id"]))
+    model = st.store.model(_int(body["model_id"], "model_id"))
     path = _export_path(st, body, dict(model, name=f"{model['name']} figures"), "zip")
     _writable(path)
     with tempfile.TemporaryDirectory() as tmp:
@@ -2248,7 +2334,7 @@ def export_figures(st, body, q):
 def report_centre(st, body, q):
     """What each report needs, and whether this model has it."""
     res = _calc(st, body)
-    model = st.store.model(int(body["model_id"]))
+    model = st.store.model(_int(body["model_id"], "model_id"))
     sc = model["scope"] or {}
     errors = [c for c in res["checks"] if c["level"] == "error"]
     cats = " ".join(r["category"].lower() for r in res["results"])
@@ -2326,7 +2412,7 @@ def report_centre(st, body, q):
 def dashboard(st, body, q):
     """Overview of all models of the project; with method_ids, also their results and data quality."""
     store = st.store
-    mids = [int(x) for x in body.get("method_ids") or []]
+    mids = _ids(body.get("method_ids") or [])
     out = []
     for m in store.models():
         full = store.model(m["id"])
@@ -2410,7 +2496,7 @@ def factor_match(st, body, q):
         ext, kind = factormatch.read_external(path)
         ext_res = factormatch.read_external_results(res_path) if res_path else None
         progress(30, "Comparing flow by flow")
-        res = factormatch.compare(store, [int(x) for x in mids], ext, kind, [m["id"] for m in store.models()], ext_res,
+        res = factormatch.compare(store, _ids(mids), ext, kind, [m["id"] for m in store.models()], ext_res,
                                   body.get("pairs") or None)
         st.last_factor_match = res
         return res
@@ -2427,17 +2513,17 @@ def brightway_status(st, body, q):
 @route("POST", "/api/brightway/compare")
 def brightway_compare(st, body, q):
     db = _need(body, "db_id")[0]
-    mids = [int(x) for x in (body.get("method_ids") or [])]
+    mids = _ids(body.get("method_ids") or [])
     if not mids:
         raise ApiError("Choose the impact categories in step 4 first.")
     if not brightway_check.available():
         raise ApiError("Brightway (bw2calc) is not available in this installation.")
-    sample = int(body.get("sample") or 0)
+    sample = _int(body.get("sample") or 0, "sample")
     store = st.store
 
     def job(progress, cancelled):
         try:
-            st.last_bw = brightway_check.compare(store, int(db), mids, sample, progress=progress)
+            st.last_bw = brightway_check.compare(store, _int(db, "db_id", 1), mids, sample, progress=progress)
         except ValueError as e:
             raise ApiError(str(e))
         _bench_record(st, "brightway", st.last_bw.get("database"), st.last_bw)
@@ -2657,15 +2743,15 @@ def slca_t1_scope(st, body, q):
 @route("POST", "/api/allocation/compare")
 def model_alloc_compare(st, body, q):
     mid, mids = _need(body, "model_id", "method_ids")
-    return _calc_error(calc.allocation_compare, st.store, int(mid), [int(x) for x in mids],
-                       int(body["scenario"]) if body.get("scenario") else None, _bg(body))
+    return _calc_error(calc.allocation_compare, st.store, int(mid), _ids(mids),
+                       _int(body["scenario"], "scenario") if body.get("scenario") else None, _bg(body))
 
 
 @route("POST", "/api/custom/allocation-compare")
 def custom_alloc_compare(st, body, q):
     uid, mids = _need(body, "process", "method_ids")
     try:
-        return custom_data.allocation_compare(st.store, uid, [int(m) for m in mids], body.get("alternatives"))
+        return custom_data.allocation_compare(st.store, uid, _ids(mids), body.get("alternatives"))
     except (custom_data.CustomDataError, calc.LCAError) as e:
         raise ApiError(str(e))
 
@@ -2723,7 +2809,7 @@ def custom_factor_delete(st, body, q):
 
 @route("POST", "/api/custom/factors")
 def custom_factor_table(st, body, q):
-    mids = [int(x) for x in (body.get("method_ids") or [])]
+    mids = _ids(body.get("method_ids") or [])
     if not mids:
         raise ApiError("Choose the impact categories first.")
     return {"rows": custom_data.factor_table(st.store, mids)}
@@ -2763,7 +2849,7 @@ def custom_import(st, body, q):
 def export_compare_kit(st, body, q):
     db = _need(body, "db_id")[0]
     mids = body.get("method_ids") or []
-    d = st.store.one("SELECT name FROM databases WHERE id=?", (int(db),))
+    d = st.store.one("SELECT name FROM databases WHERE id=?", (_int(db, "db_id", 1),))
     if not d:
         raise ApiError("Database not found.", 404)
     if re.search(r"ecoinvent", d["name"], re.I) and not body.get("confirm_licence"):
@@ -2771,7 +2857,7 @@ def export_compare_kit(st, body, q):
     path = _export_path(st, body, {"name": f"Cyclia comparison kit {d['name']}"}, "zip")
     _writable(path)
     try:
-        return compare_kit.build(st.store, int(db), mids, path, VERSION)
+        return compare_kit.build(st.store, _int(db, "db_id", 1), mids, path, VERSION)
     except ValueError as e:
         raise ApiError(str(e))
 
@@ -2817,7 +2903,8 @@ def regional_geojson(st, body, q):
 @route("POST", "/api/regional/locate")
 def regional_locate(st, body, q):
     try:
-        return {"found": regional.locate(st.store, body.get("method") or "AWARE", float(body["lat"]), float(body["lon"]))}
+        return {"found": regional.locate(st.store, body.get("method") or "AWARE", _num(body["lat"], "Latitude"),
+                                        _num(body["lon"], "Longitude"))}
     except (KeyError, TypeError, ValueError):
         raise ApiError("Give lat and lon in decimal degrees.")
 
@@ -2940,7 +3027,7 @@ def mfa_lca(st, body, q):
 @route("POST", "/api/mfa/mci")
 def mfa_mci(st, body, q):
     try:
-        return mfa.mci(**{k: float(v) for k, v in body.items() if k in ("Fr", "Fu", "Cr", "Cu", "Ec", "Ef", "L_ratio", "U_ratio")})
+        return mfa.mci(**{k: _num(v, k) for k, v in body.items() if k in ("Fr", "Fu", "Cr", "Cu", "Ec", "Ef", "L_ratio", "U_ratio")})
     except ValueError as e:
         raise ApiError(str(e))
 
@@ -2949,13 +3036,13 @@ def mfa_mci(st, body, q):
 def cross_check(st, body, q):
     mids = _need(body, "method_ids")[0]
     store = st.store
-    sample = int(_num(body.get("sample") or 200, "Sample size"))
+    sample = _int(body.get("sample") or 200, "Sample size")
     if not 5 <= sample <= 5000:
         raise ApiError("Sample size must be between 5 and 5000.")
     model_ids = [m["id"] for m in store.models()] if body.get("models", True) else []
 
     def job(progress, cancelled):
-        res = crosscheck.run(store, [int(x) for x in mids], sample, model_ids=model_ids, progress=progress)
+        res = crosscheck.run(store, _ids(mids), sample, model_ids=model_ids, progress=progress)
         st.last_crosscheck = res
         return res
     return {"job": st.start_job("Independent cross-check", job, exclusive=False)}
@@ -3203,16 +3290,16 @@ def _opt(fn, *a, **k):
 @route("POST", "/api/choices/optimise")
 def choices_run(st, body, q):
     mid, mids, slots = _need(body, "model_id", "method_ids", "slots")
-    return _opt(choices.optimise, st.store, int(mid), [int(x) for x in mids], slots, body.get("objective") or {},
-                body.get("constraints") or [], int(body["scenario"]) if body.get("scenario") else None, _bg(body))
+    return _opt(choices.optimise, st.store, int(mid), _ids(mids), slots, body.get("objective") or {},
+                body.get("constraints") or [], _int(body["scenario"], "scenario") if body.get("scenario") else None, _bg(body))
 
 
 @route("POST", "/api/choices/apply")
 def choices_apply(st, body, q):
     mid, mids, slots = _need(body, "model_id", "method_ids", "slots")
-    nid = _opt(choices.apply, st.store, int(mid), [int(x) for x in mids], slots, body.get("choice") or {},
+    nid = _opt(choices.apply, st.store, int(mid), _ids(mids), slots, body.get("choice") or {},
                str(body.get("name") or "")[:200] or None,
-               int(body["scenario"]) if body.get("scenario") else None, _bg(body))
+               _int(body["scenario"], "scenario") if body.get("scenario") else None, _bg(body))
     return {"model_id": nid}
 
 

@@ -26,6 +26,7 @@ import numpy as np
 import scipy.sparse as sp
 
 import calc
+import numcheck
 import units as unitconv
 
 AWARE = "AWARE"
@@ -73,14 +74,20 @@ def _month_profile(v):
     """Share of the model's own water use in each month: a list of 12 numbers (normalised), a month number 1-12, or None."""
     if v in (None, "", []):
         return None
+    if isinstance(v, bool):
+        return None
     if isinstance(v, (int, float)) or (isinstance(v, str) and v.strip().isdigit()):
-        m = int(v)
+        m = numcheck.parse(v)
+        if m is None or m != int(m):
+            return None
+        m = int(m)
         return [1.0 if i == m - 1 else 0.0 for i in range(12)] if 1 <= m <= 12 else None
     if isinstance(v, str):
         v = [x for x in re.split(r"[;,\s]+", v.strip()) if x]
-    try:
-        vals = [max(0.0, float(x)) for x in v]
-    except (TypeError, ValueError):
+    if not isinstance(v, (list, tuple)):
+        return None
+    vals = [numcheck.parse(x) for x in v]
+    if any(x is None or x < 0 for x in vals):
         return None
     if len(vals) != 12 or not sum(vals):
         return None
@@ -224,10 +231,8 @@ LANCA_TEMPLATE = ("indicator,kind,land_use,location,value,unit\n"
 
 # ---------------------------------------------------------------------------------------------- factor import
 def _num(v):
-    try:
-        return float(str(v).strip().replace(",", "."))
-    except (TypeError, ValueError):
-        return None
+    """A finite number (decimal comma accepted), or None for text, booleans, NaN and infinity."""
+    return numcheck.parse(v, comma=True)
 
 
 def import_factors(store, method, text, source="", replace=True, demo=False):
@@ -249,10 +254,8 @@ def import_factors(store, method, text, source="", replace=True, demo=False):
                 continue
             month = ""
             if "month" in cols and str(r.get(cols["month"]) or "").strip():
-                try:
-                    mo = int(float(str(r.get(cols["month"])).strip()))
-                except ValueError:
-                    mo = 0
+                mo = numcheck.parse(r.get(cols["month"]))
+                mo = int(mo) if mo is not None and mo == int(mo) else 0
                 if not 1 <= mo <= 12:
                     rejected.append({"row": n, "location": loc, "reason": "month must be 1 to 12 (or empty for the annual factor)"})
                     continue
@@ -440,10 +443,9 @@ def aware(store, model_id):
     gis = None
     monthly_used = False
     if sc.get("aware_lat") not in (None, "") and sc.get("aware_lon") not in (None, ""):
-        try:
-            gis = locate(store, AWARE, float(sc["aware_lat"]), float(sc["aware_lon"]))
-        except (TypeError, ValueError):
-            gis = None
+        lat = numcheck.finite(sc["aware_lat"], "The latitude", -90, 90)
+        lon = numcheck.finite(sc["aware_lon"], "The longitude", -180, 180)
+        gis = locate(store, AWARE, lat, lon)
         if gis:
             site = gis["location"]
     names = {r["id"]: r["name"] for r in store.q("SELECT id, name FROM activities")}
@@ -626,12 +628,12 @@ def sqi_aggregate(store, normalisation, weights=None, source="", replace=True):
     version followed; weights default to equal (1/4 each), which is an assumption to state. Only keys (kind, land
     use, location) with all four indicators are aggregated; the others are listed. Where official SQI factors exist
     for the same key, the relative difference to the aggregated factor is reported."""
-    norm = {k.strip().lower(): float(v) for k, v in (normalisation or {}).items() if v not in (None, "")}
+    norm = {k.strip().lower(): numcheck.finite(v, f"The normalisation reference of {k}", lo=0) for k, v in (normalisation or {}).items() if v not in (None, "")}
     miss = [i for i in SQI_INDICATORS if not norm.get(i)]
     if miss:
         raise ValueError("Give the normalisation reference N of every indicator (from the method version you follow): "
                          + ", ".join(miss) + ".")
-    w = {i: float((weights or {}).get(i, 0.25)) for i in SQI_INDICATORS}
+    w = {i: numcheck.finite((weights or {}).get(i, 0.25), f"The weight of {i}", lo=0) for i in SQI_INDICATORS}
     if abs(sum(w.values()) - 1) > 1e-6:
         raise ValueError(f"The weights must add up to 1 (they add up to {sum(w.values()):g}).")
     rows = store.q("SELECT indicator, key, location, value FROM native_factors WHERE method=?", (LANCA,))

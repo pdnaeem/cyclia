@@ -61,8 +61,8 @@ on its own.
 
 Settings > General > Features: tick **Discussions**. The app's user guide and `SUPPORT.md` link to it.
 
-## Release title for 1.8.2
+## Release title for 1.9.0
 
-Cyclia 1.8.2: life cycle costing through sub-models, MFA and social data integrity
+Cyclia 1.9.0: one number validator, full-library regression and a scientific release gate
 
-Paste the text of `docs/releases/RELEASE_NOTES_v1.8.2.md` as the release description.
+Paste the text of `docs/releases/RELEASE_NOTES_v1.9.0.md` as the release description.

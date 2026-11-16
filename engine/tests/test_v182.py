@@ -60,6 +60,25 @@ class TestMfaInputs(unittest.TestCase):
         with self.assertRaises(ValueError):
             mfa.run(d)
 
+    def test_fractional_years_refused(self):
+        """1.8.3: [2020.5, 2022.5] used to become 2020 to 2022 without a word."""
+        for ys in ([2020.5, 2022.5], [2020, 2030.25], ["2020", "2030.5"], [2020, float("inf")], [True, 2030],
+                   [2030, 2020], [2020]):
+            d = self.defn()
+            d["years"] = ys
+            with self.subTest(years=ys), self.assertRaises(ValueError):
+                mfa.run(d)
+        d = self.defn()
+        d["inflows"][0]["values"]["2021.5"] = 1.0
+        with self.assertRaises(ValueError):
+            mfa.run(d)
+
+    def test_whole_years_written_as_numbers_or_text(self):
+        a, b = self.defn(), self.defn()
+        b["years"] = [str(a["years"][0]), float(a["years"][1])]          # "2020" and 2050.0 are whole years
+        ra, rb = mfa.run(a), mfa.run(b)
+        self.assertEqual([r["year"] for r in ra["rows"]], [r["year"] for r in rb["rows"]])
+
     def test_json_constants_refused_by_the_server_reader(self):
         import server
         with self.assertRaises(ValueError):

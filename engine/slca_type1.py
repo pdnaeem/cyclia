@@ -24,6 +24,7 @@ taken from a database.
 import datetime
 import math
 
+import numcheck
 import units
 
 SCALE = {2: "ideal", 1: "progressive", 0: "compliant", -1: "risky", -2: "very poor"}
@@ -92,13 +93,10 @@ def save_row(store, model_id, d):
         raise SocialError("The score is an integer from -2 to +2.")
     if score not in SCALE or str(d.get("score")).strip() not in {str(score), f"+{score}"}:
         raise SocialError("The score is an integer from -2 (very poor) to +2 (ideal).")
-    try:
-        w = float(d.get("weight"))
-    except (TypeError, ValueError):
+    if d.get("weight") in (None, ""):
         raise SocialError("Give the activity variable (weight) of the assessed organisation, e.g. worker hours per "
                           "functional unit.")
-    if not math.isfinite(w) or not w > 0:
-        raise SocialError("The weight must be a positive, finite number.")
+    w = numcheck.finite(d.get("weight"), "The weight", lo=0, lo_open=True, err=SocialError)
     dt = d.get("data_type") or ""
     if dt not in DATA_TYPES:
         raise SocialError("Choose the data type: " + ", ".join(DATA_TYPES) + ".")
@@ -133,12 +131,9 @@ def delete_row(store, rid):
 def set_scope(store, model_id, total_weight, weight_unit, excluded=""):
     """Total activity variable of the product system (for coverage) and the subcategories excluded, with reasons."""
     ensure(store)
-    try:
-        t = float(total_weight)
-    except (TypeError, ValueError):
+    if total_weight in (None, ""):
         raise SocialError("Give the total activity variable of the product system.")
-    if not math.isfinite(t) or not t > 0:
-        raise SocialError("The total must be a positive, finite number.")
+    t = numcheck.finite(total_weight, "The total", lo=0, lo_open=True, err=SocialError)
     store.x("INSERT OR REPLACE INTO slca_scope VALUES(?,?,?,?)", (int(model_id), t, _txt(weight_unit, "The unit"),
                                                                    _txt(excluded, "Excluded", False, 3000)))
 

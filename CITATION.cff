@@ -15,10 +15,10 @@ authors:
     given-names: "Naeem Ur"
     affiliation: "Founder of NielloSoft (Pvt) Ltd, Lahore, Pakistan"
 repository-code: "https://github.com/pdnaeem/cyclia"
-url: "https://pdnaeem.github.io/cyclia/"
+url: "https://niellosoft.com"
 doi: "10.5281/zenodo.23853747"
 license: MIT
-version: "1.8.2"
+version: "1.9.0"
 keywords:
   - life cycle assessment
   - LCA

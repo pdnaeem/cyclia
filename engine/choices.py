@@ -22,6 +22,7 @@ import itertools
 import numpy as np
 
 import calc
+import numcheck
 import units
 
 MAX_COMBINATIONS = 200_000
@@ -29,6 +30,10 @@ MAX_COMBINATIONS = 200_000
 
 class OptimiseError(ValueError):
     pass
+
+
+def _fin(v, what):
+    return numcheck.finite(v, what, err=OptimiseError)
 
 
 def _target(store, kind, ref_id):
@@ -92,12 +97,9 @@ def _prepare(store, model_id, method_ids, slots, scenario=None, bg=None):
         for o in alts:
             kind = o.get("kind") or "activity"
             tgt = _target(store, kind, o.get("ref_id"))
-            try:
-                amount = float(o.get("amount"))
-            except (TypeError, ValueError):
+            if o.get("amount") in (None, ""):
                 raise OptimiseError(f"Give the amount of '{tgt['name']}'.")
-            if not amount >= 0:
-                raise OptimiseError("Amounts of alternatives are positive or zero.")
+            amount = numcheck.finite(o.get("amount"), f"The amount of '{tgt['name']}'", lo=0, err=OptimiseError)
             unit = (o.get("unit") or tgt["unit"] or "").strip()
             fac = units.factor(unit, tgt["unit"]) if unit else 1.0
             if fac is None:
@@ -106,7 +108,8 @@ def _prepare(store, model_id, method_ids, slots, scenario=None, bg=None):
             u, _, _ = calc.impacts(mc, M, a, fl, fx)
             cost = None
             if o.get("unit_cost") not in (None, ""):
-                cost = float(o["unit_cost"]) * amount * sign * share
+                uc = numcheck.finite(o["unit_cost"], f"The cost per unit of '{tgt['name']}'", err=OptimiseError)
+                cost = uc * amount * sign * share
             cur_unit = inp["input_unit"] or inp["target"]["unit"]
             if cur_unit and units.factor(unit, cur_unit) is None:
                 warnings.append(f"'{o.get('label') or tgt['name']}' is given in {unit}, the line '{ln['name']}' in "
@@ -183,9 +186,9 @@ def optimise(store, model_id, method_ids, slots, objective, constraints=(), scen
     for d, c in lims:
         col = idx(d)
         if c.get("max") not in (None, ""):
-            bound = float(c["max"])
+            bound = _fin(c["max"], "A limit")
         elif c.get("max_change_pct") not in (None, ""):
-            bound = base_vec[col] + abs(base_vec[col]) * float(c["max_change_pct"]) / 100.0
+            bound = base_vec[col] + abs(base_vec[col]) * _fin(c["max_change_pct"], "A limit in %") / 100.0
         else:
             raise OptimiseError("A limit needs a maximum or a maximum change in %.")
         ok &= vals[:, col] <= bound + 1e-12 * max(1.0, abs(bound))

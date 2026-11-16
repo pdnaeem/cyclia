@@ -110,6 +110,27 @@ Still open, with the reason:
 These methods are declared complete only when their official factors, units, geographical mapping and
 calculations are validated.
 
+## Road to 2.0
+
+Cyclia 2.0 is reached in nine releases. Each one follows the rules above and does not start until the previous one
+passes the release gate (engine/tools/release_gate.py). Items marked *external* need data, licences or software
+outside the project. A release does not declare such an item done until it has been run.
+
+| Release | Content | Acceptance |
+|---|---|---|
+| **1.9.0** (done) | One number validator on every path (yes/no, NaN, infinity, fractions where whole numbers are needed); importers report unusable values; full-library regression of every dataset under every category with a committed reference snapshot; publishable benchmark reports per method family; release gate with Brightway required | docs/quality/ACCEPTANCE_1.9.0.md |
+| **1.10** Database management | Streaming import of every format with rollback; supplier linking by geography (ecoinvent's geography hierarchy); database quality and completeness dashboard; database comparison and migration report; provenance of every dataset | Imports of reference files in every format reproduce the regression snapshot; linking decisions listed and reversible |
+| **1.11** Modelling | Visual process graph editor for models; subdivision and system expansion as explicit choices; several co-products and avoided products per model; end-of-life and recycling modelling (cut-off, 50:50, CFF) side by side; process versions | Hand-calculated systems for each multifunctionality rule; CFF against the PEF example values |
+| **1.12** Impact assessment | IMPACT World+ (*external*: official package); regionalised LCIA for every regionalised method; AWARE 2.0, LANCA, USEtox 2 declared complete only with the official packages and their reference results (*external*) | Reference results of each package reproduced; ReCiPe, CML-IA and IPCC benchmarks against ecoinvent published (*external*: licence holder runs them, 1.9.0 tool) |
+| **1.13** Uncertainty and decisions | Uncertainty of the background database in comparisons; hierarchical and correlated uncertainty everywhere; burden-shifting check across categories and stages; functional equivalence check; improvement suggestions from contribution and sensitivity | Analytic test cases; a comparison that changes sign under uncertainty is flagged |
+| **1.14** Social LCA and circularity | Social LCA Type II only with a published pathway method; stakeholder indicators and risk visualisation; ISO 59020 circularity measurement; dynamic MFA with stocks | Worked examples of UNEP 2020 and ISO 59020 reproduced |
+| **1.15** EPD and reporting | PCR-specific checks; EPD International, IBU and INIES templates; machine-readable EPD exchange (ILCD+EPD, extended); custom Word and Excel reports | Exported EPDs validate against the programme schemas |
+| **1.16** Collaboration and desktop | Autosave and crash recovery; backup and restore; roles in shared review files; performance with large databases (measured on ecoinvent) | Recovery tests; time limits on the reference hardware |
+| **2.0** Integration | Every feature checked against the quality requirements of the 2.0 roadmap; full validation report; openLCA comparison run (*external*) | All of the above, and a fresh ecoinvent benchmark of every method family on 2.0 |
+
+A shared multi-user server and a web supplier portal are not in this plan: Cyclia is a desktop application, and
+review and supplier data are exchanged as files. That choice is revisited only on a decision to run a server.
+
 ## Release 1.8.2: scientific reliability
 
 Done, after the audit of 1.8.1 (docs/quality/ACCEPTANCE_1.8.2.md):

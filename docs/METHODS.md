@@ -3,7 +3,7 @@
 This document describes how Cyclia computes results, so that a study can be reproduced and reviewed. Sections
 1 to 11 describe the core added in 1.1; later sections give the version in which each method was added or changed.
 Cite the software as: Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers*
-(version 1.8.2) [Computer software]. https://doi.org/10.5281/zenodo.23853747
+(version 1.9.0) [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 ## 1. Inventory model
 
@@ -456,6 +456,13 @@ credited in year T, and reduces to the formula above for a line of the top model
 Price uncertainty is sampled once per priced line: the same price wherever the line is used. Lines without a price
 count as zero.
 
+**Numbers (1.8.3).** The following must be finite numbers within their ranges:
+- the study period (0 to 1000 years), the discount rate and the escalation rates (above −100 %);
+- the year of a line (0 to 1000) and its replacement interval (0.01 to 1000 years).
+
+They are checked when they are saved and again when the cost is calculated, so a scope stored earlier is checked
+too. A cost item bought more than 10 000 times in the study period is refused, with the line named.
+
 Until 1.8.1 a sub-model counted its prices once, without replacements, escalation, residual value or price
 uncertainty.
 
@@ -637,6 +644,9 @@ per unit of the primary material it replaces. The substitution ratio is at most 
 - transfer coefficients, from 0 to 1;
 - lifetime parameters, zero or positive;
 - link factors, zero or positive.
+
+Calendar years (the first and last year, and the years of inflows) are whole numbers: 2020.5 is refused, not
+truncated (1.8.3).
 
 Material that leaves the system is a flow to a sink. A negative inflow used to be offset against the losses and
 showed a closed mass balance; it is now refused. The years of inflows are whole numbers. NaN and Infinity are
@@ -1055,6 +1065,82 @@ Test: 1 m3 at location XX (factor 10) and 0.001 m3 elsewhere (generic 1):
 - exact share 10/10.001;
 - the same with XX-01 through the country;
 - with location YY the total is 1.001, all generic.
+
+## 19. Numerical integrity (1.8.3 to 1.9.0)
+
+A NaN or infinite number spreads through the matrices to every result that uses it. Cyclia therefore checks every
+number at three points.
+
+**When it is saved.** Each value must be a finite number in its range; the text `1e309` (infinity once read) and
+SQLite's NULL (a stored NaN) count as not finite. This covers:
+- the goal and scope (section 12.5);
+- the functional unit amount;
+- the fields of every line, including fixed EPD values;
+- model and project parameters with their uncertainty values;
+- scenario values;
+- background scenarios: base year, factors, factor years, supplier shares and exchange amounts of scenario files;
+- site-specific factors and LCIA factors read from tables;
+- custom data, MFA systems, social assessments, supplier responses and the alternatives of the optimisation of
+  choices.
+
+A change to a line is written in one transaction after every value has been checked, so a refused value leaves the
+line as it was.
+
+**When the matrices and factors are built.** Datasets with a non-finite amount are named and the calculation stops.
+So does an impact category with a non-finite generic, regional or site-specific factor, and a line with a
+non-finite fixed value. This also catches data stored by an earlier version or written by hand.
+
+**When the results are reported.** A total or a line contribution that is not finite stops the calculation with the
+categories and lines concerned. So does a Monte Carlo run with a non-finite result: an unbounded distribution or a
+formula outside its range would make every statistic meaningless.
+
+Tests: tests/test_v183.py and tests/test_v184.py write each kind of invalid number on each path, and also directly
+into the database to check the calculation-time guards.
+
+**One validator (1.9.0).** Every path reads numbers through one module, `engine/numcheck.py`: the API, the storage
+layer, the calculation and analysis modules and the importers. Besides NaN, infinity and text, it refuses yes/no
+values. In Python, and after JSON parsing, `True` equals 1 and `False` equals 0, so before 1.9.0 a yes/no sent in
+place of a number passed as an amount, a year, a factor or an identifier: `{"model_id": true}` calculated model 1.
+Whole numbers (identifiers, counts, years) must have no fraction; `int()` used to cut 2.5 to 2. Importers that read
+whole files (ecoSpold 1 and 2, SimaPro CSV, ILCD) count the values they cannot use and list them in the import
+warnings with examples, where they were replaced without a word before. An openLCA JSON-LD exchange amount that is
+not a finite number stops the import, as before, because replacing it would change results. Test:
+tests/test_v190_numbers.py.
+
+## 20. Full-library regression and published benchmarks (1.9.0)
+
+**Every dataset under every category.** For the scores of all datasets in one category, Cyclia solves the
+transposed system once instead of once per dataset. With q the row of Q = C B (regional factors included) of the
+category, A^T y = q^T gives y = q A^-1, and y_j is the score of one unit of dataset j. A dataset whose supply chain
+reaches no characterised exchange is set to exactly zero, as the normal calculation has done since 1.4.0.
+Test: the transposed solve equals one solve per dataset to a relative 1e-10, with identical zeros.
+
+**Snapshot.** `engine/regression.py` records:
+- the score of every dataset;
+- the result of every model, through the normal calculation;
+- for every category: the number of factors given, the number of library flows they matched, the number of flows
+  used by the library without a factor, and a SHA-256 fingerprint of the matched factors.
+
+A later snapshot is compared value by value, with |a − b| ≤ 1e-9 max(|a|, |b|) + 1e-12 m, where m is the largest
+absolute score of the category in the reference. The fingerprint shows a change in matching even when the counts
+agree.
+
+The snapshot of the reference libraries shipped with Cyclia is in engine/tests/data and covers the tutorial and
+demo databases, the demo project and the built-in methods. Every run of the test suite checks it. For an installed
+library (ecoinvent, which cannot be distributed) the user records a snapshot in the app or with
+engine/tools/regression.py and compares it after an update. A snapshot of ecoinvent holds ecoinvent results and stays
+with the licence.
+
+**Benchmark reports.** From the benchmarks run against ecoinvent's own cumulative LCIA results, the app writes one
+Markdown report per method family group (ReCiPe, CML-IA, IPCC, EF). Each report gives the median, signed median,
+95th percentile and maximum of the absolute relative deviation per category, and the share of results within
+0.1 % and within 1 %, together with the ecoinvent version and the software environment. It contains no ecoinvent
+value. Status: "Validated" when at least 95 % of all results are within 0.1 % and every category has at least 95 % of
+its results within 1 %. A method family without a report has not been benchmarked against ecoinvent.
+
+**Release gate.** engine/tools/release_gate.py runs the whole test suite with Brightway required, so a skipped
+Brightway comparison is a failure. It also runs the regression, the 35 validation systems and the IPCC 2021 GWP100
+check. The installer build depends on it.
 
 ## References
 

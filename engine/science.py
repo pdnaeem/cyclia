@@ -18,6 +18,7 @@ import uuid
 
 import numpy as np
 
+import numcheck
 from canon import canon
 
 RULE_TYPES = {
@@ -55,6 +56,10 @@ def validate_rules(rules):
         if t == "set_exchanges":
             if not (r.get("tech") or r.get("bio")):
                 raise ValueError(f"Rule {i}: the scenario file gave no exchanges.")
+            bad = sum(1 for x in list(r.get("tech") or []) + list(r.get("bio") or [])
+                      if numcheck.parse(x[-1]) is None)
+            if bad:
+                raise ValueError(f"Rule {i}: {bad} exchange amount(s) of the scenario file are not finite numbers.")
             continue
         if not (r.get("activity") or r.get("activity_ids")):
             raise ValueError(f"Rule {i}: say which datasets it applies to (name contains ..., or chosen datasets).")
@@ -64,21 +69,23 @@ def validate_rules(rules):
             raise ValueError(f"Rule {i}: give the input (name or product contains ...).")
         if t in ("scale_emission", "scale_input"):
             f = r.get("factor")
-            try:
-                vals = [float(f)] if not isinstance(f, dict) else [float(v) for v in f.values()]
-                if isinstance(f, dict):
-                    [float(k) for k in f]
-            except (TypeError, ValueError):
-                raise ValueError(f"Rule {i}: the factor must be a number or year: number pairs.")
-            if not vals or any(v < 0 for v in vals):
-                raise ValueError(f"Rule {i}: factors must be zero or positive.")
+            if isinstance(f, dict):
+                if not f:
+                    raise ValueError(f"Rule {i}: give at least one year: factor pair.")
+                for k, v in f.items():
+                    numcheck.year(k, f"Rule {i}: the year '{k}'")
+                    numcheck.finite(v, f"Rule {i}: the factor for {k}", lo=0)
+            else:
+                numcheck.finite(f, f"Rule {i}: the factor", lo=0)
         if t == "swap":
             if not r.get("product"):
                 raise ValueError(f"Rule {i}: give the product whose suppliers are replaced.")
             to = r.get("to") or []
             if not to:
                 raise ValueError(f"Rule {i}: choose at least one new supplier.")
-            tot = sum(float(x.get("share") or 0) for x in to)
+            shares = [numcheck.finite(x.get("share") if x.get("share") not in (None, "") else 0,
+                                      f"Rule {i}: a supplier share", 0, 1) for x in to]
+            tot = sum(shares)
             if abs(tot - 1) > 1e-6:
                 raise ValueError(f"Rule {i}: supplier shares must add up to 1 (now {tot:g}).")
 
@@ -86,7 +93,7 @@ def validate_rules(rules):
 def _select(acts, rule):
     """Indices of datasets matched by a rule: explicit ids, or name contains a text (and optional location)."""
     if rule.get("activity_ids"):
-        ids = {int(x) for x in rule["activity_ids"]}
+        ids = {numcheck.identifier(x, "A dataset of the rule") for x in rule["activity_ids"]}
         return np.array([i for i, a in enumerate(acts) if a["id"] in ids], dtype=np.int64)
     pat = str(rule.get("activity") or "").lower().strip()
     loc = str(rule.get("location") or "").upper().strip()

@@ -11,6 +11,7 @@ flows of another nomenclature (e.g. FEDEFL or EF flows to ecoinvent names) via a
 """
 import csv
 import io
+import math
 
 from openpyxl import load_workbook
 
@@ -35,7 +36,14 @@ def store_raw(store, method_id, rows):
         loc = (loc or "").strip()
         if loc.upper() in ("GLO", "GLOBAL", "WORLD"):
             loc = ""
-        batch.append((method_id, cn, cc, cs, loc, (uuid or None), float(value)))
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"The factor of '{name}' is not a number: {value!r}.")
+        if not math.isfinite(v):
+            # 1.8.4: a NaN or infinite factor would make every result of the category NaN
+            raise ValueError(f"The factor of '{name}' ({comp or 'any compartment'}) is not a finite number: {value!r}.")
+        batch.append((method_id, cn, cc, cs, loc, (uuid or None), v))
     with store.lock:
         store.conn.executemany("INSERT INTO cf_raw VALUES(?,?,?,?,?,?,?)", batch)
         store.conn.commit()

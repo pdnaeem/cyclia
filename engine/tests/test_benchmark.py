@@ -57,6 +57,57 @@ class TestBenchmark(unittest.TestCase):
         # the benchmark gives the compared databases as records (name, version, system model)
         self.assertIn("ecoinvent (3.11, cut-off)", json.dumps(ef))
 
+    def bench(self, fam, cats, version="3.11"):
+        benchmark.record_ecoinvent(self.st, {
+            "by_category": [dict(c, family=fam, indicator=c["category"], unit="u") for c in cats],
+            "databases_compared": [{"name": "ecoinvent", "version": version, "system_model": "cut-off"}],
+            "datasets_matched": 400, "datasets_in_file": 21000})
+
+    def test_publication(self):
+        self.assertEqual(benchmark.publication(self.st), {})
+        with self.assertRaises(ValueError):
+            benchmark.write_publication(self.st, os.path.join(self.dir, "pub"))
+        good = {"n": 400, "median": 1e-6, "p95": 1e-4, "max": 0.02, "within_0_1": 100.0, "within_1": 100.0,
+                "median_signed": 0.0}
+        self.bench("ReCiPe 2016 v1.03, midpoint (H)", [dict(good, category="climate change"),
+                                                       dict(good, category="water use")])
+        self.bench("CML v4.8 2016", [dict(good, category="acidification"),
+                                     dict(good, category="eutrophication", median=3.0, max=9.0, within_0_1=20.0,
+                                          within_1=40.0, median_signed=-3.0, hint="Cyclia is lower for most datasets")])
+        self.bench("IPCC 2021", [dict(good, category="climate change: GWP 100a")])
+        self.bench("EF v3.1", [dict(good, category="land use")])
+        files = benchmark.publication(self.st, "1.9.0")
+        self.assertEqual(sorted(files), ["README.md", "cml-ia-ecoinvent-3-11-cut-off.md", "ef-ecoinvent-3-11-cut-off.md",
+                                         "ipcc-ecoinvent-3-11-cut-off.md", "recipe-ecoinvent-3-11-cut-off.md"])
+        rec = files["recipe-ecoinvent-3-11-cut-off.md"]
+        self.assertIn("ReCiPe 2016 v1.03, midpoint (H)**: Validated", rec)
+        self.assertIn("| water use |", rec)
+        self.assertIn("No ecoinvent data is reproduced", rec)
+        cml = files["cml-ia-ecoinvent-3-11-cut-off.md"]
+        self.assertIn("Deviations", cml)
+        self.assertIn("eutrophication: Cyclia is lower", cml)
+        self.assertIn("| [CML-IA](cml-ia-ecoinvent-3-11-cut-off.md) | ecoinvent (3.11, cut-off) | 800 | Deviations",
+                      files["README.md"])
+        # statistics only: the record and the report hold no reference or Cyclia values
+        runs = self.st.q("SELECT summary FROM benchmark_runs WHERE kind='ecoinvent'")
+        for r in runs:
+            sm = json.loads(r["summary"])
+            self.assertNotIn("rows", sm)
+            self.assertFalse([k for c in sm["categories"] for k in c if k in ("reference", "cyclia", "rows", "worst")])
+        out = benchmark.write_publication(self.st, os.path.join(self.dir, "pub"))
+        self.assertEqual(len(out), 5)
+        with open(out[0], encoding="utf-8") as fh:
+            self.assertTrue(fh.read().startswith("# "))
+
+    def test_method_groups(self):
+        g = benchmark.method_group
+        self.assertEqual(g("ReCiPe 2016 Midpoint (H) V1.03"), "ReCiPe")
+        self.assertEqual(g("CML-IA baseline"), "CML-IA")
+        self.assertEqual(g("IPCC 2021 (incl. biogenic CO2)"), "IPCC")
+        self.assertEqual(g("EF v3.1"), "EF")
+        self.assertEqual(g("Environmental Footprint 3.1"), "EF")
+        self.assertEqual(g("USEtox 2"), "USEtox 2")
+
     def test_package_checks(self):
         import regional
         regional.import_factors(self.st, "AWARE", "location,agri,non_agri,unknown\nFR,10,5,8\nES,40,30\n",

@@ -10,6 +10,8 @@ import os
 
 from lxml import etree
 
+import numcheck
+
 NS = "{http://www.EcoInvent.org/EcoSpold02}"
 
 
@@ -36,11 +38,9 @@ def _text(el, path):
 
 
 def _f(v, default=None):
-    try:
-        x = float(v)
-        return x if math.isfinite(x) else default
-    except (TypeError, ValueError):
-        return default
+    """A finite number from the file, or `default`; unusable values (text, yes/no, NaN, infinity) are counted by the
+    import and reported in its warnings (1.9.0; before, they were replaced without a word)."""
+    return numcheck.read(v, default)
 
 
 def parse_uncertainty(ex):
@@ -72,6 +72,7 @@ def parse_uncertainty(ex):
     return 0, None, None, None
 
 
+@numcheck.counted()
 def import_folder(store, folder, name, version="", system_model="", progress=lambda *a: None):
     ds_dir, files = _find_datasets(folder)
     db_id = store.create_database(name, "ecoSpold2", version, system_model)

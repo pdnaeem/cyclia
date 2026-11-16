@@ -16,6 +16,8 @@ import zipfile
 
 from lxml import etree
 
+import numcheck
+
 from canon import canon
 from importers import lcia
 
@@ -23,11 +25,9 @@ PARSER = etree.XMLParser(huge_tree=True, remove_comments=True, resolve_entities=
 
 
 def _f(v, default=None):
-    try:
-        x = float(str(v).strip().replace(",", ".")) if isinstance(v, str) else float(v)
-        return x if math.isfinite(x) else default
-    except (TypeError, ValueError):
-        return default
+    """A finite number from the file, or `default`; unusable values (text, yes/no, NaN, infinity) are counted by the
+    import and reported in its warnings (1.9.0; before, they were replaced without a word)."""
+    return numcheck.read(v, default, comma=True)
 
 
 def flow_key(prefix, name, comp, sub, unit):
@@ -198,6 +198,7 @@ def _es1_unc(ex, amount):
     return (0, None, None, None)
 
 
+@numcheck.counted()
 def import_ecospold1(store, path, name, progress=lambda *a: None):
     files = []
     if os.path.isdir(path):
@@ -306,6 +307,7 @@ def _sp_blocks(fh, delim):
             block.append(r)
 
 
+@numcheck.counted()
 def import_simapro_csv(store, path, name, progress=lambda *a: None):
     enc = _sp_encoding(path)
     with open(path, encoding=enc, newline="") as fh:
@@ -460,6 +462,7 @@ def _lang_text(el, path):
     return (x.text or "").strip()
 
 
+@numcheck.counted()
 def import_ilcd(store, path, name, progress=lambda *a: None):
     files = _Files(path)
     procs = files.kind("processes")

@@ -913,6 +913,16 @@ every factor is decided. Give the factors or record why the category does not ap
   factor values themselves needs the package's own reference results, so these rows are never "Validated". The
   Word report includes this table and the ISO 14044 critical review checklist, checked automatically from your
   study, in an annex.
+
+  **Publish benchmark reports** writes one Markdown report per method family (ReCiPe, CML-IA, IPCC, EF) from the
+  ecoinvent benchmarks you ran. Each report gives the deviation statistics per impact category, the ecoinvent version
+  and your software environment. It never contains an ecoinvent value, so you can share it or attach it to a paper.
+- **Full-library regression** (Validation tab): **Record snapshot** saves the score of every dataset in your
+  libraries under every impact category, the result of every model and the factor matching of every category. After
+  an update of Cyclia, a new import or a change of method, choose that file and press **Compare**. Every value that
+  moved by more than one part in a billion is listed, with the categories whose factor matching changed. A snapshot
+  of ecoinvent contains ecoinvent results: keep it with your licence. The same works from the command line with
+  `engine/tools/regression.py`.
 - **Validation**: the validation suite runs 35 small product systems with exact known answers and saves a
   Word report to attach to a thesis or paper. The **independent cross-check** recalculates datasets of your
   library and the models of your project with a second implementation (other solver, matrices rebuilt from the

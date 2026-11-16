@@ -178,6 +178,27 @@ optimisation of discrete choices, Sobol indices with parameters of custom data, 
 fallback and coverage. 1.8.1 corrected the recording of ecoinvent benchmarks in the Benchmark Centre and the review
 merge on coarse clocks.
 
+## 2s. 1.9.0
+
+First release of the road to 2.0 (docs/quality/ACCEPTANCE_1.9.0.md):
+- one number validator on every path, which also refuses yes/no values (Python reads True as 1);
+- importers count and report unusable values;
+- full-library regression of every dataset under every category, against a committed snapshot;
+- benchmark reports per method family for publication;
+- a release gate that builds no installer unless the suite passes with Brightway required.
+
+## 2r. 1.8.4
+
+Numerical integrity on every path after the audit of 1.8.3 (docs/quality/ACCEPTANCE_1.8.4.md): finite numbers
+checked when saved (factors, fixed values, parameters, scenarios, background scenarios, imports), atomic line
+changes, and calculation-time guards on matrices, factors, results and Monte Carlo runs.
+
+## 2q. 1.8.3
+
+Numerical safeguards after the audit of 1.8.2 (docs/quality/ACCEPTANCE_1.8.3.md): finite numbers in range for every
+number of the goal and scope, the model lines and the functional unit; a guard against endless replacement loops in
+the life cycle cost; whole calendar years in MFA.
+
 ## 2p. 1.8.2
 
 Scientific reliability release after the audit of 1.8.1 (docs/quality/ACCEPTANCE_1.8.2.md): life cycle costing

@@ -10,6 +10,8 @@ import math
 import os
 import zipfile
 
+import numcheck
+
 from importers import lcia
 
 
@@ -56,8 +58,7 @@ def _unc(ex, conv):
     t = (u.get("distributionType") or "").upper()
 
     def num(k):
-        v = u.get(k)
-        return v if isinstance(v, (int, float)) and math.isfinite(v) else None
+        return numcheck.read(u.get(k), None, f"uncertainty {k}")
     if t.startswith("LOG_NORMAL"):
         gsd = num("geomSd")
         if gsd and gsd > 1:
@@ -86,6 +87,7 @@ def _negate(unc):
     return unc
 
 
+@numcheck.counted()
 def import_jsonld(store, path, name, progress=lambda *a: None):
     src = _Source(path)
     progress(2, "Reading units")
@@ -93,7 +95,7 @@ def import_jsonld(store, path, name, progress=lambda *a: None):
     for n in src.folder("unit_groups"):
         g = src.load(n) or {}
         for u in g.get("units", []):
-            unit_factor[u.get("@id")] = float(u.get("conversionFactor", 1.0))
+            unit_factor[u.get("@id")] = numcheck.read(u.get("conversionFactor"), 1.0, "unit conversion factor")
             if u.get("referenceUnit") or u.get("isRefUnit"):
                 group_ref_unit[g.get("@id")] = u.get("name")
     prop_group = {}
@@ -109,7 +111,7 @@ def import_jsonld(store, path, name, progress=lambda *a: None):
         factors, ref_unit = {}, ""
         for fp in f.get("flowProperties", []):
             pid = (fp.get("flowProperty") or {}).get("@id")
-            factors[pid] = float(fp.get("conversionFactor", 1.0))
+            factors[pid] = numcheck.read(fp.get("conversionFactor"), 1.0, "flow property factor")
             if fp.get("referenceFlowProperty") or fp.get("isRefFlowProperty"):
                 ref_unit = group_ref_unit.get(prop_group.get(pid), "")
         flows[f["@id"]] = {"name": f.get("name", ""), "type": f.get("flowType", ""), "factors": factors,
@@ -124,7 +126,12 @@ def import_jsonld(store, path, name, progress=lambda *a: None):
         uf = unit_factor.get((ex.get("unit") or {}).get("@id"), 1.0)
         pid = (ex.get("flowProperty") or {}).get("@id")
         pf = fl.get("factors", {}).get(pid, 1.0) if pid else 1.0
-        return float(ex.get("amount", 0.0)) * uf / (pf or 1.0)
+        v = ex.get("amount")
+        if v is None:
+            return 0.0
+        # an amount that is not a finite number stops the import (as before 1.9.0): replacing it would change results
+        return numcheck.finite(v, f"The amount of '{fl.get('name') or (ex.get('flow') or {}).get('name', '')}'") \
+            * uf / (pf or 1.0)
 
     def elementary_id(fuuid):
         f = flows.get(fuuid, {"name": fuuid, "comp": ("", ""), "ref_unit": "", "cas": ""})
@@ -168,8 +175,10 @@ def import_jsonld(store, path, name, progress=lambda *a: None):
                 pf = fl.get("factors", {}).get(pid, 1.0) if pid else 1.0
                 loc = (f.get("location") or {}).get("code") or locations.get((f.get("location") or {}).get("@id"), "") \
                     if isinstance(f.get("location"), dict) else ""
-                rows.append((fl["name"], fl["comp"][0], fl["comp"][1], loc or "", fuuid,
-                             float(f.get("value", 0)) * pf / (uf or 1.0)))
+                val = numcheck.read(f.get("value"), None, f"factor of {fl['name']}")
+                if val is None:
+                    continue
+                rows.append((fl["name"], fl["comp"][0], fl["comp"][1], loc or "", fuuid, val * pf / (uf or 1.0)))
             store.x("DELETE FROM cf_raw WHERE method_id=?", (mid,))
             store.x("DELETE FROM cfs WHERE method_id=?", (mid,))
             lcia.store_raw(store, mid, rows)
@@ -223,7 +232,7 @@ def _processes(store, db_id, src, procs, flows, locations, ref_amount, elementar
                 amt = ref_amount(e)
                 if amt == 0:
                     continue
-                raw = float(e.get("amount", 0.0)) or 1.0
+                raw = numcheck.parse(e.get("amount")) or 1.0
                 unc = _unc(e, amt / raw)
                 if ftype == "ELEMENTARY_FLOW":
                     bio.append((aid, elementary_id(fuuid), amt) + unc)
@@ -310,7 +319,7 @@ def read_impact_factors(path):
     for n in src.folder("unit_groups"):
         g = src.load(n) or {}
         for u in g.get("units", []):
-            unit_factor[u.get("@id")] = float(u.get("conversionFactor", 1.0))
+            unit_factor[u.get("@id")] = numcheck.read(u.get("conversionFactor"), 1.0, "unit conversion factor")
             if u.get("referenceUnit") or u.get("isRefUnit"):
                 group_ref_unit[g.get("@id")] = u.get("name")
     prop_group = {}
@@ -325,7 +334,7 @@ def read_impact_factors(path):
         factors, ref_unit = {}, ""
         for fp in f.get("flowProperties", []):
             pid = (fp.get("flowProperty") or {}).get("@id")
-            factors[pid] = float(fp.get("conversionFactor", 1.0))
+            factors[pid] = numcheck.read(fp.get("conversionFactor"), 1.0, "flow property factor")
             if fp.get("referenceFlowProperty") or fp.get("isRefFlowProperty"):
                 ref_unit = group_ref_unit.get(prop_group.get(pid), "")
         flows[f["@id"]] = {"name": f.get("name", ""), "factors": factors, "ref_unit": ref_unit, "comp": _category_parts(f)}
@@ -355,9 +364,11 @@ def read_impact_factors(path):
             loc = ""
             if isinstance(f.get("location"), dict):
                 loc = f["location"].get("code") or locations.get(f["location"].get("@id"), "")
+            val = numcheck.read(f.get("value"), None, f"factor of {fl['name']}")
+            if val is None:
+                continue
             rows.append({"uuid": fuuid, "name": fl["name"], "comp": fl["comp"][0], "sub": fl["comp"][1],
-                         "unit": fl.get("ref_unit", ""), "location": loc or "",
-                         "value": float(f.get("value", 0)) * pf / (uf or 1.0)})
+                         "unit": fl.get("ref_unit", ""), "location": loc or "", "value": val * pf / (uf or 1.0)})
         out.append({"method": cat_method.get(cat.get("@id"), ""), "category": cat.get("name", ""),
                     "unit": cat.get("refUnit") or cat.get("referenceUnitName", ""), "factors": rows})
     if not out:
