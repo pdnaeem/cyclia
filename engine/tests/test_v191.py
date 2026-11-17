@@ -283,8 +283,8 @@ class TestPublicationFromWorkbook(Base):
         self.assertNotIn("pooled", ipcc)
         es = files["ecological-scarcity-2021-ecoinvent-3-13-cutoff.md"]
         self.assertIn("2 of 3 results deviate by more than 0.1 %", es)
-        self.assertIn("in 2 the two results have opposite signs", es)
-        self.assertIn("not claimed as validated", es)
+        self.assertIn("in 2 the two programs give opposite signs", es)
+        self.assertIn("The category is not validated", es)
         for text in files.values():                                   # no ecoinvent or Cyclia value is written
             self.assertNotIn("3e-10", text)
             self.assertNotIn("1e-12", text)

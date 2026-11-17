@@ -178,6 +178,17 @@ optimisation of discrete choices, Sobol indices with parameters of custom data, 
 fallback and coverage. 1.8.1 corrected the recording of ecoinvent benchmarks in the Benchmark Centre and the review
 merge on coarse clocks.
 
+## 2u. 1.9.2
+
+The user's 1.9.1 run gave values identical to 1.9.0's. Ecological Scarcity 2021 biotic resources still deviated:
+- the new sum of absolute contributions showed that Cyclia's results there are not cancellation remainders;
+- the explanation published with 1.9.1 was withdrawn;
+- the inventory comparison's cause text was found to overstate an import difference that its own flow check did not
+  see.
+
+1.9.2 measures resolution (forward, adjoint, refined) and lists contributions and negative exchanges, so the next run
+names the datasets that carry the gap.
+
 ## 2t. 1.9.1
 
 Audit of 1.9.0 (score 8.6). Two paths were outside the number validator: LCIA imports (a yes/no factor, infinite

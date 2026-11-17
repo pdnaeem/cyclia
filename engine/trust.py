@@ -585,6 +585,129 @@ def _same_method(x, m):
     return x["category"] == m["category"] and x["indicator"] == m["indicator"]
 
 
+RESOLUTION_REL = 1e-3      # Cyclia's own solutions must agree to 0.1 % before a result can be compared at 0.1 %
+NEGLIGIBLE = 1e-6          # share of the category's largest result in ecoinvent's file below which a value is negligible
+
+
+def resolution_check(mc, M, mcols, out, file_rows, top=5):
+    """1.9.2: is a deviating result resolved by the calculation at all?
+
+    A result is h = q A^-1 f. Cyclia computes it a second and a third way, each with its own round-off:
+    - adjoint: y = A^-T q^T by a transposed solve, h = y . f;
+    - refined: one step of iterative refinement of the scaling vector, x2 = x + A^-1 (f - A x), h = q x2.
+    When these differ from the forward result by more than RESOLUTION_REL of it, the double-precision solution does
+    not determine the result to 0.1 %, so a 0.1 % comparison with ecoinvent's value is not possible. Such a result
+    is marked 'below numerical resolution' and leaves the deviation statistics when both it and ecoinvent's value are
+    below NEGLIGIBLE x the largest value of the category in ecoinvent's file; a larger one stays a deviation.
+    Every deviating result also gets its largest contributions (dataset x flow), to show where a real gap comes from.
+    """
+    import scipy.sparse as sp_
+    dev = [x for x in out if x.get("method_id") is not None and x["note"] == "" and x["deviation_percent"] is not None
+           and abs(x["deviation_percent"]) > 0.1]
+    if not dev:
+        return
+    dev = sorted(dev, key=lambda x: -abs(x["deviation_percent"]))[:2000]     # bounded time on a bad run
+    kof = {c["method"]["id"]: k for k, c in enumerate(mcols)}
+    scale = {}
+    for c in mcols:
+        v = [abs(r["values"][c["id"]]) for r in file_rows if r["values"].get(c["id"]) is not None]
+        scale[c["method"]["id"]] = max(v) if v else 0.0
+    y_of = {}
+    xs = {}
+    A = mc.A.tocsr() if sp_.issparse(mc.A) else mc.A
+    Ccsr = M.C.tocsr() if sp_.issparse(M.C) else sp_.csr_matrix(M.C)
+    Bcsc = mc.B.tocsc() if sp_.issparse(mc.B) else sp_.csc_matrix(mc.B)
+    for x in dev:
+        k = kof.get(x["method_id"])
+        j = mc.act_index.get(x["act_id"])
+        if k is None or j is None:
+            continue
+        sign = 1.0 if mc.diag[j] >= 0 else -1.0
+        if k not in y_of:
+            y_of[k] = mc.lu.solve(np.ascontiguousarray(np.asarray(M.Q[k]).ravel(), dtype=float), trans="T")
+        if j not in xs:
+            f = np.zeros(mc.n)
+            f[j] = sign
+            x1 = mc.solve(f)
+            x2 = x1 + mc.solve(f - A @ x1)
+            xs[j] = (x1, x2)
+        x1, x2 = xs[j]
+        q = np.asarray(M.Q[k]).ravel()
+        h = float(q @ x1)
+        h_adj = float(y_of[k][j] * sign)
+        h_ref = float(q @ x2)
+        spread = max(abs(h - h_adj), abs(h - h_ref))
+        x["adjoint"], x["refined"] = h_adj, h_ref
+        x["resolution"] = spread
+        # the largest contributions: dataset i, flow f, with x_i, the exchange B_fi and the factor C_kf
+        contrib = q * x1
+        order = np.argsort(-np.abs(contrib))[:top]
+        tops = []
+        for i in order:
+            if contrib[i] == 0:
+                break
+            col = Bcsc[:, i].tocoo()
+            fl = []
+            if col.nnz:
+                ck = Ccsr[k]
+                for fi, b in zip(col.row, col.data):
+                    cf = ck[0, fi] if ck.nnz else 0.0
+                    if cf:
+                        fl.append((abs(cf * b * x1[i]), int(fi), float(b), float(cf)))
+                fl.sort(reverse=True)
+            tops.append({"act_index": int(i), "scaling": float(x1[i]), "contribution": float(contrib[i]),
+                         "flows": [{"flow_index": fi, "amount": b, "factor": cf} for _, fi, b, cf in fl[:2]]})
+        x["contributions"] = tops
+        big = max(abs(x["reference"]), abs(x["cyclia"]))
+        if spread > RESOLUTION_REL * abs(h) and big <= NEGLIGIBLE * scale.get(x["method_id"], 0.0):
+            x["deviation_percent"] = None
+            x["note"] = (f"below numerical resolution: Cyclia's forward, adjoint and refined solutions give {h:.3g}, "
+                         f"{h_adj:.3g} and {h_ref:.3g}; the value is below {NEGLIGIBLE:g} of the category's "
+                         f"largest result in ecoinvent's file ({big / scale[x['method_id']]:.1g})")
+        elif spread > RESOLUTION_REL * abs(h):
+            x["note"] = (f"not resolved by the solver (forward {h:.3g}, adjoint {h_adj:.3g}, refined {h_ref:.3g}) and "
+                         "not negligible: reported as a deviation")
+
+
+def unusual_signs(store, mcols, out, limit=200):
+    """For each category that still has deviating results: the exchanges of its characterised flows with a negative
+    amount (a resource or an emission given as negative). ecoSpold files can record a flow returned to nature this
+    way, and programs differ in how they read it; these are the first exchanges to check against ecoinvent."""
+    cats = {x["method_id"] for x in out if x.get("method_id") is not None and x["note"] == ""
+            and x["deviation_percent"] is not None and abs(x["deviation_percent"]) > 0.1}
+    found = []
+    for c in mcols:
+        m = c["method"]
+        if m.get("id") not in cats:
+            continue
+        for r in store.q("SELECT a.name, a.location, f.name AS flow, f.compartment, f.subcompartment, b.amount, "
+                         "cf.value AS factor FROM cfs cf JOIN bio b ON b.flow_id=cf.flow_id JOIN flows f ON f.id=cf.flow_id "
+                         "JOIN activities a ON a.id=b.activity_id WHERE cf.method_id=? AND b.amount < 0 "
+                         "ORDER BY abs(b.amount * cf.value) DESC LIMIT ?", (m["id"], limit)):
+            found.append({"family": m.get("family"), "category": m["category"], "indicator": m["indicator"],
+                          "dataset": r["name"], "location": r["location"], "flow": r["flow"],
+                          "compartment": "/".join(v for v in (r["compartment"], r["subcompartment"]) if v),
+                          "amount": r["amount"], "factor": r["factor"]})
+    return found
+
+
+def _name_contributions(store, mc, out):
+    acts, flows = {}, {}
+    for x in out:
+        for c_ in x.get("contributions") or []:
+            i = c_["act_index"]
+            if i not in acts:
+                acts[i] = store.one("SELECT name, location FROM activities WHERE id=?", (int(mc.act_ids[i]),)) or {}
+            c_["act_name"], c_["act_location"] = acts[i].get("name"), acts[i].get("location")
+            for f_ in c_["flows"]:
+                fi = f_["flow_index"]
+                if fi not in flows:
+                    flows[fi] = store.flow(int(mc.flow_ids[fi])) or {}
+                f_["flow"] = flows[fi].get("name")
+                f_["compartment"] = "/".join(v for v in (flows[fi].get("compartment"), flows[fi].get("subcompartment"))
+                                             if v)
+
+
 def compare_value(ref, val, gross, tiny):
     """(deviation %, deviation % before the round-off rules, note) of Cyclia's result `val` against ecoinvent's `ref`.
 
@@ -717,7 +840,10 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
                         "raw_deviation_percent": raw_dev, "gross": float(gross[k])})
         if n % 10 == 0:
             progress(40 + 55 * n / max(1, len(chosen)), f"Calculating dataset {n + 1} of {len(chosen)}")
-    progress(97, "Summarising")
+    progress(96, "Checking the numerical resolution of deviating results")
+    resolution_check(mc, M, mcols, out, rows)
+    _name_contributions(store, mc, out)
+    signs = unusual_signs(store, mcols, out)
     progress(98, "Summarising")
     for x in out:
         u_ = unresolved_of.get(x["act_id"])
@@ -734,6 +860,7 @@ def benchmark_ecoinvent(store, path, family="", sample=100, seed=11, progress=la
     res["results_file"] = os.path.basename(str(path))
     res["lci_file"] = os.path.basename(str(lci_path)) if lci_path else ""
     progress(99, "Looking for the causes of deviations")
+    res["unusual_signs"] = signs
     res["diagnosis"] = diagnose(store, mc, M, mcols, out)
     res["factor_finder"] = factor_finder(store, mc, M, mcols, out, G)
     res["land_use"] = land_use_reconciliation(store, mc, M, mcols, out, G)
@@ -996,13 +1123,16 @@ def diagnose(store, mc, M, mcols, out, per_cat=2, top=12):
 
 def _bench_summary(store, mc, M, mcols, out, n_datasets, n_file, n_matched, groups):
     def stats(items):
+        all_items = items
         d = [abs(x["deviation_percent"]) for x in items if x["deviation_percent"] is not None]
         if not d:
-            return {"n": 0}
+            return {"n": 0, "below_resolution": sum(1 for x in items if (x.get("note") or "").startswith(
+                "below numerical"))}
         d = np.array(d)
         return {"n": int(len(d)), "median": float(np.median(d)), "p95": float(np.percentile(d, 95)), "max": float(d.max()),
                 "within_0_1": float((d <= 0.1).mean() * 100), "within_1": float((d <= 1).mean() * 100),
                 "cancellation": sum(1 for x in items if (x.get("note") or "").startswith("cancellation")),
+                "below_resolution": sum(1 for x in all_items if (x.get("note") or "").startswith("below numerical")),
                 "numerically_zero": sum(1 for x in items if x.get("note") == "both numerically zero")}
     used = np.unique(mc.b_rows)
     idx_id, idx_name = {}, {}
@@ -1057,6 +1187,12 @@ def _bench_summary(store, mc, M, mcols, out, n_datasets, n_file, n_matched, grou
                    "0.1 %. Look at the categories and datasets below before publishing.")
     else:
         verdict = "Deviations found. The table per category says where to look; send the Excel report for help."
+    nres = total.get("below_resolution", 0)
+    if nres:
+        cats_ = sorted({f"{c['family']}: {c['category']}" for c in by_cat if c.get("below_resolution")})
+        verdict += (f" {nres:,} results are below numerical resolution (Cyclia's forward, adjoint and refined solutions "
+                    f"disagree, and the values are negligible next to the category's largest result) and are not "
+                    f"counted: {'; '.join(cats_[:6])}{' ...' if len(cats_) > 6 else ''}.")
     return {"verdict": verdict, "summary": total, "by_category": by_cat, "by_group": by_group, "worst": worst,
             "rows": out, "datasets": n_datasets, "datasets_in_file": n_file, "datasets_matched": n_matched,
             "categories": len(mcols), "families": sorted({c["method"]["family"] for c in mcols}),
@@ -1090,17 +1226,38 @@ def benchmark_excel(path, res):
     ws2 = wb.create_sheet("By category")
     ws2.append(["Family", "Category", "Indicator", "Unit", "Results", "Median |dev| %", "95th pct |dev| %", "Max |dev| %",
                 "Within 0.1 %", "Within 1 %", "Flows used without a factor (most are not part of the category)", "Hint",
-                "Results within round-off of cancelling contributions", "Results zero on both sides"])
+                "Results within round-off of cancelling contributions", "Results zero on both sides",
+                "Results below numerical resolution (not counted)"])
     for c in res["by_category"]:
         ws2.append([c["family"], c["category"], c["indicator"], c["unit"], c.get("n"), c.get("median"), c.get("p95"),
                     c.get("max"), c.get("within_0_1"), c.get("within_1"), c["flows_without_factor"], c["hint"],
-                    c.get("cancellation", 0), c.get("numerically_zero", 0)])
+                    c.get("cancellation", 0), c.get("numerically_zero", 0), c.get("below_resolution", 0)])
     ws3 = wb.create_sheet("All results")
     ws3.append(["Group", "Dataset", "Location", "Product", "Category", "Indicator", "ecoinvent", "Cyclia", "Deviation %", "Note",
-                "Relative difference before the round-off rule %", "Sum of absolute contributions"])
+                "Relative difference before the round-off rule %", "Sum of absolute contributions",
+                "Cyclia, adjoint solution", "Cyclia, refined solution"])
     for x in res["rows"]:
         ws3.append([x["group"], x["activity"], x["location"], x["product"], x["category"], x["indicator"], x["reference"],
-                    x["cyclia"], x["deviation_percent"], x["note"], x.get("raw_deviation_percent"), x.get("gross")])
+                    x["cyclia"], x["deviation_percent"], x["note"], x.get("raw_deviation_percent"), x.get("gross"),
+                    x.get("adjoint"), x.get("refined")])
+    if res.get("unusual_signs"):
+        wu = wb.create_sheet("Negative exchanges")
+        wu.append(["Method", "Category", "Indicator", "Dataset", "Location", "Flow", "Compartment", "Amount", "Factor"])
+        for u in res["unusual_signs"]:
+            wu.append([u["family"], u["category"], u["indicator"], u["dataset"], u["location"], u["flow"],
+                       u["compartment"], u["amount"], u["factor"]])
+    con = [x for x in res["rows"] if x.get("contributions")]
+    if con:
+        wc = wb.create_sheet("Contributions")
+        wc.append(["Category", "Indicator", "Dataset", "Location", "ecoinvent", "Cyclia", "Status", "Contributing dataset",
+                   "Its location", "Its scaling", "Contribution", "Flow", "Compartment", "Exchange amount", "Factor"])
+        for x in con[:200]:
+            status = (x.get("note") or "deviates").split(":")[0]
+            for c_ in x["contributions"]:
+                fl = c_["flows"][0] if c_["flows"] else {}
+                wc.append([x["category"], x["indicator"], x["activity"], x["location"], x["reference"], x["cyclia"], status,
+                           c_.get("act_name"), c_.get("act_location"), c_["scaling"], c_["contribution"],
+                           fl.get("flow"), fl.get("compartment"), fl.get("amount"), fl.get("factor")])
     ws4 = wb.create_sheet("Diagnosis")
     ws4.append(["Category", "Dataset", "Location", "ecoinvent", "Cyclia", "Gap", "Explained by unmatched factors",
                 "Explained %", "Flow without factor", "Flow compartment", "Canonical subcompartment", "Amount", "Unit",

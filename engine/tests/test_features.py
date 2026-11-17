@@ -913,6 +913,32 @@ class TestOfficial(unittest.TestCase):
                 st.x("DELETE FROM methods WHERE id=?", (t["id"],))
             calc.invalidate()
 
+    def test_benchmark_shows_what_carries_a_deviation(self):
+        """1.9.2: a deviating result lists its largest contributions (dataset and flow), its adjoint and refined
+        values, and the category's negative exchanges; the Excel report has these sheets."""
+        st = self.st
+        path, n_acts, n_m = self._results_file("labels_above")
+        cc = next(m["id"] for m in st.methods() if m["family"] == demo.FAMILY and m["category"] == "climate change")
+        b = st.one("SELECT b.rowid AS rid, b.amount, a.name FROM bio b JOIN cfs c ON c.flow_id=b.flow_id AND c.method_id=? "
+                   "JOIN activities a ON a.id=b.activity_id WHERE b.amount > 0 ORDER BY b.amount * c.value DESC LIMIT 1",
+                   (cc,))
+        st.x("UPDATE bio SET amount=? WHERE rowid=?", (-b["amount"], b["rid"]))
+        calc.invalidate()
+        try:
+            r = self.api.job("/api/benchmark-ecoinvent", {"path": path, "family": demo.FAMILY, "sample": 0})
+            dev = [x for x in r["worst"] if abs(x["deviation_percent"]) > 0.1]       # the API leaves out "rows"
+            self.assertTrue(dev)
+            self.assertTrue(all("contributions" in x and x["contributions"] for x in dev))
+            self.assertTrue(all(abs(x["adjoint"] - x["cyclia"]) <= 1e-9 * abs(x["cyclia"]) for x in dev))
+            self.assertIn(b["name"], {u["dataset"] for u in r["unusual_signs"]})
+        finally:
+            st.x("UPDATE bio SET amount=? WHERE rowid=?", (b["amount"], b["rid"]))
+            calc.invalidate()
+        from openpyxl import load_workbook
+        wb = load_workbook(self.api("POST", "/api/export/benchmark", {})["path"])
+        self.assertIn("Contributions", wb.sheetnames)
+        self.assertIn("Negative exchanges", wb.sheetnames)
+
     def test_benchmark_diagnosis(self):
         """A factor that the library lost must show up in the diagnosis, and numerically-zero pairs must agree."""
         st = self.st

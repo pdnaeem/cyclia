@@ -3,7 +3,7 @@
 This document describes how Cyclia computes results, so that a study can be reproduced and reviewed. Sections
 1 to 11 describe the core added in 1.1; later sections give the version in which each method was added or changed.
 Cite the software as: Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers*
-(version 1.9.1) [Computer software]. https://doi.org/10.5281/zenodo.23853747
+(version 1.9.2) [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 ## 1. Inventory model
 
@@ -1158,6 +1158,18 @@ absolute scaling vector). A result whose relative deviation exceeds 0.1 % agrees
 The relative difference before the rule and g are listed for every result, and each category counts the results the
 rule applied to. An ordinary result cannot pass this way: for a result of 100 with contributions summing to 10^6, the
 rule tolerates a gap of 0.001, which is 0.001 %.
+
+**Numerical resolution (1.9.2).** A deviating result h = q A^-1 f is computed three ways:
+- forward: x = A^-1 f, then h = q x;
+- adjoint: y = A^-T q^T, then h = y f;
+- refined: x2 = x + A^-1 (f − A x), then h = q x2.
+
+Each has different round-off. If the spread among the three exceeds 0.1 % of h, double precision does not
+determine h to 0.1 %, so no 0.1 % comparison is possible. Such a result is reported as below numerical resolution
+and counted apart, provided both values are below 1e-6 of the category's largest value in ecoinvent's file;
+otherwise it stays a deviation. For every deviating result the five largest contributions q_i x_i are listed with the
+exchange and factor that make them, and the exchanges of the category's flows with negative amounts are listed per
+category.
 
 **Per method (1.9.1).** Results are grouped by the method's identifier. Before, results were grouped by category and
 indicator name, so methods sharing a name were pooled in each other's statistics and diagnosis. Seven families of

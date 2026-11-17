@@ -1,6 +1,6 @@
 # Cyclia feature status
 
-Status of Cyclia 1.9.1, checked against the source code, the automated tests and the validation records. A feature
+Status of Cyclia 1.9.2, checked against the source code, the automated tests and the validation records. A feature
 counts as **validated** only when its calculation is compared with independent reference results. Interface
 elements alone do not count.
 
@@ -16,7 +16,7 @@ elements alone do not count.
 | Feature | Status | Evidence and limits |
 |---|---|---|
 | Matrix LCA (sparse LU, loops, nested models) | Validated | 35 validation systems with exact answers; independent second implementation ([cross validation](CROSS_VALIDATION.md)); ecoinvent benchmark |
-| Agreement with ecoinvent's LCIA results (ecoinvent 3.13, cut-off) | Validated, except 2 categories | 46 method families, 614 categories, 61,400 results, run with Cyclia 1.9.0: every result within 0.1 % in 612 categories, largest deviation 0.019 %. Ecological Scarcity 2021 "biotic resources" (with and without long-term emissions) is not validated: 90 of 100 results deviate, all of them very small and mostly of opposite sign, to be checked with the round-off test of 1.9.1 ([reports](https://github.com/pdnaeem/cyclia/tree/main/docs/benchmarks)). Earlier: EF 3.1 with Cyclia 1.3.10 ([report](VALIDATION_ECOINVENT.md)) |
+| Agreement with ecoinvent's LCIA results (ecoinvent 3.13, cut-off) | Validated, except 2 categories | 46 method families, 614 categories, 61,400 results, run with Cyclia 1.9.0: every result within 0.1 % in 612 categories, largest deviation 0.019 %. Ecological Scarcity 2021 "biotic resources" (with and without long-term emissions) is not validated: 90 of 100 results deviate, all of them very small and mostly of opposite sign; the cause is traced with the checks of 1.9.2 ([reports](https://github.com/pdnaeem/cyclia/tree/main/docs/benchmarks)). Earlier: EF 3.1 with Cyclia 1.3.10 ([report](VALIDATION_ECOINVENT.md)) |
 | Inventory check against ecoinvent's cumulative LCI | Validated | Splits each deviation into inventory and factor parts; found the land use cause |
 | Units and conversions | Validated | Unit families, conversion tests, unknown-unit check in the database check |
 | Parameters, formulas, scenarios | Implemented | Tests of formula evaluation and scenario switching |

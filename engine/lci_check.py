@@ -371,7 +371,20 @@ def inventory_check(store, mc, M, mcols, out, chosen, G, cols, lci_rows, n_file_
                         entry["implied_factors"].append({"flow": nm, "compartment": comp, "unit": unit,
                                                          "implied_factor": float(cf),
                                                          "datasets_with_flow": int(np.count_nonzero(X[:, j]))})
-            if inv >= 80:
+            tiny = entry["inventory_flows"] and all(f_["datasets_differing"] == 0 for f_ in entry["inventory_flows"])
+            if inv >= 80 and tiny:
+                rel = max(float(np.max(np.abs((E[r[0]["act_id"]] - G[r[0]["act_id"]])[Ck != 0])) /
+                                max(np.abs(E[r[0]["act_id"]]).max(), np.abs(G[r[0]["act_id"]]).max(), 1e-300))
+                          for r in dev)
+                entry["inventory_relative_gap"] = rel
+                # 1.9.2: the flows listed differ only below the comparison's own threshold (1e-12 of the largest
+                # amount of each dataset's inventory), so calling it an import or linking difference was not supported
+                entry["cause"] = (f"inventory, below the precision of the inventory comparison: the amounts of the flows "
+                                  f"listed differ by at most {rel:.1g} of the largest amount in each dataset's "
+                                  "inventory, which the comparison counts as equal. No import or linking difference is "
+                                  "visible at that precision. See the sheets Contributions and Negative exchanges for "
+                                  "the datasets that carry these amounts in Cyclia.")
+            elif inv >= 80:
                 entry["cause"] = ("inventory: Cyclia's cumulative inventory differs from ecoinvent's for the flows listed. "
                                   "The factors agree (ecoinvent's inventory with Cyclia's factors gives ecoinvent's "
                                   "results). This is an import or linking difference to fix in Cyclia.")

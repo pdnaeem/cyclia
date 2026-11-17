@@ -10,7 +10,7 @@ Database: ecoinvent (3.13, cutoff)
 - Results compared: 400 (datasets x impact categories).
 - Datasets: 100 compared of 27,401 in the results file, matched by 'Activity UUID_Product UUID' (or by name, geography and product).
 - The cumulative inventory was compared with ecoinvent's cumulative LCI as well, which separates deviations caused by the inventory from those caused by the factors.
-- Software: Cyclia 1.9.0; run on 2026-11-16.
+- Software: Cyclia 1.9.1; run on 2026-11-16.
 
 ## Deviation per impact category
 
@@ -18,10 +18,10 @@ Deviation = |Cyclia - ecoinvent| / |ecoinvent| x 100, per dataset. Signed median
 
 | Method | Category | Indicator | Unit | Results | Median % | Signed median % | 95th percentile % | Max % | Within 0.1 % | Within 1 % | Within round-off |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Ecological Footprint | CO2 | global hectares | m2a | 100 | 2.28e-07 | 0 | 6.34e-06 | 0.000322 | 100 % | 100 % |  |
-| Ecological Footprint | land occupation | global hectares | m2a | 100 | 4.04e-06 | -5.29e-08 | 8.5e-05 | 0.000295 | 100 % | 100 % |  |
-| Ecological Footprint | nuclear | global hectares | m2a | 100 | 3.46e-07 | 1.11e-09 | 2.98e-05 | 0.000716 | 100 % | 100 % |  |
-| Ecological Footprint | total | global hectares | m2a | 100 | 2.36e-07 | 0 | 5.25e-06 | 0.000326 | 100 % | 100 % |  |
+| Ecological Footprint | CO2 | global hectares | m2a | 100 | 2.28e-07 | 0 | 6.34e-06 | 0.000322 | 100 % | 100 % | 0 |
+| Ecological Footprint | land occupation | global hectares | m2a | 100 | 4.04e-06 | -5.29e-08 | 8.5e-05 | 0.000295 | 100 % | 100 % | 0 |
+| Ecological Footprint | nuclear | global hectares | m2a | 100 | 3.46e-07 | 1.11e-09 | 2.98e-05 | 0.000716 | 100 % | 100 % | 0 |
+| Ecological Footprint | total | global hectares | m2a | 100 | 2.36e-07 | 0 | 5.25e-06 | 0.000326 | 100 % | 100 % | 0 |
 
 ## How to read this
 
@@ -29,6 +29,7 @@ Deviation = |Cyclia - ecoinvent| / |ecoinvent| x 100, per dataset. Signed median
 - The benchmark checks Cyclia's matrix calculation, its import of ecoinvent and the matching of the method's factors to ecoinvent's elementary flows. It does not check the method itself: Cyclia uses the factors as published.
 - Only the ecoinvent version and system model named were compared. Another version or system model needs its own run.
 - 'Within round-off' counts results whose net value is the small remainder of positive and negative contributions that cancel, and where the gap to ecoinvent is below 1e-9 of the sum of the absolute contributions (Cyclia 1.9.1 and later; empty for earlier runs). These count as agreeing.
+- From Cyclia 1.9.2, a deviating result that Cyclia's own solver does not determine to 0.1 % (forward, adjoint and refined solutions differ) and that is below 1e-6 of the category's largest result in ecoinvent's file is reported as 'below numerical resolution' and left out of the statistics, with its count.
 - No ecoinvent data is reproduced here: the report holds deviation statistics only.
 
 ## Reproduce

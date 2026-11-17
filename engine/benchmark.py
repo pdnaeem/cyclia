@@ -491,6 +491,9 @@ def _report(grp, db, runs, cyclia_version):
               "- 'Within round-off' counts results whose net value is the small remainder of positive and negative "
               "contributions that cancel, and where the gap to ecoinvent is below 1e-9 of the sum of the absolute "
               "contributions (Cyclia 1.9.1 and later; empty for earlier runs). These count as agreeing.",
+              "- From Cyclia 1.9.2, a deviating result that Cyclia's own solver does not determine to 0.1 % (forward, "
+              "adjoint and refined solutions differ) and that is below 1e-6 of the category's largest result in "
+              "ecoinvent's file is reported as 'below numerical resolution' and left out of the statistics, with its count.",
               "- No ecoinvent data is reproduced here: the report holds deviation statistics only.", "",
               "## Reproduce", "",
               "1. Import the ecoinvent database (ecoSpold2) and the method in Cyclia.",
@@ -560,8 +563,10 @@ def publication_from_workbook(path):
         if blocks and all([(r[ah["Category"]], r[ah["Indicator"]]) for r in b] == seq for b in blocks):
             per_method = True
             for k, (_, c) in enumerate(cats):
-                vals = [(b[k][ah["ecoinvent"]], b[k][ah["Cyclia"]], b[k][ah["Deviation %"]]) for b in blocks]
-                d = np.array([v for _, _, v in vals if v is not None], dtype=float)
+                gi = ah.get("Sum of absolute contributions")
+                vals = [(b[k][ah["ecoinvent"]], b[k][ah["Cyclia"]], b[k][ah["Deviation %"]],
+                         b[k][gi] if gi is not None and gi < len(b[k]) else None) for b in blocks]
+                d = np.array([v[2] for v in vals if v[2] is not None], dtype=float)
                 if not len(d):
                     continue
                 a = np.abs(d)
@@ -596,21 +601,20 @@ def publication_from_workbook(path):
 
 
 def _weak_analysis(vals):
-    """Relative description of the deviating results of a category below the status rule."""
-    top = max(abs(e or 0) for e, _, _ in vals) or 1.0
-    dev = [(e or 0, y or 0) for e, y, d in vals if d is not None and abs(d) > 0.1]
+    """Factual description, in relative terms only, of the deviating results of a category below the status rule."""
+    top = max(abs(v[0] or 0) for v in vals) or 1.0
+    dev = [v for v in vals if v[2] is not None and abs(v[2]) > 0.1]
     if not dev:
         return ""
-    big = max(max(abs(e), abs(y)) for e, y in dev) / top
-    flips = sum(1 for e, y in dev if e * y < 0)
-    if big >= 1e-3:
-        return (f"{len(dev)} of {len(vals)} results deviate by more than 0.1 %; the largest deviating result is "
-                f"{big:.2g} of the largest result of the category in the sample.")
-    return (f"{len(dev)} of {len(vals)} results deviate by more than 0.1 %. In each of them both results are at most "
+    big = max(max(abs(v[0] or 0), abs(v[1] or 0)) for v in dev) / top
+    flips = sum(1 for v in dev if (v[0] or 0) * (v[1] or 0) < 0)
+    text = (f"{len(dev)} of {len(vals)} results deviate by more than 0.1 %. In each of them both results are at most "
             f"{big:.1g} of the largest result of the category in the sample"
-            + (f", and in {flips} the two results have opposite signs" if flips else "") +
-            ". A result that small next to others of the same category, with a sign that differs between the two "
-            "programs, is most likely the remainder of contributions of both signs that cancel, where the relative "
-            "deviation measures round-off rather than a difference in the inventory or the factors. Cyclia 1.9.1 "
-            "tests this per result (gap below 1e-9 of the sum of the absolute contributions). This run was made "
-            "before that test, so the category is reported as measured and is not claimed as validated.")
+            + (f", and in {flips} the two programs give opposite signs" if flips else "") + ".")
+    g = [abs(v[3]) / abs(v[1]) for v in dev if v[3] is not None and v[1]]
+    if g:
+        text += (f" Cyclia's sum of absolute contributions is at most {max(g):.2g} times its net result, far from the "
+                 "1e9 the round-off rule of 1.9.1 needs, so that rule does not apply.")
+    text += (" The category is not validated. Cyclia 1.9.2 measures whether each such result is resolved by the solver "
+             "and lists the datasets and exchanges that carry it (sheets Contributions and Negative exchanges).")
+    return text

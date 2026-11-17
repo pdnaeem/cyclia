@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.9.2 (2026-11-16)
+
+The 1.9.1 benchmark on ecoinvent 3.13 gave the same values as 1.9.0. Ecological Scarcity 2021 "biotic resources"
+still deviates, and the 1.9.1 round-off rule did not apply: Cyclia's sum of absolute contributions is at most 81
+times the net result, not the 1e9 the rule needs. The rule is correct and stays; the explanation given with 1.9.1
+("most likely cancelling contributions") was not supported by the data and is withdrawn. 1.9.2 adds checks that
+measure the cause instead of guessing it. Details: docs/quality/ACCEPTANCE_1.9.2.md.
+
+- **Numerical resolution of deviating results.** Each deviating result is computed two more ways, each with its
+  own round-off: by the adjoint (transposed) solve and with one step of iterative refinement. When the three differ
+  by more than 0.1 % of the result, the solver does not determine it to 0.1 %. Such a result is reported as "below
+  numerical resolution" and counted apart, if it is also below 1e-6 of the category's largest result in ecoinvent's
+  file. Otherwise it stays a deviation, with the three values listed.
+- **What carries a deviation.** The benchmark workbook has two new sheets:
+  - Contributions: the five largest contributions (dataset and exchange) to each deviating result;
+  - Negative exchanges: the exchanges of the category's flows that have a negative amount.
+- **Cause text of the inventory comparison.** It called a gap "an import or linking difference to fix in Cyclia"
+  even when every flow it listed differed only below the comparison's own precision (1e-12 of the largest amount of
+  the dataset's inventory). It now says so, with the size of the gap.
+- **Published reports.** docs/benchmarks is written from the 1.9.1 run. The note on biotic resources states the
+  measured facts only, and the category stays not validated.
+
 ## 1.9.1 (2026-11-16)
 
 Fixes from the audit of 1.9.0, and the first published benchmark of ReCiPe, CML-IA and IPCC against ecoinvent.

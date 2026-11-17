@@ -60,7 +60,7 @@ sitemap:
       "applicationCategory": "ScientificApplication",
       "applicationSubCategory": "Life cycle assessment software",
       "operatingSystem": "Windows, macOS, Linux",
-      "softwareVersion": "1.9.1",
+      "softwareVersion": "1.9.2",
       "datePublished": "2026-11-16",
       "license": "https://opensource.org/licenses/MIT",
       "isAccessibleForFree": true,
@@ -436,7 +436,7 @@ footer .legal { margin-top: 48px; padding-top: 22px; border-top: 1px solid rgba(
       <h1 id="hero-title"><span class="brandword">Cyclia, LCA software</span>Life cycle assessment, <em>without the black box.</em></h1>
       <p class="lede">Cyclia is free desktop software for a complete ISO 14040/14044 life cycle assessment. It guides you from goal and scope to a publishable report, explains every result, and checks its own calculations against independent references. No programming needed.</p>
       <div class="cta">
-        <a class="btn btn-amber" href="https://github.com/pdnaeem/cyclia/releases/latest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>Download Cyclia 1.9.1</a>
+        <a class="btn btn-amber" href="https://github.com/pdnaeem/cyclia/releases/latest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>Download Cyclia 1.9.2</a>
         <a class="btn btn-ghost" href="#workflow">See how it works</a>
       </div>
       <ul class="meta-line" aria-label="At a glance">
@@ -465,7 +465,7 @@ footer .legal { margin-top: 48px; padding-top: 22px; border-top: 1px solid rgba(
 
 <section class="proof" aria-label="Evidence">
   <ul>
-    <li><b>410</b><span>automated tests of the calculation engine, on Windows, macOS and Linux</span></li>
+    <li><b>415</b><span>automated tests of the calculation engine, on Windows, macOS and Linux</span></li>
     <li><b>35<small>/35</small></b><span>product systems with exact known answers, checked in every release</span></li>
     <li><b>1e-6</b><span>agreement with Brightway on the same database; largest difference 1.4e-12</span></li>
     <li><b>61,400</b><span>ecoinvent 3.13 results compared; 612 of 614 categories all within 0.1 %</span></li>
@@ -622,9 +622,9 @@ footer .legal { margin-top: 48px; padding-top: 22px; border-top: 1px solid rgba(
       <div class="check rv"><span class="v">612/614</span><h3>ecoinvent's published results</h3><p>ecoinvent 3.13 cut-off, 100 datasets, 46 method families (ReCiPe 2016, CML-IA, IPCC, EF and more): every result within 0.1 % in 612 categories; largest deviation 0.019 %. <a href="https://github.com/pdnaeem/cyclia/tree/main/docs/benchmarks">Reports</a></p></div>
       <div class="check rv"><span class="v">1e-6</span><h3>Brightway on the same data</h3><p>Brightway builds and solves its own matrices from any installed database; every result agrees within 1e-6. <a href="CROSS_VALIDATION.html">Method</a></p></div>
       <div class="check rv"><span class="v">35/35</span><h3>Exact reference systems</h3><p>Product systems with analytic answers: loops, allocation, avoided products, treatment, nesting. Run them yourself and attach the report.</p></div>
-      <div class="check rv"><span class="v">410</span><h3>Automated tests</h3><p>Hand-calculated references for costing, MFA, social LCA, uncertainty and more, and a regression of every dataset under every impact category. No installer is built unless they pass with Brightway installed.</p></div>
+      <div class="check rv"><span class="v">415</span><h3>Automated tests</h3><p>Hand-calculated references for costing, MFA, social LCA, uncertainty and more, and a regression of every dataset under every impact category. No installer is built unless they pass with Brightway installed.</p></div>
     </div>
-    <p class="note rv">The ecoinvent benchmark was run with Cyclia 1.9.0. The two categories not counted are Ecological Scarcity 2021 "biotic resources" (with and without long-term emissions): their deviating results are tiny and mostly of opposite sign, and they stay unvalidated until checked with the round-off test of 1.9.1 (<a href="https://github.com/pdnaeem/cyclia/tree/main/docs/benchmarks">details</a>). The Benchmark Centre records each new run on your own installation. The <a href="METHODS.html">methods</a> document every equation, and the <a href="FEATURE_STATUS.html">feature status</a> lists what is not validated yet.</p>
+    <p class="note rv">The ecoinvent benchmark was run with Cyclia 1.9.0 and 1.9.1, with identical values. The two categories not validated are Ecological Scarcity 2021 "biotic resources" (with and without long-term emissions): their deviating results are tiny and mostly of opposite sign, and their cause is being traced with the checks added in 1.9.2 (<a href="https://github.com/pdnaeem/cyclia/tree/main/docs/benchmarks">details</a>). The Benchmark Centre records each new run on your own installation. The <a href="METHODS.html">methods</a> document every equation, and the <a href="FEATURE_STATUS.html">feature status</a> lists what is not validated yet.</p>
   </div>
 </section>
 
@@ -669,7 +669,7 @@ footer .legal { margin-top: 48px; padding-top: 22px; border-top: 1px solid rgba(
     <p class="eyebrow rv">Download</p>
     <h2 id="dl-title" class="rv">Download, open, <em>and start learning.</em></h2>
     <div class="os">
-      <a class="rv" href="https://github.com/pdnaeem/cyclia/releases/latest"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.3 10 4.3v7.2H3zm0 13.4 7 1v-7.1H3zm8 1.1 10 1.4v-8.6H11zM11 4.2v7.3h10V2.8z"/></svg><b>Windows</b><span>Cyclia-Setup-1.9.1.exe</span><em>Download →</em></a>
+      <a class="rv" href="https://github.com/pdnaeem/cyclia/releases/latest"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.3 10 4.3v7.2H3zm0 13.4 7 1v-7.1H3zm8 1.1 10 1.4v-8.6H11zM11 4.2v7.3h10V2.8z"/></svg><b>Windows</b><span>Cyclia-Setup-1.9.2.exe</span><em>Download →</em></a>
       <a class="rv" href="https://github.com/pdnaeem/cyclia/releases/latest"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.7c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.8-2-1.6-.2-3.1.9-3.9.9s-2.1-.9-3.4-.9C5.8 6.9 4.2 7.9 3.3 9.5c-1.9 3.2-.5 8 1.3 10.6.9 1.3 1.9 2.7 3.3 2.6 1.3-.1 1.8-.9 3.4-.9s2 .9 3.4.8c1.4 0 2.3-1.3 3.2-2.6 1-1.5 1.4-2.9 1.4-3-.1 0-2.7-1-2.9-4.3zM13.9 5c.7-.9 1.2-2.1 1.1-3.3-1 0-2.3.7-3 1.6-.7.8-1.2 2-1.1 3.2 1.1.1 2.3-.6 3-1.5z"/></svg><b>macOS</b><span>.dmg for Apple silicon (M1 or later)</span><em>Download →</em></a>
       <a class="rv" href="https://github.com/pdnaeem/cyclia/releases/latest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M7 9l3 2-3 2M12 13h4M9 21h6M12 17v4"/></svg><b>Linux</b><span>.AppImage or .deb</span><em>Download →</em></a>
     </div>
@@ -706,7 +706,7 @@ footer .legal { margin-top: 48px; padding-top: 22px; border-top: 1px solid rgba(
     <div>
       <p class="eyebrow rv">Cite</p>
       <h2 id="cite-title" class="rv">Used Cyclia in your research? <em>Cite it.</em></h2>
-      <p class="ref rv">Rehman, N. U. (2026). <i>Cyclia: open-source life cycle assessment software for researchers</i> (version 1.9.1) [Computer software]. <a href="https://doi.org/10.5281/zenodo.23853747">https://doi.org/10.5281/zenodo.23853747</a></p>
+      <p class="ref rv">Rehman, N. U. (2026). <i>Cyclia: open-source life cycle assessment software for researchers</i> (version 1.9.2) [Computer software]. <a href="https://doi.org/10.5281/zenodo.23853747">https://doi.org/10.5281/zenodo.23853747</a></p>
       <p class="lede rv">In the app, Help &gt; About copies the citation, BibTeX or a sentence for your methods section. Citations and stars help keep Cyclia maintained.</p>
     </div>
     <div class="rv">
@@ -714,7 +714,7 @@ footer .legal { margin-top: 48px; padding-top: 22px; border-top: 1px solid rgba(
   author    = {Rehman, Naeem Ur},
   title     = {Cyclia: open-source life cycle assessment
                software for researchers},
-  version   = {1.9.1},
+  version   = {1.9.2},
   year      = {2026},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.23853747},
