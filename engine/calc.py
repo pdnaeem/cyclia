@@ -119,7 +119,18 @@ class MatrixCache:
             r = nr
 
     def solve(self, demand, lu=None):
-        s = (lu or self.lu).solve(demand)
+        if lu is None:
+            demand = np.asarray(demand, dtype=float)
+            s = self.lu.solve(demand)
+            # 1.10.0: one step of iterative refinement, x += A^-1 (f - A x). The LU solve alone left a relative error
+            # on scaling factors that are very small next to the largest ones. In the ecoinvent 3.13 benchmark with
+            # 1.9.2 this decided the sign of 90 tiny Ecological Scarcity 'biotic resources' results (|value| below
+            # 1e-6 of the category's largest); the refined solution matched ecoinvent's values for all 180 (both
+            # variants) within 0.016 %. A lu passed in belongs to another matrix (Monte Carlo samples): no refinement.
+            if s.size and np.all(np.isfinite(s)):
+                s = s + self.lu.solve(demand - self.A @ s)
+        else:
+            s = lu.solve(demand)
         if not np.all(np.isfinite(s)):
             raise LCAError("The calculation produced non-finite numbers. The database may be badly linked.")
         if s.size:
@@ -132,6 +143,15 @@ class MatrixCache:
         # platforms, roads) in a supply chain whose largest scaling factor is large, and with them most land
         # transformation and occupation. Found by the inventory check against ecoinvent's cumulative LCI.
         return s
+
+
+def solve_transposed(mc, q):
+    """y = A^-T q^T with one step of iterative refinement: y . f is the result for demand f (every demand at once)."""
+    q = np.ascontiguousarray(np.asarray(q, dtype=float).ravel())
+    y = mc.lu.solve(q, trans="T")
+    if y.size and np.all(np.isfinite(y)):
+        y = y + mc.lu.solve(q - mc.A.T @ y, trans="T")
+    return y
 
 
 def factorise(A):
@@ -402,11 +422,10 @@ def provenance(store, model_id, method_ids, scenario=None, bg=None, limit=20000)
     mc = get_mc(store, bg)
     M = Methods(store, mc, method_ids)
     sc = model["scope"]
-    share = allocation_share(sc)
     acts, flows, fixed = {}, {}, []
+    # expand applies each line's allocation share (before 1.10.0 the share was applied a second time here)
     expand(ctx, model_id, 1.0, acts, flows, fixed, keep=lambda inp: not is_module_d(sc, inp["stage"]))
     _, s, _ = impacts(mc, M, acts, flows, fixed)
-    s = s * share
     nz = np.nonzero(s)[0]
     direct = (M.Q[:, nz] * s[nz]) if len(nz) else np.zeros((len(method_ids), 0))
     order = np.argsort(-np.abs(direct[0])) if len(nz) else []
@@ -489,6 +508,64 @@ def allocation_share(scope):
     return v / 100.0 if 0 < v <= 100 else 1.0
 
 
+def multifunctional(scope):
+    """How a model handles its co-products: 'allocation' (default), 'subdivision' or 'system_expansion'."""
+    return (scope or {}).get("multifunctional") or "allocation"
+
+
+def line_share(scope, inp):
+    """Share of one line of a model that its main product carries (ISO 14044 4.3.4.2).
+
+    system expansion: every line in full (the co-products are credited by the lines derived from the scope);
+    a line that belongs to the main product: 1; a line that belongs to the co-products: 0;
+    a shared line: the allocation share, or, under subdivision, refused (every line must belong to one side)."""
+    rule = multifunctional(scope)
+    if rule == "system_expansion" or inp.get("derived"):
+        return 1.0
+    who = inp.get("assign") or ""
+    if who == "main":
+        return 1.0
+    if who == "coproducts":
+        return 0.0
+    if rule == "subdivision":
+        raise LCAError(f"Subdivision: the line '{inp.get('label') or (inp.get('target') or {}).get('name', '')}' is "
+                       "shared. In step 3, say whether it belongs to the main product or to the co-products, or "
+                       "choose allocation or system expansion in step 2.")
+    return allocation_share(scope)
+
+
+def expansion_lines(model):
+    """The credit lines of system expansion: each co-product replaces an amount of a product made elsewhere (a
+    dataset of the library), which the model is credited for. They are derived from the goal and scope and are not
+    stored as lines of the inventory."""
+    sc = model.get("scope") or {}
+    if multifunctional(sc) != "system_expansion":
+        return []
+    out = []
+    for i, cp in enumerate(sc.get("coproducts") or []):
+        name = cp.get("name") or f"co-product {i + 1}"
+        rid, amt = cp.get("replaces"), cp.get("replaces_amount")
+        if rid in (None, "") or amt in (None, ""):
+            raise LCAError(f"System expansion: give, in step 2, the product that the co-product '{name}' replaces and "
+                           "how much of it, or choose allocation or subdivision.")
+        a = model.get("_store").one("SELECT a.name, a.product, a.location, a.unit, d.name AS db, d.system_model, "
+                                    "d.version FROM activities a JOIN databases d ON d.id=a.db_id WHERE a.id=?",
+                                    (int(rid),)) if model.get("_store") else None
+        if not a:
+            raise LCAError(f"System expansion: the dataset that '{name}' replaces is no longer in the library. Choose "
+                           "it again in step 2.")
+        amt = float(amt)
+        out.append({"id": -(int(model["id"]) * 1000 + i + 1), "model_id": model["id"], "kind": "activity",
+                    "ref_id": int(rid), "amount": amt, "input_amount": amt, "input_unit": a["unit"],
+                    "label": f"{name}: replaces {a['name']} (system expansion)", "comment": "", "position": 10 ** 6 + i,
+                    "stage": cp.get("stage") or "", "avoided": True, "pedigree": [3, 3, 3, 3, 3], "ref_db": a["db"],
+                    "ref_key": None, "formula": None, "year": 0.0, "fixed": None, "data_type": "", "source_ref": "",
+                    "data_year": None, "supplier": "", "verified": False, "unit_cost": None, "pef": None,
+                    "cost_type": "", "replace_every": None, "cost_gsd": None, "assign": "", "missing": False,
+                    "target": dict(a), "derived": True, "coproduct": name})
+    return out
+
+
 def _num(v):
     try:
         return float(v)
@@ -497,21 +574,62 @@ def _num(v):
 
 
 def allocation_compare(store, model_id, method_ids, scenario=None, bg=None):
-    """Results of a model under every allocation choice its scope has values for: mass, economic, energy, physical,
-    manual share, and no allocation (system expansion with the credit lines as entered). The result scales with the
-    share of the main product, so each choice is the unallocated result x its share; checked against a full
-    calculation in the tests."""
+    """Results of a model under every way of handling its co-products that its scope has values for: allocation by
+    mass, economic value, energy, physical causality or a manual share; subdivision; system expansion.
+
+    Each line l of the model (outside module D) has its full result R_l (amount x result per unit, without any
+    share). A line that belongs to the main product counts in full, a line that belongs to the co-products not at
+    all, and a shared line with the share f of the choice: total(f) = sum(main) + f x sum(shared). Subdivision is
+    available when no line is shared; system expansion counts every line in full and adds the credit for the products
+    the co-products replace. Checked against full calculations in the tests."""
     model = store.model(int(model_id))
     if not model:
         raise LCAError("Model not found.")
     sc = model["scope"] or {}
-    cur = allocation_share(sc)
+    rule = multifunctional(sc)
     res = run(store, int(model_id), method_ids, scenario=scenario, bg=bg)
-    tot = np.array([r["total"] for r in res["results"]])
-    unalloc = tot / cur if cur > 0 else None
+    k = len(res["results"])
+    main, shared, cop, user = np.zeros(k), np.zeros(k), np.zeros(k), np.zeros(k)
+    n_shared = 0
+    for l in res["lines"]:
+        if l["module_d"]:
+            continue
+        full = np.array(l["unit_impact"], float) * l["amount"] * (-1.0 if l["avoided"] else 1.0)
+        if l.get("derived"):
+            continue
+        user += full
+        if l["assign"] == "main":
+            main += full
+        elif l["assign"] == "coproducts":
+            cop += full
+        else:
+            shared += full
+            n_shared += 1
     cps = sc.get("coproducts") or []
+    # credits of system expansion, computed from the scope even when another rule is chosen
+    credit, credit_reason = np.zeros(k), None
+    if cps:
+        try:
+            ctx = Context(store, _scenario(store, scenario))
+            m2 = dict(model)
+            m2["_store"] = store
+            m2["scope"] = {**sc, "multifunctional": "system_expansion"}
+            mc = get_mc(store, bg)
+            M = Methods(store, mc, [r["method_id"] for r in res["results"]])
+            for ln in expansion_lines(m2):
+                a, fl, fx = line_unit_demand(ctx, ln)
+                u, _, _ = impacts(mc, M, a, fl, fx)
+                credit -= u * ln["amount"]
+        except LCAError as e:
+            credit_reason = str(e)
+    else:
+        credit_reason = "The model has no co-products."
     names = {"mass": "mass", "price": "economic", "energy": "energy", "physical": "physical causality"}
     rows = []
+
+    def with_share(f):
+        return (main + f * shared).tolist()
+
     for b, label in names.items():
         raw = [sc.get(f"main_{b}")] + [c.get(b) for c in cps]
         if not cps:
@@ -526,24 +644,38 @@ def allocation_compare(store, model_id, method_ids, scenario=None, bg=None):
             rows.append({"choice": label, "available": False, "reason": "The values must be positive."})
             continue
         shr = vals[0] / sum(vals)
-        rows.append({"choice": label, "available": True, "share": shr,
-                     "totals": (unalloc * shr).tolist() if unalloc is not None else None,
-                     "current": (sc.get("alloc_basis") or "") == b})
+        rows.append({"choice": label, "available": True, "share": shr, "totals": with_share(shr),
+                     "current": rule == "allocation" and (sc.get("alloc_basis") or "") == b})
     try:
         man = float(sc.get("alloc_share"))
         if 0 < man <= 100:
             rows.append({"choice": "manual share", "available": True, "share": man / 100,
-                         "totals": (unalloc * man / 100).tolist() if unalloc is not None else None,
-                         "current": not sc.get("alloc_basis")})
+                         "totals": with_share(man / 100),
+                         "current": rule == "allocation" and not sc.get("alloc_basis")})
     except (TypeError, ValueError):
         pass
-    rows.append({"choice": "no allocation (system expansion: all burdens, credit lines as entered)", "available": True,
-                 "share": 1.0, "totals": unalloc.tolist() if unalloc is not None else None, "current": cur == 1.0})
-    return {"methods": [{k: r.get(k) for k in ("method_id", "family", "category", "indicator", "unit")}
+    if n_shared:
+        rows.append({"choice": "subdivision", "available": False,
+                     "reason": f"{n_shared} line(s) are shared. Say for each line whether it belongs to the main "
+                               "product or to the co-products (step 3)."})
+    else:
+        rows.append({"choice": "subdivision", "available": True, "share": None, "totals": main.tolist(),
+                     "current": rule == "subdivision"})
+    if credit_reason:
+        rows.append({"choice": "system expansion", "available": False, "reason": credit_reason})
+    else:
+        rows.append({"choice": "system expansion (all lines, co-products credited)", "available": True,
+                     "share": 1.0, "totals": (user + credit).tolist(), "current": rule == "system_expansion"})
+    rows.append({"choice": "no allocation (all lines, credit lines as entered, co-products not credited)",
+                 "available": True, "share": 1.0, "totals": user.tolist(),
+                 "current": rule == "allocation" and allocation_share(sc) == 1.0 and not cps})
+    return {"methods": [{k2: r.get(k2) for k2 in ("method_id", "family", "category", "indicator", "unit")}
                         for r in res["results"]],
-            "rows": rows, "current_share": cur,
-            "note": "Per functional unit. ISO 14044 4.3.4.2: avoid allocation where possible (subdivision or system "
-                    "expansion); otherwise use a physical relationship; otherwise another relationship such as "
+            "rows": rows, "current_share": res["allocation_share"], "rule": rule,
+            "lines": {"main": main.tolist(), "shared": shared.tolist(), "coproducts": cop.tolist(),
+                      "credit": credit.tolist()},
+            "note": "Per functional unit. ISO 14044 4.3.4.2: avoid allocation where possible, by subdivision or by "
+                    "system expansion; otherwise use a physical relationship; otherwise another relationship such as "
                     "economic value. Report how the conclusions change with the choice."}
 
 
@@ -566,6 +698,8 @@ class Context:
             m = self.store.model(model_id)
             if not m:
                 raise LCAError(f"Model {model_id} no longer exists.")
+            m["_store"] = self.store
+            m["inputs"] = list(m["inputs"]) + expansion_lines(m)
             self._models[model_id] = m
         return self._models[model_id]
 
@@ -607,14 +741,13 @@ def expand(ctx, model_id, factor, acts, flows, fixed, depth=0, keep=None):
     if depth > 25:
         raise LCAError("Models are nested more than 25 levels deep.")
     m = ctx.model(model_id)
-    f = factor * allocation_share(m["scope"])
     for inp in m["inputs"]:
         if keep is not None and not keep(inp):
             continue
         if inp["missing"]:
             raise LCAError(f"A line of '{m['name']}' points to a dataset that is not in this library"
                            f"{' (database ' + inp['ref_db'] + ')' if inp['ref_db'] else ''}. Import it or remove the line.")
-        amt = line_amount(ctx, model_id, inp) * (-1 if inp["avoided"] else 1) * f
+        amt = line_amount(ctx, model_id, inp) * (-1 if inp["avoided"] else 1) * factor * line_share(m["scope"], inp)
         _add(ctx, inp, amt, acts, flows, fixed, depth)
 
 
@@ -773,7 +906,7 @@ def run(store, model_id, method_ids, top=12, mc_iterations=0, sensitivity_pct=10
     mc = get_mc(store, bg)
     M = Methods(store, mc, method_ids)
     sc = model["scope"]
-    share = allocation_share(sc)
+    share = 1.0 if multifunctional(sc) == "system_expansion" else allocation_share(sc)
     keep_ac = lambda inp: not is_module_d(sc, inp["stage"])
 
     acts, flows, fixed = {}, {}, []
@@ -796,9 +929,11 @@ def run(store, model_id, method_ids, top=12, mc_iterations=0, sensitivity_pct=10
             if key:
                 mc.unit_cache[key] = (unit, g_unit)
         amount = line_amount(ctx, model_id, inp)
-        eff = amount * (-1 if inp["avoided"] else 1) * share
+        lshare = line_share(sc, inp)
+        eff = amount * (-1 if inp["avoided"] else 1) * lshare
         lines.append({
             "input_id": inp["id"], "name": inp["label"] or inp["target"]["name"], "kind": inp["kind"],
+            "share": lshare, "assign": inp.get("assign") or "", "derived": bool(inp.get("derived")),
             "amount": amount, "effective_amount": eff, "unit": inp["target"]["unit"],
             "input_amount": (amount / (units.factor(inp["input_unit"], inp["target"]["unit"]) or 1.0))
             if inp.get("formula") and inp["kind"] != "fixed" else inp["input_amount"],
@@ -927,6 +1062,7 @@ def run(store, model_id, method_ids, top=12, mc_iterations=0, sensitivity_pct=10
     out = {"model": {k: model[k] for k in ("id", "name", "product", "unit", "amount", "scope")},
            "land_coverage": land_cov,
            "results": results, "lines": lines, "stages": stages, "sensitivity_pct": pct, "allocation_share": share,
+           "multifunctional": multifunctional(sc),
            "nw_set": nw_set if nw else None, "scenario": scenario, "parameters": ctx.params(model_id),
            "parameter_sensitivity": param_sens, "lci": lci, "uncharacterised": uncharacterised,
            "factor_gaps": sum(1 for gp in gaps if gp),
@@ -1522,7 +1658,7 @@ def _custom_shift(mc, M, ctx, T, cplan):
     for x, r in enumerate(R):
         e = np.zeros(mc.n)
         e[r] = 1.0
-        Z[:, x] = mc.lu.solve(e)
+        Z[:, x] = mc.solve(e)
     QZ = M.Q @ Z if len(R) else np.zeros((len(M.rows), 0))
     S_U, Z_U, Z_K, S_K = S[U], Z[U], Z[K], S[K]
     Ccsc = sp.csc_matrix(M.C)
@@ -1655,12 +1791,11 @@ def tree(store, model_id, method_id, node=None, amount=None, scenario=None, cuto
 
     if node is None:
         model = ctx.model(model_id)
-        share = allocation_share(model["scope"])
         out = []
         for inp in model["inputs"]:
             if is_module_d(model["scope"], inp["stage"]):
                 continue
-            amt = line_amount(ctx, model_id, inp) * (-1 if inp["avoided"] else 1) * share
+            amt = line_amount(ctx, model_id, inp) * (-1 if inp["avoided"] else 1) * line_share(model["scope"], inp)
             a, fl, fx = line_unit_demand(ctx, inp)
             h, _, _ = impacts(mc, M, a, fl, fx)
             out.append({"node": f"a:{inp['ref_id']}" if inp["kind"] == "activity" else None,
@@ -1814,12 +1949,14 @@ def validate_database(store, db_id=None, sample=25, seed=3):
            ("No impact method installed." if not fam_cov else
             "; ".join(f"{x['family']}: {x['flows_with_factor']} flows ({x['share_of_used_flows'] * 100:.1f} % of the "
                       "flows used)" for x in fam_cov[:5])), families=fam_cov)
+    import dbquality
+    dbquality.statuses(store, db_id, status)          # 1.10: links, geography, uncertainty, duplicates, provenance
     out["statuses"] = statuses
     errors = [x["label"] for x in statuses if x["level"] == "error"]
     warns = [x["label"] for x in statuses if x["level"] == "warning"]
     out["verdict"] = ("Errors: " + ", ".join(errors) + "." if errors else
                       ("The matrix can be solved, but check: " + ", ".join(warns) + "." if warns else
-                       "All six checks passed: matrix, technosphere, flows, units, metadata and LCIA."))
+                       f"All {len(statuses)} checks passed."))
     if negative:
         out["note"] = (f"{negative} of {len(pick)} sampled datasets have negative scaling factors somewhere in their supply "
                        "chain. This is normal with system expansion or waste treatment, but check it if unexpected.")
@@ -2030,7 +2167,26 @@ def checks(store, model_id, method_ids, result=None):
             add("warning", "report", "A comparative assertion disclosed to the public needs a review by a panel of interested "
                                      "parties (ISO 14044 6.4). Set the review status in step 6 when the panel review is done.")
     share = allocation_share(sc)
-    if share < 1:
+    rule = multifunctional(sc)
+    if rule == "system_expansion":
+        try:
+            m["_store"] = store
+            cr = expansion_lines(m)
+            add("info", "scope", f"System expansion: the model carries all its lines and is credited for {len(cr)} "
+                                 "product(s) that its co-products replace. Report the replaced products and why they "
+                                 "are replaced (ISO 14044 4.3.4.2).")
+        except LCAError as e:
+            add("error", "scope", str(e))
+    elif rule == "subdivision":
+        open_ = [i for i in m["inputs"] if not (i.get("assign") or "")]
+        if open_:
+            add("error", "inventory", f"Subdivision: {len(open_)} line(s) are shared (e.g. "
+                                      f"'{open_[0]['label'] or open_[0]['target']['name']}'). Say for each line whether "
+                                      "it belongs to the main product or to the co-products.")
+        else:
+            add("info", "scope", "Subdivision: every line belongs to the main product or to the co-products; nothing is "
+                                 "allocated.")
+    elif share < 1:
         basis = sc.get("alloc_basis") or ""
         how = {"mass": "mass", "price": "economic value", "energy": "energy content",
                "physical": f"physical causality ({sc.get('alloc_property') or 'a physical property'})"}.get(basis, "a manual share")

@@ -624,7 +624,7 @@ def resolution_check(mc, M, mcols, out, file_rows, top=5):
             continue
         sign = 1.0 if mc.diag[j] >= 0 else -1.0
         if k not in y_of:
-            y_of[k] = mc.lu.solve(np.ascontiguousarray(np.asarray(M.Q[k]).ravel(), dtype=float), trans="T")
+            y_of[k] = calc.solve_transposed(mc, np.asarray(M.Q[k]).ravel())
         if j not in xs:
             f = np.zeros(mc.n)
             f[j] = sign

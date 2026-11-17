@@ -1,6 +1,6 @@
 # Cyclia feature status
 
-Status of Cyclia 1.9.2, checked against the source code, the automated tests and the validation records. A feature
+Status of Cyclia 1.10.0, checked against the source code, the automated tests and the validation records. A feature
 counts as **validated** only when its calculation is compared with independent reference results. Interface
 elements alone do not count.
 
@@ -16,7 +16,7 @@ elements alone do not count.
 | Feature | Status | Evidence and limits |
 |---|---|---|
 | Matrix LCA (sparse LU, loops, nested models) | Validated | 35 validation systems with exact answers; independent second implementation ([cross validation](CROSS_VALIDATION.md)); ecoinvent benchmark |
-| Agreement with ecoinvent's LCIA results (ecoinvent 3.13, cut-off) | Validated, except 2 categories | 46 method families, 614 categories, 61,400 results, run with Cyclia 1.9.0: every result within 0.1 % in 612 categories, largest deviation 0.019 %. Ecological Scarcity 2021 "biotic resources" (with and without long-term emissions) is not validated: 90 of 100 results deviate, all of them very small and mostly of opposite sign; the cause is traced with the checks of 1.9.2 ([reports](https://github.com/pdnaeem/cyclia/tree/main/docs/benchmarks)). Earlier: EF 3.1 with Cyclia 1.3.10 ([report](VALIDATION_ECOINVENT.md)) |
+| Agreement with ecoinvent's LCIA results (ecoinvent 3.13, cut-off) | Validated | 46 method families, 614 categories, 61,400 results, run with Cyclia 1.9.2: all within 0.1 %, largest deviation 0.019 %. 180 very small Ecological Scarcity 2021 "biotic resources" results agree with the iteratively refined solution used since 1.10.0 ([reports](https://github.com/pdnaeem/cyclia/tree/main/docs/benchmarks)). Earlier: EF 3.1 with Cyclia 1.3.10 ([report](VALIDATION_ECOINVENT.md)) |
 | Inventory check against ecoinvent's cumulative LCI | Validated | Splits each deviation into inventory and factor parts; found the land use cause |
 | Units and conversions | Validated | Unit families, conversion tests, unknown-unit check in the database check |
 | Parameters, formulas, scenarios | Implemented | Tests of formula evaluation and scenario switching |
@@ -52,7 +52,10 @@ elements alone do not count.
 | Staging import with integrity report and rollback | Implemented | Rollback tested for failures while reading and inside the merge |
 | Streaming of large imports | Implemented | SimaPro: 200,000 processes in 360 MB; technosphere inputs are still held until linking |
 | Database explorer | Implemented | Filters, paging, unresolved-only view, export of selected datasets |
-| Database check per database | Implemented | Six-part check: integrity, units, flow coverage, LCIA compatibility, matrix, metadata |
+| Database check per database | Implemented | Eleven checks: matrix, technosphere, flow coverage, units, metadata, LCIA compatibility, supplier links, geography, uncertainty and data quality, duplicates, provenance; counts per check, no combined score; Excel export with the linking decisions |
+| Supplier linking by geography | Implemented | ecoinvent's rules on the constructive_geometries topology (541 geographies): same location, smallest containing region, RoW where no other supplier covers the location, GLO. Partial RoW, unknown locations and ties are left to the user. Tested on hand-checked cases |
+| Linking decisions | Implemented | Every link and unlink logged with rule, author, supplier, factor and the earlier state; each decision can be undone exactly; deleted supplier databases are recorded |
+| Dataset provenance | Implemented | Database, import file and fingerprint, importer, source identifier, linking decision of each input linked across datasets, edit history |
 | Database version comparison and model migration | Implemented | Preview and undo |
 | Custom data entry (own databases, product and elementary flows, processes, exchanges, factors) | Implemented | Complete product system from an empty library; UUID, source, author and revision per item; unit validation and conversion within one dimension; ecoinvent compartments; CAS check digit; uncertainty and pedigree; custom methods; JSON export and import. Hand-calculated supply chain with waste treatment, avoided product and unit conversions reproduced exactly, worked example (64 tests) |
 | Unknown factors | Implemented | Never taken as zero: a custom flow without a known factor, or any flow without one in a custom method (unless its scope says, with the reason, that such flows have no effect), marks the category incomplete in results, report, workbook and checks. Known means a factor exists or was recorded, zero included, or the category was recorded as not applying |
@@ -76,10 +79,14 @@ elements alone do not count.
 | Feature | Status | Evidence and limits |
 |---|---|---|
 | Guided ISO 14044 workflow | Implemented | Six steps with checks |
-| Allocation: mass, economic, energy, physical, manual; system expansion; avoided products | Implemented | Allocation overview per project; side-by-side comparison of allocation choices for a custom process and for a model (rows below) |
-| Circular Footprint Formula (PEF) | Validated | Hand-calculated reference test |
+| Allocation, subdivision or system expansion as the choice of a model; mass, economic, energy, physical, manual shares; avoided products | Validated | Allocation overview per project; side-by-side comparison of all choices for a custom process and for a model; hand-calculated cheese and whey model under every rule, also through Monte Carlo and the independent cross-check |
+| Subdivision of multi-output processes (own data) | Validated | A line belongs to one product or is shared; "subdivision only" allocates nothing. Hand-calculated test of results, of the allocation comparison and of Monte Carlo parameter lines; not yet a choice for models (only for processes of own data) |
+| Named versions of own processes | Implemented | Save, list with changes since, compare line by line, restore (undoable), delete; tested |
+| Circular Footprint Formula (PEF) | Validated | Hand-calculated reference test; reproduces the published worked example of Rickert and Ciroth (2020) with PEF Annex C values for paper (A = 0.2, R1 = 0.47). Energy recovery (R3) checked by hand only |
+| End-of-life approaches side by side | Validated | Cut-off, end-of-life recycling, 50:50 and CFF for one material (Ekvall et al. 2020); hand-calculated test; energy recovery not part of the comparison |
+| Supply chain tree | Implemented | Suppliers of a dataset per impact category, exact parts per node (tested on 25 datasets) |
 | EN 15804+A2 modules A to D | Validated | Module reconciliation checked before an EPD is written |
-| Flow diagram | Implemented | Arrangeable diagram of the model, in which the inventory is edited (lines moved between stages or to a new stage, amounts, credits, removal); custom processes are connected and edited in their own diagram |
+| Flow diagram | Implemented | Arrangeable diagram of the model, in which the inventory is edited (lines moved between stages or to a new stage, amounts, credits, what a line belongs to, removal; datasets and models dropped onto a line to change its supplier or onto a stage to add a line); custom processes are connected and edited in their own diagram, and library suppliers are searched and dragged onto them |
 | Background scenarios (prospective, consequential) | Implemented | premise and Activity Browser scenario files |
 
 ## Uncertainty and sensitivity

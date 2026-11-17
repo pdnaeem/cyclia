@@ -1,5 +1,92 @@
 # Changelog
 
+## 1.10.0 (2026-11-17)
+
+Second step of the road to 2.0: database management, and the ecoinvent 3.13 benchmark completed. Details:
+docs/quality/ACCEPTANCE_1.10.0.md.
+
+- **Iterative refinement in every calculation.** Each solve of the library matrix now adds one step of iterative
+  refinement: x += A^-1 (f - A x), and the same for the transposed solve.
+  - Why: the benchmark run with 1.9.2 on ecoinvent 3.13 traced the last deviation, 180 very small Ecological
+    Scarcity 2021 "biotic resources" results. The plain LU solution gave them the wrong sign; the refined solution
+    matched ecoinvent's values for all 180 within 0.016 %.
+  - Effect elsewhere: results of ordinary size change only at round-off level. The regression snapshot passes at
+    its tolerance of 1e-9.
+- **ecoinvent benchmark: all 61,400 results within 0.1 %.** ecoinvent 3.13 cut-off, 100 datasets, 46 method families
+  (ReCiPe 2016, CML-IA, IPCC 2013 and 2021, EF 3.0 and 3.1, TRACI, USEtox, IMPACT World+ and more), 614
+  categories; largest deviation 0.019 %. The reports per method are in docs/benchmarks. For the 180 results above
+  they use the run's refined solution, which is what Cyclia computes from 1.10.0.
+
+- **Supplier linking by geography.** Suggestions and automatic linking follow ecoinvent's linking rules on the world
+  topology that ecoinvent's linking is built on (constructive_geometries, 541 geographies):
+  1. same location;
+  2. the smallest region that contains it;
+  3. RoW where no other supplier covers it;
+  4. GLO.
+
+  Before, automatic linking took only a supplier at the same location. A RoW that covers the location only in part,
+  a location outside the topology and ties are left to the user. Each suggestion says why it fits ("RER contains
+  FR"), and the result of automatic linking is counted by rule.
+- **Linking decisions.** Every link and unlink is recorded with:
+  - rule, author and time;
+  - supplier and conversion factor;
+  - the state before it.
+
+  Each decision can be undone exactly, and the undo is recorded too. Deleting a supplier database records, in the
+  log of every database that used it, that its inputs lost their supplier.
+- **Database check.** Five new checks: supplier links (and links whose supplier geography does not cover the input),
+  geography, uncertainty and data quality coverage, duplicate datasets, provenance. The check, with the linking
+  decisions, can be exported to Excel.
+- **Dataset provenance.** The Database explorer shows for each dataset:
+  - its import (file, SHA-256, importer, date);
+  - its identifier in the source;
+  - the decision behind each of its inputs that was linked across datasets.
+- **End-of-life approaches side by side** (step 3 of the road to 2.0, modelling). In the Circular Footprint Formula
+  panel, "Compare end-of-life approaches" calculates one material four ways for the chosen categories:
+  - cut-off;
+  - end-of-life recycling (avoided burden);
+  - 50:50;
+  - the Circular Footprint Formula.
+
+  It uses the formulas of Ekvall et al. (2020, IVL report C551) and the PEF method, and lists the coefficients. The
+  calculation is tested by hand.
+- **CFF checked against a published example.** The Circular Footprint Formula reproduces the worked example of
+  Rickert and Ciroth (2020) with the PEF Annex C values for paper (A = 0.2, R1 = 0.47), for all ten flows.
+- **Supply chain tree.** The Database explorer shows a dataset's suppliers as a tree for one impact category. Each
+  node has its amount, result and share, its own emissions, its largest suppliers and the rest; the parts of each
+  node add up to its result.
+- **Subdivision of multi-output processes.** A line of a process with co-products can belong to one product only
+  (the drying of whey, the pressing of cheese). It then goes wholly to that product's dataset, and only the shared
+  lines are divided by the allocation method (ISO 14044 4.3.4.2, step 1). "Subdivision only" allocates nothing and
+  refuses a shared line.
+  - Monte Carlo of parameters and the comparison of allocation methods keep the assigned lines with their product.
+  - Tested by hand: 1 kg cheese and 2 kg whey, 10 kg CO2 shared at 75/25, 4 kg for whey, 2 kWh for cheese, give
+    8.5 and 3.25 kg CO2 per kg; together the 15 kg of the process.
+- **Named versions of a process.** Save a process under a name ("as reviewed"), compare any version with the current
+  state line by line, restore it (one change in the history, so it can be undone) or delete it.
+- **Suppliers into the diagram.** In the supply chain diagram of your own data, search the library and drag a dataset
+  onto the process that uses it (or click it, then the process); the line opens ready for its amount.
+- **Multifunctionality as an explicit choice of a model** (ISO 14044 4.3.4.2). In step 2 a model with co-products
+  is handled by:
+  1. allocation: shared lines by the share; any line can belong to the product or to the co-products in full;
+  2. subdivision: every line belongs to the product or to the co-products, and nothing is allocated;
+  3. system expansion: all lines, and a credit for the product each co-product replaces (a library dataset and an
+     amount per functional unit).
+
+  Calculation, contributions, Monte Carlo, costing, optimisation and the independent cross-check all apply the same
+  rule. "Compare allocation choices" now also shows subdivision and system expansion. Tested by hand on a cheese
+  and whey model under every rule.
+- **Supplier relations in the model diagram.** Find a dataset or one of your models under the diagram and drop it on
+  a line to replace its supplier, or on a stage to add it as a line. Lines show what they belong to.
+- **Fixed: datasets list of a model with allocation.** The list of datasets in a model's supply chain (with
+  provenance) applied the allocation share twice to amounts and direct contributions. Totals and contribution
+  results were not affected.
+- **Imports reproduce results.** Tested: the same file imported twice gives bit-identical results, and an import
+  stopped by the staging checks leaves every result of the library unchanged.
+- Note on automatic linking: an input at a location for which only a global dataset exists is now linked to it
+  (rule 4), as ecoinvent does. Before, it was left unlinked. The message after linking states how many rows each
+  rule linked, so such links are visible and can be undone.
+
 ## 1.9.2 (2026-11-16)
 
 The 1.9.1 benchmark on ecoinvent 3.13 gave the same values as 1.9.0. Ecological Scarcity 2021 "biotic resources"

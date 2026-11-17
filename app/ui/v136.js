@@ -42,22 +42,49 @@
   }));
   ["#exLoc", "#exSys", "#exVer", "#exFlow"].forEach((s) => $(s).addEventListener("keydown", (e) => { if (e.key === "Enter") guard($("#btnExSearch"), () => search()); }));
   async function show(id) {
-    const { activity: a } = await api("GET", "/api/explore/" + id);
+    const [{ activity: a }, pv] = await Promise.all([api("GET", "/api/explore/" + id),
+      api("GET", `/api/activities/${id}/provenance`).catch(() => null)]);
     const dq = a.data_quality;
+    const pd = pv ? pv.database : null;
     $("#exDetail").innerHTML = `<h3>${esc(a.name)} <span class="hint">[${esc(a.location || "")}]</span></h3>
       <table><tbody>
         <tr><td>Reference product</td><td>${esc(a.product || "")} (${fmt(a.production)} ${esc(a.unit || "")})</td></tr>
         <tr><td>Database</td><td>${esc(a.db)}${a.db_version ? ", v" + esc(a.db_version) : ""}${a.system_model ? ", " + esc(a.system_model) : ""}</td></tr>
         <tr><td>Dataset key / UUID</td><td><code>${esc(a.key)}</code>${a.product_uuid ? ` <span class="hint">product ${esc(a.product_uuid)}</span>` : ""}</td></tr>
         <tr><td>Exchanges</td><td>${a.n_inputs} inputs, ${a.n_emissions} elementary flows, used by ${a.n_used_by} datasets</td></tr>
+        ${pd ? `<tr><td>Source</td><td>${esc(pd.source || "")}${pd.source_path ? `, file <code>${esc(pd.source_path.split(/[\\/]/).pop())}</code>` : ""}${pd.imported_at ? `, imported ${esc(pd.imported_at)}` : ""}${pd.importer_version ? ` by ${esc(pd.importer_version)}` : ""}${pd.source_sha256 ? ` <span class="hint">SHA-256 ${esc(pd.source_sha256.slice(0, 16))}...</span>` : ""}</td></tr>
+        <tr><td>Geography</td><td>${esc(pv.geography)}</td></tr>` : ""}
         ${dq ? `<tr><td>Data quality (1 very good to 5 very poor)</td><td>TeR ${dq.ter ?? "-"}, GeR ${dq.ger ?? "-"}, TiR ${dq.tir ?? "-"}, P ${dq.p ?? "-"}${dq.overall ? ", " + esc(dq.overall) : ""}</td></tr>` : ""}
       </tbody></table>
       ${a.comment ? `<p class="hint">${esc(a.comment.slice(0, 600))}</p>` : ""}
-      ${a.unresolved.length ? `<h3>Inputs without a single supplier</h3><table><thead><tr><th>Product</th><th>Location</th><th class="num">Amount</th><th>Why</th><th>Status</th></tr></thead><tbody>${a.unresolved.map((u) => `<tr><td>${esc(u.product)}</td><td>${esc(u.location || "")}</td><td class="num">${fmt(u.amount)} ${esc(u.unit || "")}</td><td>${esc(u.reason || "no producer")}</td><td>${u.linked_to ? '<span class="ok">linked</span>' : '<span class="warn">open</span>'}</td></tr>`).join("")}</tbody></table>` : ""}
+      <h3>Supply chain</h3>
+      <div class="row"><select id="scMethod">${(S.methods || []).map((m) => `<option value="${m.id}"${S.selectedMethods && [...S.selectedMethods][0] === m.id ? " selected" : ""}>${esc(m.family)}: ${esc(m.category)}${m.indicator && m.indicator !== m.category ? " / " + esc(m.indicator) : ""}</option>`).join("")}</select>
+        <label class="inline">Levels <select id="scDepth"><option>2</option><option selected>3</option><option>4</option><option>5</option></select></label>
+        <button data-sc="${a.id}">Show</button></div>
+      <div id="scOut"></div>
+      ${a.unresolved.length ? `<h3>Inputs without a single supplier</h3><table><thead><tr><th>Product</th><th>Location</th><th class="num">Amount</th><th>Why</th><th>Status</th></tr></thead><tbody>${a.unresolved.map((u) => `<tr><td>${esc(u.product)}</td><td>${esc(u.location || "")}</td><td class="num">${fmt(u.amount)} ${esc(u.unit || "")}</td><td>${esc(u.reason || "no producer")}</td><td>${u.linked_to ? '<span class="ok">linked</span>' : '<span class="warn">open</span>'}${(() => { const d = pv && (pv.inputs_linked_across.find((l) => l.product === u.product && (l.location || "") === (u.location || "")) || {}).decision; return d ? ` <span class="hint">${esc(d.method)}: ${esc(d.rule || "")}${d.author ? ", " + esc(d.author) : ""}, ${esc(d.time || "")}</span>` : ""; })()}</td></tr>`).join("")}</tbody></table>` : ""}
       <h3>Inputs (suppliers)</h3>${a.inputs.length ? `<table><thead><tr><th>Supplier</th><th>Location</th><th class="num">Amount</th><th>Uncertainty</th><th>Database</th></tr></thead><tbody>${a.inputs.map((x) => `<tr><td><button class="link" data-ex="${x.id}">${esc(x.name)}</button>${x.src_unlinked ? ' <span class="hint">(linked by you)</span>' : ""}</td><td>${esc(x.location || "")}</td><td class="num">${fmt(x.amount)} ${esc(x.unit || "")}</td><td>${unc(x)}</td><td>${esc(x.db)}</td></tr>`).join("")}</tbody></table>` : '<p class="empty">No technosphere inputs.</p>'}
       <h3>Used by</h3>${a.used_by.length ? `<table><tbody>${a.used_by.map((x) => `<tr><td><button class="link" data-ex="${x.id}">${esc(x.name)}</button></td><td>${esc(x.location || "")}</td><td class="num">${fmt(x.amount)}</td><td>${esc(x.db)}</td></tr>`).join("")}</tbody></table>${a.n_used_by > a.used_by.length ? `<p class="hint">${a.n_used_by - a.used_by.length} more not shown.</p>` : ""}` : '<p class="empty">No dataset uses it.</p>'}
       <h3>Elementary flows</h3>${a.emissions.length ? `<table><thead><tr><th>Flow</th><th>Compartment</th><th class="num">Amount</th><th>Uncertainty</th><th>UUID</th></tr></thead><tbody>${a.emissions.map((x) => `<tr><td>${esc(x.name)}${x.cas ? ` <span class="hint">CAS ${esc(x.cas)}</span>` : ""}</td><td>${esc([x.compartment, x.subcompartment].filter(Boolean).join("/"))}</td><td class="num">${fmt(x.amount)} ${esc(x.unit || "")}</td><td>${unc(x)}</td><td><code>${esc((x.uuid || "").slice(0, 36))}</code></td></tr>`).join("")}</tbody></table>` : '<p class="empty">No elementary flows.</p>'}`;
   }
+  function scNode(n, unit) {
+    const w = Math.min(100, Math.abs(n.share) * 100);
+    const kids = n.children.map((c) => scNode(c, unit)).join("");
+    const rest = n.rest ? `<li class="sc-rest"><span class="sc-name hint">other suppliers</span><span class="num">${fmt(n.rest)}</span></li>` : "";
+    const own = n.direct ? `<li class="sc-rest"><span class="sc-name hint">own emissions and resources</span><span class="num">${fmt(n.direct)}</span></li>` : "";
+    return `<li><details${n.children.length && Math.abs(n.share) > 0.05 ? " open" : ""}><summary><span class="sc-name">${esc(n.name || "")} <span class="hint">[${esc(n.location || "")}] ${fmt(n.amount)} ${esc(n.unit || "")}${n.loop ? ", loop, not expanded again" : ""}</span></span>
+      <span class="sc-bar"><span style="width:${w}%" class="${n.result < 0 ? "neg" : ""}"></span></span><span class="num">${fmt(n.result)} ${esc(unit)}</span><span class="num hint">${(n.share * 100).toFixed(1)} %</span></summary>
+      ${kids || own || rest ? `<ul>${own}${kids}${rest}</ul>` : ""}</details></li>`;
+  }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-sc]");
+    if (!b || !b.closest("#tt-explore")) return;
+    guard(b, async () => {
+      if (!$("#scMethod").value) throw new Error("Install an impact method first.");
+      const r = await api("GET", `/api/activities/${b.dataset.sc}/supply-chain?method_id=${$("#scMethod").value}&depth=${$("#scDepth").value}&top=6`);
+      $("#scOut").innerHTML = `<p class="hint">${esc(r.method.family)}: ${esc(r.method.category)}. Total ${fmt(r.total)} ${esc(r.method.unit || "")} per unit. ${esc(r.note)}</p><ul class="sc-tree">${scNode(r.tree, r.method.unit || "")}</ul>`;
+    });
+  });
   $("#btnExSearch").addEventListener("click", (e) => guard(e.target, () => search()));
   $("#exQ").addEventListener("keydown", (e) => { if (e.key === "Enter") guard($("#btnExSearch"), () => search()); });
   document.addEventListener("click", (e) => {

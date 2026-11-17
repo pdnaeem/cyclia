@@ -12,7 +12,7 @@ Database: ecoinvent (3.13, cutoff)
 - Results compared: 1,800 (datasets x impact categories).
 - Datasets: 100 compared of 27,401 in the results file, matched by 'Activity UUID_Product UUID' (or by name, geography and product).
 - The cumulative inventory was compared with ecoinvent's cumulative LCI as well, which separates deviations caused by the inventory from those caused by the factors.
-- Software: Cyclia 1.9.1; run on 2026-11-16.
+- Software: Cyclia 1.9.2; run on 2026-11-17.
 
 ## Deviation per impact category
 

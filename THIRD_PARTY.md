@@ -15,6 +15,7 @@ Cyclia's own code is under the MIT licence (LICENSE). The installers also contai
 | pypdf, pdfplumber | reading tables from PDF | BSD-3-Clause, MIT |
 | ecoinvent_interface (optional) | download with the user's ecoinvent login | see its repository |
 | Natural Earth 1:110m countries (downloaded at build time) | results map | public domain |
+| Geography topology of constructive_geometries 1.0 (Chris Mutel and Paul Scherrer Institute, github.com/cmutel/constructive_geometries): the faces of ecoinvent's geographies and their areas, converted to `engine/data/geographies.json.gz` | supplier linking by geography and the database check | BSD-3-Clause; licence text in `engine/data/geographies-LICENSE.txt` |
 | ILCD and ILCD+EPD XML schemas and indicator identifiers (InData working group, github.com/InDataWG/ILCD-EPD-Data-Format) | validation and identifiers of the ILCD+EPD export (engine/schemas/ilcd_epd) | Apache License 2.0 |
 
 Built-in reference data:

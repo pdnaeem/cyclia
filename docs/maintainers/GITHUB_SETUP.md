@@ -61,9 +61,9 @@ on its own.
 
 Settings > General > Features: tick **Discussions**. The app's user guide and `SUPPORT.md` link to it.
 
-## Release title for 1.9.2
+## Release title for 1.10.0
 
-Cyclia 1.9.2: benchmark diagnostics for deviating results, and the ecoinvent 3.13 benchmark of 46 methods
+Cyclia 1.10.0: supplier linking by geography, linking decisions with undo, and an eleven-part database check
 
-Paste the text of `docs/releases/RELEASE_NOTES_v1.9.2.md` as the release description. GitHub has 1.8.2: the zip of
+Paste the text of `docs/releases/RELEASE_NOTES_v1.10.0.md` as the release description. GitHub has 1.8.2: the zip of
 1.9.1 holds 1.8.3, 1.8.4 and 1.9.0 as well, and each has its own release notes in docs/releases.

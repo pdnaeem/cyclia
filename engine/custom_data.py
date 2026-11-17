@@ -160,7 +160,7 @@ def _diff(before, after):
     rem = [i for i in be if i not in ae]
     chg = [i for i in ae if i in be and any(ae[i].get(k) != be[i].get(k) for k in
                                             ("target", "amount", "unit", "avoided", "utype", "p1", "p2", "p3",
-                                             "formula", "source"))]
+                                             "formula", "source", "assign"))]
     for label, ids, src in (("added", add, ae), ("removed", rem, be), ("changed", chg, ae)):
         for i in ids[:5]:
             e = src[i]
@@ -189,7 +189,8 @@ def history(store, item, limit=100):
 
 
 _EX_COLS = ("kind", "target", "amount", "unit", "amount_ref", "avoided", "utype", "p1", "p2", "p3", "pedigree",
-            "uncertainty", "source", "comment", "modified", "author", "created", "revision", "formula", "unit_factor")
+            "uncertainty", "source", "comment", "modified", "author", "created", "revision", "formula", "unit_factor",
+            "assign")
 
 
 def snapshot(store, uid):
@@ -225,6 +226,12 @@ def restore(store, uid, history_id, which="before", author=""):
         raise CustomDataError("The process did not exist before this change. Delete it instead.")
     if not snap:
         raise CustomDataError("No version is recorded for this change.")
+    _apply(store, uid, snap, f"restored the version {'before' if which == 'before' else 'after'} the change of "
+                             f"{(h['time'] or '')[:19].replace('T', ' ')}", author)
+
+
+def _apply(store, uid, snap, action, author=""):
+    """Make a recorded state (a snapshot) the current state of a process, as one recorded change."""
     now = snapshot(store, uid)
     it = snap["item"]
     with store.lock:
@@ -250,13 +257,138 @@ def restore(store, uid, history_id, which="before", author=""):
             d = json.loads(it["data"])
             d["coproduct_refs"] = {}
             store.x("UPDATE custom_items SET data=? WHERE uuid=?", (json.dumps(d), uid))
+        else:
+            # the datasets of the outputs keep their ids: a version stores the data, not where it was compiled to
+            d = json.loads(it["data"])
+            cur = json.loads(now["item"]["data"] or "{}").get("coproduct_refs") or {}
+            outs = {c["product"] for c in d.get("coproducts") or []}
+            d["coproduct_refs"] = {k: v for k, v in cur.items() if k in outs}
+            store.x("UPDATE custom_items SET data=? WHERE uuid=?", (json.dumps(d), uid))
         compile(store, it["db_id"])
     except Exception:
         _put_back(store, uid, now, it["db_id"])
         raise
-    _log(store, uid, "process", f"restored the version {'before' if which == 'before' else 'after'} the change of "
-                                f"{(h['time'] or '')[:19].replace('T', ' ')}", author)
+    _log(store, uid, "process", action, author)
     _attach_versions(store, uid, now)
+
+
+# ----------------------------------------------------------------------------------------------- named versions
+def save_version(store, uid, name, note="", author=""):
+    """Keep the current state of a process under a name (for example 'as reviewed', 'supplier data 2025'), to compare
+    with or go back to later. Named versions are kept apart from the edit history and are not pruned."""
+    ensure_schema(store)
+    it = _item(store, uid, "process")
+    name = _text(name, "The version name", maxlen=120)
+    if store.one("SELECT 1 AS x FROM custom_versions WHERE item=? AND name=?", (uid, name)):
+        raise CustomDataError(f"This process already has a version named '{name}'.")
+    snap = snapshot(store, uid)
+    with store.lock:
+        vid = store.conn.execute("INSERT INTO custom_versions(item,db_id,name,note,author,time,data) VALUES(?,?,?,?,?,?,?)",
+                                 (uid, it["db_id"], name, _text(note, "The note", False, 1000),
+                                  _text(author, "Author", False, 200), _now(), json.dumps(snap))).lastrowid
+        store.conn.commit()
+    _log(store, uid, "process", f"version '{name}' saved", author)
+    return vid
+
+
+def versions(store, uid):
+    """Named versions of a process, newest first, each with what differs from the current state."""
+    ensure_schema(store)
+    _item(store, uid, "process")
+    now = snapshot(store, uid)
+    out = []
+    for r in store.q("SELECT id, name, note, author, time, data FROM custom_versions WHERE item=? ORDER BY id DESC",
+                     (uid,)):
+        snap = json.loads(r["data"])
+        d = _diff(snap, now)
+        out.append({k: r[k] for k in ("id", "name", "note", "author", "time")} |
+                   {"lines": len(snap["exchanges"]), "same_as_current": d == "no change in the data",
+                    "changes_since": d})
+    return out
+
+
+def _version(store, uid, vid):
+    if vid in (None, "", "current"):
+        return snapshot(store, uid), "current"
+    r = store.one("SELECT name, data FROM custom_versions WHERE id=? AND item=?", (_id(vid, "version"), uid))
+    if not r:
+        raise CustomDataError("That version was not found.")
+    return json.loads(r["data"]), r["name"]
+
+
+def _line_label(store, e):
+    if e["kind"] == "elementary":
+        f = store.one("SELECT name, compartment, subcompartment FROM flows WHERE uuid=?", (e["target"],))
+        return f"{f['name']} ({'/'.join(x for x in (f['compartment'], f['subcompartment']) if x)})" if f else e["target"]
+    t = str(e["target"])
+    if t.isdigit():
+        a = store.one("SELECT name, location FROM activities WHERE id=?", (int(t),))
+        return f"{a['name']} [{a['location']}]" if a else f"dataset {t} (no longer in the library)"
+    p = store.one("SELECT name FROM custom_items WHERE uuid=?", (t.split("/")[0],))
+    return p["name"] if p else "(deleted process)"
+
+
+def compare_versions(store, uid, a, b="current"):
+    """Line-by-line comparison of two versions of a process (a named version, or 'current'). Lines are matched by
+    supplier or flow, kind and whether they are avoided, so a line deleted and entered again still matches."""
+    _item(store, uid, "process")
+    sa, na = _version(store, uid, a)
+    sb, nb = _version(store, uid, b)
+    da, db_ = json.loads(sa["item"]["data"] or "{}"), json.loads(sb["item"]["data"] or "{}")
+    fields = []
+    if sa["item"]["name"] != sb["item"]["name"]:
+        fields.append({"field": "name", "a": sa["item"]["name"], "b": sb["item"]["name"]})
+    for k in ("product", "amount", "type", "location", "technology", "time_period", "data_type", "dq", "parameters",
+              "coproducts", "allocation"):
+        if da.get(k) != db_.get(k):
+            fields.append({"field": k.replace("_", " "), "a": da.get(k), "b": db_.get(k)})
+
+    def key(e):
+        return (e["kind"], str(e["target"]), bool(e["avoided"]), e.get("assign") or "")
+
+    def group(snap):
+        g = {}
+        for e in snap["exchanges"]:
+            g.setdefault(key(e), []).append(e)
+        return g
+
+    ga, gb = group(sa), group(sb)
+    lines = []
+    for k in list(ga) + [k for k in gb if k not in ga]:
+        xa, xb = ga.get(k, []), gb.get(k, [])
+        e = (xa or xb)[0]
+        va = sum(x["amount_ref"] or 0.0 for x in xa)
+        vb = sum(x["amount_ref"] or 0.0 for x in xb)
+        state = ("added" if not xa else "removed" if not xb else
+                 "same" if abs(va - vb) <= 1e-12 * max(abs(va), abs(vb), 1e-300) and
+                 [(x["formula"], x["utype"], x["p1"], x["p2"], x["p3"]) for x in xa] ==
+                 [(x["formula"], x["utype"], x["p1"], x["p2"], x["p3"]) for x in xb] else "changed")
+        lines.append({"line": _line_label(store, e), "kind": e["kind"], "avoided": bool(e["avoided"]),
+                      "assign": e.get("assign"), "a": va if xa else None, "b": vb if xb else None,
+                      "change": None if not (xa and xb) or not va else (vb - va) / abs(va), "state": state,
+                      "formula_a": "; ".join(x["formula"] for x in xa if x.get("formula")) or None,
+                      "formula_b": "; ".join(x["formula"] for x in xb if x.get("formula")) or None})
+    order = {"changed": 0, "added": 1, "removed": 2, "same": 3}
+    lines.sort(key=lambda r: order[r["state"]])
+    return {"a": na, "b": nb, "fields": fields, "lines": lines,
+            "summary": {s: sum(1 for r in lines if r["state"] == s) for s in order},
+            "note": "Amounts in the unit of the supplier or flow, for the reference amount of the process."}
+
+
+def restore_version(store, uid, vid, author=""):
+    """Make a named version the current state of the process. The current state is kept in the edit history, so
+    the restore can be undone."""
+    snap, name = _version(store, uid, vid)
+    if name == "current":
+        raise CustomDataError("Choose a saved version to restore.")
+    _item(store, uid, "process")
+    _apply(store, uid, snap, f"restored the version '{name}'", author)
+
+
+def delete_version(store, uid, vid):
+    if not store.one("SELECT 1 AS x FROM custom_versions WHERE id=? AND item=?", (_id(vid, "version"), uid)):
+        raise CustomDataError("That version was not found.")
+    store.x("DELETE FROM custom_versions WHERE id=? AND item=?", (_id(vid, "version"), uid))
 
 
 def _put_back(store, uid, snap, db_id):
@@ -737,7 +869,8 @@ def mc_plan(store, mc):
             for e in exs:
                 fac = e["unit_factor"] if e["unit_factor"] is not None else 1.0
                 ents = []
-                for puid, f in shares.items():
+                own = e["assign"] if pd.get("coproducts") and e["assign"] else None
+                for puid, f in ({own: 1.0} if own else shares).items():
                     aid = aids.get(puid)
                     if aid is None or f <= 0 or aid not in mc.act_index:
                         continue
@@ -821,6 +954,10 @@ def mc_plan(store, mc):
 
 # ----------------------------------------------------------------------------------------------- allocation
 ALLOCATION = ("mass", "energy", "economic", "physical", "manual")
+# Subdivision (ISO 14044 4.3.4.2, step 1): a line of a multi-output process can belong to one output only (for
+# example the energy of a drying step that only one product goes through). Such a line goes wholly to that output's
+# dataset; the other lines are shared by the allocation method. With method "subdivision" every line must belong to
+# one output and nothing is allocated.
 
 
 def allocation_shares(store, d):
@@ -832,9 +969,13 @@ def allocation_shares(store, d):
         return {d["product"]: 1.0}
     al = d.get("allocation") or {}
     method, vals = al.get("method"), al.get("values") or {}
+    if method == "subdivision":
+        # every line belongs to one output (checked when the process is compiled): nothing is shared
+        return {u: 0.0 for u, _ in outs}
     if method not in ALLOCATION:
-        raise CustomDataError("Choose the allocation method for the co-products: mass, energy, economic, physical "
-                              "causality or manual.")
+        raise CustomDataError("Choose how the co-products share the lines: subdivision (every line belongs to one "
+                              "output), or allocation by mass, energy, economic value, physical causality or manual "
+                              "shares.")
     w = {}
     for uid, amt in outs:
         prod = _item(store, uid, "product")
@@ -891,6 +1032,19 @@ def allocation_shares(store, d):
     return {k: v / tot for k, v in w.items()}
 
 
+def _factor(store, M, k, flow_id, f, location):
+    """The characterisation factor of a flow at a location, as calc.Methods applies it: the regional factor of the
+    location, else that of its country (CA-QC -> CA), else the generic factor."""
+    if M.reg_entries is not None:
+        loc = str(location or "").upper()
+        for cand in ([loc, loc.split("-", 1)[0]] if "-" in loc else [loc]):
+            r = store.one("SELECT value FROM cfs_regional WHERE method_id=? AND flow_id=? AND UPPER(location)=?",
+                          (M.ids[k], flow_id, cand))
+            if r:
+                return float(r["value"])
+    return float(M.C[k, f])
+
+
 def allocation_compare(store, uid, method_ids, alternatives=None):
     """Sensitivity of the results of a multi-output process to the allocation method.
 
@@ -929,6 +1083,29 @@ def allocation_compare(store, uid, method_ids, alternatives=None):
         s = mc.solve(f)
         per_unit[puid] = np.asarray(M.Q @ s).ravel()
     T = sum(a * per_unit[u] for u, a in outs)
+    # lines assigned to one output (subdivision) stay with it under every method: B[u] is their burden for the whole
+    # process, from the result per unit of each supplier (y = A^-T q) and the characterisation factors
+    B = {u: np.zeros(len(M.ids)) for u, _ in outs}
+    assigned = store.q("SELECT * FROM custom_exchanges WHERE process_uuid=? AND COALESCE(assign,'')!=''", (uid,))
+    if assigned:
+        Y = np.vstack([calc.solve_transposed(mc, np.asarray(M.Q[k]).ravel()) for k in range(len(M.ids))])
+        for e in assigned:
+            if e["assign"] not in B:
+                continue
+            if e["kind"] == "elementary":
+                fr = store.one("SELECT id FROM flows WHERE uuid=?", (e["target"],))
+                if fr and fr["id"] in mc.flow_index:
+                    B[e["assign"]] += e["amount_ref"] * np.array([_factor(store, M, k, fr["id"], mc.flow_index[fr["id"]],
+                                                                          d.get("location"))
+                                                                  for k in range(len(M.ids))])
+                continue
+            sid = int(e["target"]) if str(e["target"]).isdigit() else target_activity(store, e["target"])
+            if sid not in mc.act_index:
+                continue
+            sp_ = store.one("SELECT production FROM activities WHERE id=?", (sid,))["production"] or 1.0
+            sign = (-1.0 if e["avoided"] else 1.0) * (-1.0 if sp_ < 0 else 1.0)
+            B[e["assign"]] += sign * e["amount_ref"] * Y[:, mc.act_index[sid]]
+    S = T - sum(B.values())
     current = (d.get("allocation") or {}).get("method")
     tries = {}
     for m in ALLOCATION:
@@ -951,11 +1128,15 @@ def allocation_compare(store, uid, method_ids, alternatives=None):
             continue
         rows.append({"method": m, "available": True, "current": m == current, "outputs": [
             {"product": names[u], "unit": units_[u], "share": sh[u],
-             "per_unit": [float(sh[u] * T[k] / a) if a else None for k in range(len(M.ids))]} for u, a in outs]})
+             "per_unit": [float((B[u][k] + sh[u] * S[k]) / a) if a else None for k in range(len(M.ids))]}
+            for u, a in outs]})
     return {"methods": [{k: r[k] for k in ("id", "family", "category", "indicator", "unit")} for r in M.rows],
             "comparison": rows, "total_burden": [float(x) for x in T],
+            "assigned_burden": [float(x) for x in sum(B.values())] if assigned else None,
             "note": "Per unit of each product. The total burden of the process is the same under every method; "
-                    "only its division between the products changes."}
+                    "only its division between the products changes."
+                    + (" Lines assigned to one output (subdivision) stay with that output under every method; only "
+                       "the shared lines are divided." if assigned else "")}
 
 
 # ----------------------------------------------------------------------------------------------- processes
@@ -1001,6 +1182,12 @@ def save_process(store, db_id, d):
         cps.append({"product": cprod["uuid"], "amount": _number(cp.get("amount"), f"The amount of '{cprod['name']}'")})
         if cps[-1]["amount"] < 0:
             raise CustomDataError("Co-product amounts are positive.")
+    if old is not None:
+        lost = [r["assign"] for r in store.q("SELECT DISTINCT assign FROM custom_exchanges WHERE process_uuid=? AND "
+                                             "COALESCE(assign,'')!=''", (uid,)) if r["assign"] not in seen]
+        if lost:
+            raise CustomDataError("Some lines of the process are assigned to a co-product you removed. Assign them to "
+                                  "another output, or make them shared, first.")
     if cps and kind == "treatment":
         raise CustomDataError("A waste treatment process has no co-products here; model recovered products as "
                               "avoided products instead.")
@@ -1155,6 +1342,14 @@ def save_exchange(store, process_uuid, d):
         raise CustomDataError("The exchange kind is technosphere or elementary.")
     if amount < 0:
         raise CustomDataError("Give a positive amount; mark an avoided product with 'avoided'.")
+    assign = str(d.get("assign") or "").strip() or None
+    if assign:
+        outs = [p["data"]["product"]] + [c["product"] for c in p["data"].get("coproducts") or []]
+        if len(outs) == 1:
+            raise CustomDataError("The process has one product, so every line belongs to it; assigning a line to an "
+                                  "output applies to processes with co-products.")
+        if assign not in outs:
+            raise CustomDataError("Assign the line to the reference product or one of the co-products of the process.")
     fac = convert(1.0, unit, ref_unit)
     amount_ref = amount * fac
     utype, p1, p2, p3, ped, ulabel = _uncertainty({**d, "amount": amount}, amount_ref, fac,
@@ -1163,12 +1358,12 @@ def save_exchange(store, process_uuid, d):
     now = _now()
     row = (process_uuid, kind, target, amount, unit, amount_ref, int(avoided), utype, p1, p2, p3,
            json.dumps(ped) if ped else None, ulabel, _text(d.get("source"), "Source", False, 1000),
-           _text(d.get("comment"), "Comment", False, 2000), now, author, formula or None, fac)
+           _text(d.get("comment"), "Comment", False, 2000), now, author, formula or None, fac, assign)
     with store.lock:
         if d.get("id"):
             n = store.conn.execute("UPDATE custom_exchanges SET process_uuid=?, kind=?, target=?, amount=?, unit=?, "
                                    "amount_ref=?, avoided=?, utype=?, p1=?, p2=?, p3=?, pedigree=?, uncertainty=?, "
-                                   "source=?, comment=?, modified=?, author=?, formula=?, unit_factor=?, "
+                                   "source=?, comment=?, modified=?, author=?, formula=?, unit_factor=?, assign=?, "
                                    "revision=COALESCE(revision,1)+1 "
                                    "WHERE id=? AND process_uuid=?", row + (_id(d["id"], "id"), process_uuid)).rowcount
             if not n:
@@ -1177,12 +1372,12 @@ def save_exchange(store, process_uuid, d):
         else:
             eid = store.conn.execute("INSERT INTO custom_exchanges(process_uuid,kind,target,amount,unit,amount_ref,avoided,"
                                      "utype,p1,p2,p3,pedigree,uncertainty,source,comment,modified,author,formula,"
-                                     "unit_factor,created,revision) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
+                                     "unit_factor,assign,created,revision) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
                                      row + (now,)).lastrowid
         store.conn.commit()
     _log(store, process_uuid, "exchange", "exchange changed" if d.get("id") else "exchange added", author,
          {"exchange": eid, "kind": kind, "target": target, "amount": amount, "unit": unit, "avoided": avoided,
-          "formula": formula, "uncertainty": ulabel, "source": row[13]})
+          "formula": formula, "uncertainty": ulabel, "source": row[13], "assign": assign})
     try:
         compile(store, p["db_id"])
     except Exception:
@@ -1510,6 +1705,24 @@ def _scale_unc(unc, f):
     return (t, None if p1 is None else p1 * f, None if p2 is None else p2 * f, None if p3 is None else p3 * f)
 
 
+def _line_outputs(p, e, shared, by_prod):
+    """[(dataset id, factor)] that a line of process p goes to: the one output it is assigned to (factor 1), or every
+    output by its allocation share."""
+    d = p["d"]
+    if len(by_prod) == 1:
+        return shared
+    who = e.get("assign")
+    if who:
+        if who not in by_prod:
+            raise CustomDataError(f"{p['name']}: a line is assigned to a product that is no longer an output of the "
+                                  "process. Assign it again.")
+        return [(by_prod[who], 1.0)]
+    if (d.get("allocation") or {}).get("method") == "subdivision":
+        raise CustomDataError(f"{p['name']}: with subdivision every line belongs to one output, but a line is shared. "
+                              "Assign it to an output, or choose an allocation method for the shared lines.")
+    return shared
+
+
 def compile(store, db_id):
     """Write the custom data of one database into the library tables, in one transaction.
 
@@ -1532,7 +1745,7 @@ def compile(store, db_id):
         c.commit()
         try:
             c.execute("BEGIN")
-            refs, outs_of = {}, {}
+            refs, outs_of, by_prod = {}, {}, {}
             for p in procs:
                 d = p["d"]
                 method = (d.get("allocation") or {}).get("method")
@@ -1548,8 +1761,11 @@ def compile(store, db_id):
                         d.get("technology"), d.get("comment"),
                         f"Time period: {d['time_period']}" if d.get("time_period") else "",
                         f"Source: {p['source']}" if p.get("source") else "",
-                        f"Multi-output process, {method} allocation: {share * 100:.4g} % of the exchanges to "
-                        f"{prod['name']}." if len(outputs) > 1 else "") if x)
+                        ("Multi-output process, subdivided: only the lines that belong to " + prod["name"] + "."
+                         if method == "subdivision" else
+                         f"Multi-output process, {method} allocation: {share * 100:.4g} % of the shared lines to "
+                         f"{prod['name']}; lines that belong to one output go wholly to it.")
+                        if len(outputs) > 1 else "") if x)
                     key = p["uuid"] if main else f"{p['uuid']}/{puid}"
                     aid = p["ref_id"] if main else cref.get(puid)
                     if aid and c.execute("SELECT 1 FROM activities WHERE id=?", (aid,)).fetchone():
@@ -1568,6 +1784,7 @@ def compile(store, db_id):
                     else:
                         cref[puid] = aid
                     acts.append((aid, share))
+                    by_prod.setdefault(p["uuid"], {})[puid] = aid
                     refs[key] = aid
                     if main:
                         refs[f"{p['uuid']}/{puid}"] = aid
@@ -1613,10 +1830,11 @@ def compile(store, db_id):
                         e["amount"], e["amount_ref"] = v, v * fac
                     a = e["amount_ref"]
                     unc = (e["utype"], e["p1"], e["p2"], e["p3"])
+                    to = _line_outputs(p, e, outs_of[p["uuid"]], by_prod[p["uuid"]])
                     if e["kind"] == "elementary":
                         fid = c.execute("SELECT id FROM flows WHERE uuid=?", (e["target"],)).fetchone()
                         if fid:
-                            for aid, f in outs_of[p["uuid"]]:
+                            for aid, f in to:
                                 if f > 0:
                                     c.execute("INSERT INTO bio(activity_id,flow_id,amount,utype,p1,p2,p3) VALUES(?,?,?,?,?,?,?)",
                                               (aid, fid[0], a * f, *_scale_unc(unc, f)))
@@ -1626,7 +1844,7 @@ def compile(store, db_id):
                     srow = c.execute("SELECT production, unit, product, location FROM activities WHERE id=?",
                                      (sid,)).fetchone() if sid else None
                     if not srow:
-                        for aid, f in outs_of[p["uuid"]]:
+                        for aid, f in to:
                             c.execute("INSERT INTO unlinked(db_id,output_id,product,unit,amount,location,link_key,utype,p1,"
                                       "p2,p3,reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                                       (db_id, aid, "(supplier missing)", e["unit"], e["amount"] * f, "", e["target"],
@@ -1636,7 +1854,7 @@ def compile(store, db_id):
                     # treatment dataset (negative reference amount) is entered as the amount treated and stored as a
                     # negative input, so that the treatment runs for that amount
                     sign = (-1.0 if e["avoided"] else 1.0) * (-1.0 if (srow[0] or 1.0) < 0 else 1.0)
-                    for aid, f in outs_of[p["uuid"]]:
+                    for aid, f in to:
                         if f <= 0:
                             continue
                         t, p1, p2, p3 = _scale_unc(unc, f)
@@ -1935,6 +2153,7 @@ def import_json(store, doc, name=None):
                                                     "formula": e.get("formula") or "", "unit": e["unit"],
                                                     "avoided": e["avoided"], "source": e.get("source"),
                                                     "comment": e.get("comment"), "author": e.get("author") or "",
+                                                    "assign": remap.get(e.get("assign"), e.get("assign")) or "",
                                                     **_unc_back(e, ped)})
     for f in doc.get("factors", []):
         m = store.method_by_key(f["family"], f["category"], f["indicator"])

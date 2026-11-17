@@ -3,7 +3,7 @@
 This document describes how Cyclia computes results, so that a study can be reproduced and reviewed. Sections
 1 to 11 describe the core added in 1.1; later sections give the version in which each method was added or changed.
 Cite the software as: Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers*
-(version 1.9.2) [Computer software]. https://doi.org/10.5281/zenodo.23853747
+(version 1.10.0) [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 ## 1. Inventory model
 
@@ -1159,6 +1159,12 @@ The relative difference before the rule and g are listed for every result, and e
 rule applied to. An ordinary result cannot pass this way: for a result of 100 with contributions summing to 10^6, the
 rule tolerates a gap of 0.001, which is 0.001 %.
 
+**Iterative refinement (1.10.0).** Every solve of the library matrix is followed by one refinement step,
+x ← x + A^-1 (f − A x), and every transposed solve likewise. It costs one more solve with the existing LU factors.
+In the ecoinvent 3.13 benchmark the plain solution gave 180 very small Ecological Scarcity 2021 "biotic resources"
+results (below 1e-6 of the category's largest) the wrong sign, while the refined solution reproduced ecoinvent's
+values within 0.016 %. Monte Carlo samples, which factorise their own matrices, are solved without the step.
+
 **Numerical resolution (1.9.2).** A deviating result h = q A^-1 f is computed three ways:
 - forward: x = A^-1 f, then h = q x;
 - adjoint: y = A^-T q^T, then h = y f;
@@ -1178,6 +1184,129 @@ ecoinvent's file share "climate change / GWP100".
 **Release gate.** engine/tools/release_gate.py runs the whole test suite with Brightway required, so a skipped
 Brightway comparison is a failure. It also runs the regression, the 35 validation systems and the IPCC 2021 GWP100
 check. The installer build depends on it.
+
+## 21. Database management (1.10)
+
+**Geographies.** Cyclia uses the world topology of constructive_geometries (Mutel and Paul Scherrer Institute, BSD
+licence), on which ecoinvent's own linking is built. The world is split into faces that do not overlap. A geography
+is a set of faces. The topology has 541 geographies: countries, provinces, grid regions and ecoinvent regions such
+as RER, "Europe without Switzerland", the UN regions and the US and Chinese grids. A contains B when B's faces are a subset
+of A's, and the size of a geography is the area of its faces. GLO is every face. RoW has no faces of its own: it is
+the world without the geographies of the other suppliers of the same product.
+
+**Choosing a supplier.** For an input at location L, among the datasets with the input's product name and a
+convertible unit (market datasets first, when the product has one), the supplier is chosen in this order:
+1. a supplier at L;
+2. the smallest supplier geography that contains L;
+3. RoW, when no other supplier geography contains L;
+4. GLO.
+
+A supplier inside L (FR for an input in RER) or only overlapping it is no match. Automatic linking applies this only
+when one supplier comes first. It leaves to the user:
+- two equally good suppliers;
+- a RoW that covers L only in part (other suppliers cover part of L);
+- a location outside the topology;
+- inputs with several producers in their own import;
+- inputs whose dataset names another provider;
+- inputs without a supplier link in the dataset, which may be a deliberate cut-off.
+
+Suggestions are ranked the same way and show the relation, such as "RER contains FR".
+
+**Linking decisions.** Every link and unlink, made by hand or automatically, is recorded with:
+- time and author;
+- supplier and conversion factor;
+- the rule that chose it;
+- the supplier and factor each input had before.
+
+Undoing a decision restores that earlier state exactly and is recorded itself. A decision cannot be undone while a
+later decision has changed the same inputs. When a supplier's database is deleted, the inputs that used it become
+unlinked again, and the log of their database records why.
+
+**Database check.** The six checks of 1.3.6 (matrix, technosphere, flows, units, metadata, LCIA) are joined by:
+- supplier links: links by rule, and links whose supplier geography does not cover the input's location;
+- geography: dataset locations outside the topology, and datasets without a location;
+- uncertainty and data quality: the share of exchanges with a distribution, and of datasets with a data quality
+  record;
+- duplicates: datasets of one database with the same name, product, location and unit;
+- provenance: source file, SHA-256 fingerprint, importer and date per database; source identifier per dataset.
+
+Each check reports its counts and a level (ok, note, warning or error). No combined score is computed. The check can
+be exported to Excel together with the linking decisions.
+
+**Provenance of a dataset.** For each dataset Cyclia shows:
+- its database and the import that created it (file, fingerprint, importer, date);
+- its identifier in the source;
+- the decision behind each of its inputs that was linked across datasets;
+- its edit history, when it was built in Cyclia.
+
+**Imports.** Imports run in a separate staging library and enter the library only after the integrity checks pass.
+Tested: the same file imported into two libraries gives bit-identical results for every dataset and category, and
+an import stopped by the checks leaves every result of the library unchanged.
+
+## 22. Modelling: recycling approaches, supply chain tree, multifunctionality and process versions (1.10)
+
+**End-of-life approaches.** For one material with recycled content R1, end-of-life recycling rate R2 and the
+datasets for:
+- virgin material (Ev);
+- recycled input (ERin);
+- recycling at end of life (ERout);
+- avoided virgin material (E*v, the virgin dataset unless another is chosen);
+- disposal (ED);
+
+Cyclia computes four results, following Ekvall et al. (2020) and the PEF method:
+- cut-off: (1−R1) Ev + R1 ERin + (1−R2) ED;
+- end-of-life recycling (consequential form): Ev + R2 (ERout − E*v) + (1−R2) ED;
+- 50:50: 0.5 [(1−R1) + (1−R2)] (Ev + ED) + 0.5 (R1 ERin + R2 ERout);
+- Circular Footprint Formula without energy recovery:
+  (1−R1) Ev + R1 [A ERin + (1−A) Ev Qsin/Qp] + (1−A) R2 [ERout − E*v Qsout/Qp] + (1−R2) ED.
+
+Each E is the result of one unit of material through that dataset, computed with the full supply chain, and the mass
+multiplies all of them. Without recycling (R1 = R2 = 0) every approach gives Ev + ED. Tests: a hand calculation of all
+four (8.3, 5.6, 7.1 and 6.95 for Ev 10, ERin 3, ERout 2, ED 1, R1 0.3, R2 0.6, A 0.5); agreement of the CFF
+coefficients with the CFF inventory lines; results equal to coefficients times dataset results; the published
+worked example of Rickert and Ciroth (2020) with PEF Annex C values for paper (A = 0.2, R1 = 0.47, Qsin/Qp = 1,
+R2 = R3 = 0: coefficients 0.906 and 0.094, and the published ECFF vector of ten flows).
+
+**Supply chain tree.** For one category, y = A^-T q (one transposed solve) gives the result of one unit of every
+dataset. A node j delivering P units has the scaling s_j = P / a_jj, its own part s_j q_j, and for each input i of
+amount t_ij a child node with P_i = s_j t_ij units and result P_i y_i. Because y_j a_jj = q_j + Σ_i t_ij y_i, the
+parts of every node add up to its result exactly. The tree shows the largest suppliers per level, puts the rest
+together, and does not expand a supplier again when it already appears higher in its own branch. Test: for 25
+datasets the parts of every node add up to its result and the root equals the dataset's result.
+
+**Subdivision.** A process of own data with outputs i = 1..n (amounts a_i) and allocation shares f_i compiles into
+one dataset per output. A shared line of amount x enters dataset i as f_i x; a line assigned to output k enters
+dataset k as x and no other dataset. So dataset i carries B_i + f_i S, where B_i is the burden of the lines assigned
+to it and S that of the shared lines, and the datasets together carry every line once. With "subdivision only" no
+line may be shared and no share is used. The comparison of allocation methods computes B_i directly (y = A^-T q for
+supplier lines, the characterisation factor at the process's location for elementary lines), S = T − Σ B_i from
+the total burden T, and the result per unit of output i under method m as (B_i + f_i,m S) / a_i. Monte Carlo of
+parameters sends a formula line to its assigned output only. Tests: the cheese and whey example (8.5 and 3.25 kg
+CO2 per kg under economic allocation; 10/3 + 1 and (20/3 + 4) / 2 under mass) and a parameter draw that changes
+only the whey dataset.
+
+**Multifunctional models.** A model line l has the amount a_l and the result per unit u_l. Its contribution is
+a_l u_l s_l, with s_l given by the model's rule: allocation, s_l = 1 for a line of the main product, 0 for a line of
+the co-products, f (the allocation share) for a shared line; subdivision, the same without shared lines (refused);
+system expansion, s_l = 1 for every line, plus for each co-product c a derived credit line −r_c u_c, where r_c is the
+amount of the replaced product per functional unit and u_c the result per unit of the replaced dataset. The same
+rule (calc.line_share) is used by the calculation, the contribution lines, the Monte Carlo tree, costing, the
+optimisation of choices and the independent cross-check. The comparison of choices sums the full line results by
+side, M (main), S (shared), C (co-products), and gives M + f S for each allocation basis, M under subdivision, and
+M + S + C − Σ r_c u_c under system expansion. Test: a cheese model (milk 10, electricity 2, whey powder 4 kg CO2
+per unit) gives 2 + 10/3 by mass, 9.5 by economic value, 11 by system expansion and 12 by subdivision, equal to full
+calculations, Monte Carlo tree and cross-check.
+
+**Named versions.** A version stores the complete state of a process (record and lines). Comparison matches lines by
+kind, supplier or flow, credit flag and assigned output, adds up repeated lines, and reports changed, added,
+removed and unchanged lines with their amounts in the reference unit. Restoring writes the stored state as one
+recorded change, so undo returns to the state before; the datasets of the outputs keep their identifiers.
+
+Rickert J., Ciroth A. (2020) Application of the Circular Footprint Formula in Product Environmental Footprint (PEF).
+GreenDelta GmbH, Berlin.
+
+Ekvall T., Björklund A., Sandin G., Jelse K., Lagergren J., Rydberg M. (2020) Modeling recycling in life cycle
+assessment. IVL Swedish Environmental Research Institute, report C551.
 
 ## References
 

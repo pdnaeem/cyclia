@@ -178,7 +178,7 @@ class TestModelAllocationCompare(unittest.TestCase):
         by = {x["choice"]: x for x in r["rows"]}
         self.assertAlmostEqual(by["mass"]["totals"][0], 10 / 3, places=12)
         self.assertTrue(by["mass"]["current"])
-        self.assertAlmostEqual(by["no allocation (system expansion: all burdens, credit lines as entered)"]["totals"][0],
+        self.assertAlmostEqual(by["no allocation (all lines, credit lines as entered, co-products not credited)"]["totals"][0],
                                10.0, places=12)
         self.assertFalse(by["energy"]["available"])
         # economic needs main_price stored: compute it with a full calculation under that basis and compare

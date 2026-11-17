@@ -83,7 +83,7 @@ def dataset_scores(store, method_ids, mc=None, db_ids=None):
     acts = store.q("SELECT a.id, a.key, a.name, a.location, a.product, a.unit, d.name db FROM activities a "
                    "JOIN databases d ON d.id=a.db_id" + (f" WHERE a.db_id IN ({','.join('?' * len(db_ids))})"
                                                         if db_ids else ""), list(db_ids or []))
-    Y = np.vstack([mc.lu.solve(np.ascontiguousarray(M.Q[i], dtype=float), trans="T") for i in range(len(M.ids))]) \
+    Y = np.vstack([calc.solve_transposed(mc, M.Q[i]) for i in range(len(M.ids))]) \
         if len(M.ids) else np.zeros((0, mc.n))
     if not np.isfinite(Y).all():
         raise calc.LCAError("The scores of the datasets are not finite numbers. Run 'Check database' in step 1.")

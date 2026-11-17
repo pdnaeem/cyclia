@@ -4,7 +4,7 @@ window.GLOSSARY = {
   "reference flow": "The amount of product needed to fulfil the functional unit, e.g. 110 kg of hempcrete blocks for 1 m2 of wall.",
   "system boundary": "Which life cycle stages and processes are included. Cradle-to-gate stops when the product leaves the factory; cradle-to-grave adds use and end of life.",
   "cut-off criteria": "Rules for leaving out small flows, usually by mass, energy or environmental relevance (e.g. below 1 % each and 5 % in total). State them in the goal and scope.",
-  "allocation": "Dividing the burdens of a process between its co-products, by physical relation (mass, energy) or economic value. ISO 14044 4.3.4.2 prefers to avoid allocation by subdividing the process or by system expansion.",
+  "allocation": "Dividing the burdens of a process between its co-products, by physical relation (mass, energy) or economic value. ISO 14044 4.3.4.2 prefers to avoid allocation by subdividing the process or by system expansion. In step 2 choose allocation, subdivision (each line belongs to this product or to the co-products) or system expansion (each co-product credited with the product it replaces).",
   "avoided product": "A product your system makes that replaces production elsewhere, e.g. recycled steel. It is credited (subtracted) by system expansion. Report results with and without credits.",
   "module D": "In EN 15804, benefits and loads beyond the system boundary (reuse, recycling, energy recovery). Cyclia reports module D separately and does not add it to the A-C total.",
   "market dataset": "An ecoinvent dataset that mixes all suppliers of a product in a region and includes transport and losses. Use it unless you know the exact supplier.",

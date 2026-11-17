@@ -214,9 +214,35 @@ and wastewater) with simple impact methods. For learning only.
 supplier, with the reason: produced by no dataset of the import (often a product of another database, as in USLCI
 or Agribalyse), produced by several datasets (Cyclia does not guess and shows the candidates), or without a
 supplier link in the dataset (ecoSpold2). Each location is its own row, so electricity for France and for Poland
-get their own suppliers. "Link automatically" only links rows with exactly one supplier at the same location.
-Inputs that the system model cuts off on purpose (recycled content in the ecoinvent cut-off model) must stay
-unlinked.
+get their own suppliers.
+
+**Linking by geography.** "Link automatically" follows ecoinvent's linking rules, on the same map of geographies:
+1. a supplier at the same location;
+2. otherwise the smallest region that contains the location (for France: "Europe without Switzerland" before RER);
+3. otherwise RoW, if no other supplier covers the location;
+4. otherwise GLO.
+
+It leaves to you:
+- rows with several producers in the import;
+- a RoW that covers the location only in part;
+- a location that is not an ecoinvent geography;
+- two equally good suppliers.
+
+"Find supplier" ranks the candidates the same way and says why, for example "RER contains FR". The message after
+automatic linking says how many rows were linked by each rule. Inputs that the system model cuts off on purpose
+(recycled content in the ecoinvent cut-off model) must stay unlinked.
+
+**Decisions** lists every link and unlink, by you or automatic, with the rule, author, supplier, conversion factor
+and time. **Undo** puts the inputs back exactly as they were before that decision. A decision that a later one
+changed must wait until the later one is undone.
+
+**Supply chain** in the Database explorer shows a dataset's suppliers as a tree for one impact category. Each node
+gives the amount it delivers, its result and its share of the total, with its own emissions, its largest suppliers
+and the rest of its suppliers together. The parts of each node add up to its result. Open a node to go one level
+further, up to five levels.
+
+In the Database explorer, each dataset shows where it comes from: its database, the import file and fingerprint,
+its identifier in the source, and for each input linked across datasets the decision that linked it.
 
 **Details** records the database's original name, version, system model, release date, geography, technology,
 licence, reference period and citation, next to the source file's SHA-256 fingerprint and the Cyclia version that
@@ -225,9 +251,21 @@ imported it. Enter what you know: it is printed in reports and makes the study r
 Imports of ecoSpold, openLCA, SimaPro and ILCD files go into a separate staging library first and enter your
 library only after the checks pass; a failed import leaves the library as it was.
 
-**Check** tests the database in six parts: the matrix (can it be solved), the technosphere (inputs without a
-supplier, by reason), elementary-flow coverage, units, metadata and LCIA compatibility. A solvable matrix does
-not mean a complete database: read every line.
+**Check** tests the database in eleven parts:
+- the matrix (can it be solved);
+- the technosphere (inputs without a supplier, by reason);
+- elementary-flow coverage;
+- units;
+- metadata;
+- LCIA compatibility;
+- supplier links (by rule, and links whose supplier does not cover the input's location);
+- geography (locations that are not ecoinvent geographies);
+- uncertainty and data quality coverage;
+- duplicate datasets;
+- provenance.
+
+A solvable matrix does not mean a complete database: read every line. **Export to Excel** saves the check with the
+linking decisions.
 
 ### Adding impact methods
 
@@ -294,16 +332,31 @@ comparison requires a critical review panel (ISO 14044 6.3).
 - **Data quality requirements**: what data you need (primary or secondary, region, year, technology).
 - **Key assumptions**.
 
-### Allocation
+### Allocation, subdivision or system expansion
 
-If your process makes more than one product, say how burdens are shared. Choose **mass**, **economic**,
-**energy** or **another physical relationship** (name the property, for example nitrogen content) and enter the value for your product and for each co-product; Cyclia computes the share. Or enter
-a share in % yourself. The text field "Allocation procedure" goes into the report. The alternative, system
-expansion, is done in step 3 with an avoided product.
+If your process makes more than one product, choose under **How the co-products are handled** (ISO 14044 4.3.4.2):
 
-The share applies to every line of the model. If only one process of your system is multi-functional (for
-example the cotton gin, which also gives cottonseed), model that process as its own model with the
-allocation, and use it as a line in the main model (tab "My models and processes").
+| Choice | What Cyclia does | What you enter |
+|---|---|---|
+| Allocation | Shared lines are divided by the share of your product. | The basis and the values below, or a share in %. |
+| Subdivision | Each line belongs to your product (counted in full) or to the co-products (left out). Nothing is allocated. | In step 3, "belongs to" on every line. |
+| System expansion | All lines count in full, and each co-product is credited with the product it replaces. | For each co-product: **Replaces**, a library dataset, and the amount it replaces per functional unit. |
+
+For allocation, choose **mass**, **economic**, **energy** or **another physical relationship** (name the property,
+for example nitrogen content) and enter the value for your product and for each co-product; Cyclia computes the
+share. Or enter a share in % yourself. Under allocation too, a line that only your product or only the co-products
+cause can be set to belong to it in step 3 (the selector under "Credit"), so that only the truly shared lines are
+divided. The text field "Allocation procedure" goes into the report.
+
+Example: cheese and whey from one dairy, 1 kg milk shared, 1 kWh for pressing the cheese, 0.5 kWh for drying the
+whey. By mass (1 : 2) the cheese carries the pressing and one third of the milk. By subdivision you decide where the
+milk belongs as well. By system expansion the cheese carries everything and is credited with the whey powder the
+whey replaces. The system expansion credit appears in the results as a line of its own, and in the diagram in a
+column of its own.
+
+If only one process of your system is multi-functional (for example the cotton gin, which also gives cottonseed),
+you can also model that process as its own model with its choice, and use it as a line in the main model (tab "My
+models and processes").
 
 ### Time
 
@@ -338,7 +391,8 @@ Following ISO 15686-5, Cyclia also handles:
   the cost table, lists each of them with its purchases.
 
 **Compare allocation choices** (step 2, allocation, when the model has co-products) shows the results under mass,
-economic, energy, physical and manual allocation, and without allocation, for the categories of step 4. A choice
+economic, energy, physical and manual allocation, subdivision, system expansion, and without allocation, for the
+categories of step 4. Lines that belong to one side stay there under every allocation basis. A choice
 whose values are missing is listed with what to fill in.
 
 ### Parameters and scenarios
@@ -444,6 +498,18 @@ to one material: give its mass, the A, B, R1, R2, R3 and quality values of your 
 method) and, for energy recovery, the heating value and efficiencies. Cyclia shows the coefficient of every
 term, asks for a dataset for each term that is not zero (virgin material, recycled material, recycling,
 energy recovery, avoided heat and electricity, disposal) and adds the lines, with the credits ticked.
+
+**Compare end-of-life approaches** (in the same panel) calculates the same material with four ways of modelling
+recycling, side by side for the impact categories chosen in step 4:
+- cut-off (recycled content);
+- end-of-life recycling (avoided burden);
+- 50:50;
+- the Circular Footprint Formula.
+
+It uses the datasets you chose and the R1, R2, A and quality values. Energy recovery is left out of this comparison.
+The lowest result of each category is marked, and the coefficients of each approach are listed below the table. Use
+it to show how much a conclusion depends on the recycling model, as ISO 14044 asks for a sensitivity check of
+allocation choices.
 
 **Copy as editable process** (in the dataset panel) makes a copy of a dataset as your own model, so you can
 change, for example, the electricity mix of a supplier.
@@ -761,6 +827,15 @@ models, can use each product separately. ISO 14044 asks to avoid allocation wher
 system expansion (an avoided product in step 5); use allocation when that is not possible, and give the source of
 the prices or properties and your reason.
 
+**Subdivision.** ISO 14044 first asks to avoid allocation by dividing the process into the parts that belong to
+each product. When a line is caused by one product only (the drying of whey, the pressing of cheese), set
+**Belongs to** on that line in step 5 to that product. The line then goes wholly to that product, and only the
+shared lines are divided by the allocation method. Example: 1 kg cheese and 2 kg whey, prices 3 and 0.5 (75 % and
+25 %); 10 kg CO2 shared, 4 kg for drying the whey, 2 kWh (0.5 kg CO2 per kWh) for pressing the cheese. Cheese:
+0.75 x 10 + 1 = 8.5 kg CO2 per kg. Whey: (0.25 x 10 + 4) / 2 = 3.25 kg per kg. When every line belongs to one
+product, choose **subdivision only**: nothing is allocated, and a shared line is refused. Compare allocation
+methods keeps the assigned lines with their product under every method.
+
 ### 5. Inputs, waste, credits, emissions and resources
 Add the lines of the selected process, per reference amount:
 
@@ -818,6 +893,10 @@ Below step 5, the diagram draws your processes and the library datasets they use
 - **drag** a box to arrange the diagram; the position is kept;
 - **click** a box to open that process in steps 4 and 5;
 - to add an input, press **Connect**, click the supplier, then the process that uses it, and type the amount;
+- to bring in a supplier that is not in the diagram yet, search the library in the field under the buttons and
+  drag a result onto the process that uses it (or click the result, then the process); the line opens ready for
+  its amount;
+- **New process** starts a process of your own in step 4; it appears in the diagram once saved;
 - **click an arrow** to edit that line;
 - **Arrange automatically** places suppliers to the left of the processes that use them.
 
@@ -825,6 +904,11 @@ In step 3 of a model (Inventory), press **Diagram** to edit the model by drawing
 - drag a line's box to another stage column to move it there, or to "new stage" to create one;
 - click its amount to change it, "credit" to make it an avoided product (or not), and × to remove it;
 - click the box to open its row in the table;
+- when the model has co-products, click "shared", "this product" or "co-products" on a box to change what the line
+  belongs to;
+- find a dataset or one of your models in the field under the diagram, then drop it on a line to make it that
+  line's supplier (the amount is kept, units are checked, Undo reverses it), or on a stage column to add it as a
+  new line (type the amount where you dropped it);
 - **+ Add a line** goes to the search.
 
 ### 6. Characterisation factors
@@ -863,6 +947,10 @@ line more than 10,000 times the reference amount. If such a value is right, note
 - **Versions of the selected process** lists every change with what changed, and can restore the state before or
   after any of them.
 - **Deleted processes** brings back a process you deleted.
+- **Named versions** (under the process form in step 4) keep the process as it is now under a name, such as "as
+  reviewed" or "supplier data 2025". Each version shows what has changed since. **Compare with now** lists every
+  line that changed, was added or was removed, with both amounts and the difference; **Restore** makes the version
+  current again, as one change that Undo can reverse.
 
 A restore that no longer fits (its supplier was deleted since, for example) leaves an open input that the check
 reports, rather than failing silently.
@@ -889,7 +977,8 @@ every factor is decided. Give the factors or record why the category does not ap
 - **A library database I used was removed.** The inputs from it become "inputs without a supplier" and the check
   lists them. Choose a new supplier.
 - **Can I make one process with several products?** Yes: add co-products in step 4 and choose the allocation.
-  Or model the extra product as an avoided product (system expansion).
+  Lines that only one product causes can belong to that product (subdivision). Or model the extra product as an
+  avoided product (system expansion).
 - **Do parameters vary in Monte Carlo?** Parameters of your own data are fixed values. Give the uncertainty on
   each line (step 5). Model parameters (step 2) can have their own distributions.
 

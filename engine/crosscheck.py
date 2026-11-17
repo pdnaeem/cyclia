@@ -115,12 +115,12 @@ def _model_demand(store, ctx, model_id, pos, fpos, keep_top, depth=0, factor=1.0
     if depth > 25:
         raise ValueError("Models are nested more than 25 levels deep.")
     m = store.model(model_id)
-    share = calc.allocation_share(m["scope"])
-    for inp in m["inputs"]:
+    m["_store"] = store
+    for inp in m["inputs"] + calc.expansion_lines(m):
         if depth == 0 and not keep_top(inp):
             continue
         sign = -1.0 if inp["avoided"] else 1.0
-        amt = calc.line_amount(ctx, model_id, inp) * sign * share * factor
+        amt = calc.line_amount(ctx, model_id, inp) * sign * calc.line_share(m["scope"], inp) * factor
         if inp["kind"] == "activity":
             f[pos[inp["ref_id"]]] += amt
         elif inp["kind"] == "flow":

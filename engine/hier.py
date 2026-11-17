@@ -61,7 +61,7 @@ def line_factor(ctx, T, li):
     L = T["lines"][li]
     inp, owner = L["inp"], L["owner"]
     a = calc.line_amount(ctx, owner, inp) * (-1.0 if inp["avoided"] else 1.0)
-    a *= calc.allocation_share(ctx.model(owner)["scope"])
+    a *= calc.line_share(ctx.model(owner)["scope"], inp)
     if inp["kind"] == "model":
         a /= (ctx.model(inp["ref_id"])["amount"] or 1.0)
     return a

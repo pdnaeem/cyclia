@@ -42,9 +42,9 @@ def _cost_items(ctx, model_id, mult, windows, path, depth, out, uncosted):
     if depth > 25:
         raise calc.LCAError("Models are nested more than 25 levels deep.")
     m = ctx.model(model_id)
-    share = calc.allocation_share(m["scope"])
     for inp in m["inputs"]:
         sign = -1.0 if inp["avoided"] else 1.0
+        share = calc.line_share(m["scope"], inp)
         name = inp["label"] or inp["target"]["name"]
         y = float(inp.get("year") or 0)
         R = float(inp.get("replace_every") or 0)
@@ -385,6 +385,83 @@ def apply_cff(store, model_id, mass, unit, params, datasets, stage_production=""
                               comment=note, stage=stage, input_amount=in_amt, input_unit=in_unit, avoided=credit)
         added.append({"id": iid, "role": role, "name": a["name"], "amount": in_amt, "unit": in_unit, "credit": credit})
     return {"added": added, "parameters": v, "note": note}
+
+
+# ============================================================================ end-of-life approaches side by side
+EOL_APPROACHES = ("cut-off", "end-of-life recycling", "50:50", "Circular Footprint Formula")
+EOL_ROLES = ("virgin", "recycled", "recycling_eol", "avoided_virgin", "disposal")
+
+
+def eol_coefficients(p):
+    """Amount of each role per unit of material under four ways of modelling recycling, for recycled content R1 and
+    end-of-life recycling rate R2 (Ekvall et al. 2020, IVL report C551, equations for the cut-off, end-of-life recycling
+    in its consequential form, 50/50 and the Circular Footprint Formula; energy recovery is left out of the
+    comparison, R3 = 0):
+      cut-off                 (1-R1) Ev + R1 ERin + (1-R2) ED
+      end-of-life recycling   Ev + R2 (ERout - E*v) + (1-R2) ED
+      50:50                   0.5 [(1-R1) + (1-R2)] (Ev + ED) + 0.5 (R1 ERin + R2 ERout)
+      CFF                     (1-R1) Ev + R1 [A ERin + (1-A) Ev Qsin/Qp] + (1-A) R2 [ERout - E*v Qsout/Qp] + (1-R2) ED
+    Roles: virgin Ev, recycled ERin, recycling_eol ERout, avoided_virgin E*v (a credit, negative), disposal ED."""
+    lines, v = cff_lines(dict(p or {}, R3=0, B=0, LHV=0, X_heat=0, X_elec=0))
+    R1, R2, A, qi, qo = v["R1"], v["R2"], v["A"], v["Qsin"], v["Qsout"]
+    half = 0.5 * ((1 - R1) + (1 - R2))
+    co = {
+        "cut-off": {"virgin": 1 - R1, "recycled": R1, "recycling_eol": 0.0, "avoided_virgin": 0.0, "disposal": 1 - R2},
+        "end-of-life recycling": {"virgin": 1.0, "recycled": 0.0, "recycling_eol": R2, "avoided_virgin": -R2,
+                                  "disposal": 1 - R2},
+        "50:50": {"virgin": half, "recycled": 0.5 * R1, "recycling_eol": 0.5 * R2, "avoided_virgin": 0.0,
+                  "disposal": half},
+        "Circular Footprint Formula": {"virgin": (1 - R1) + R1 * (1 - A) * qi, "recycled": R1 * A,
+                                       "recycling_eol": (1 - A) * R2, "avoided_virgin": -(1 - A) * R2 * qo,
+                                       "disposal": 1 - R2},
+    }
+    return co, v
+
+
+def eol_compare(store, params, datasets, method_ids, mass=1.0, unit="kg"):
+    """Results of `mass` of a material under the four approaches, for each impact category, with the share of each
+    role. `datasets` maps a role to a dataset id (avoided_virgin: the virgin dataset when not given); a role with a
+    zero coefficient in every approach needs no dataset."""
+    co, v = eol_coefficients(params)
+    mass = numcheck.finite(mass, "The mass of the material", lo=0, lo_open=True)
+    method_ids = [numcheck.identifier(m, "method_ids") for m in method_ids or []]
+    if not method_ids:
+        raise ValueError("Choose at least one impact category.")
+    need = [r for r in EOL_ROLES if any(abs(co[a][r]) > 1e-12 for a in co)]
+    mc = calc._cache.get(store)
+    M = calc.Methods(store, mc, method_ids)
+    score, used = {}, {}
+    for role in need:
+        aid = datasets.get(role) or (datasets.get("virgin") if role == "avoided_virgin" else None)
+        if not aid:
+            raise ValueError(f"Choose a dataset for {CFF_LABEL[role]}.")
+        a = store.activity(numcheck.identifier(aid, f"The dataset for {CFF_LABEL[role]}"))
+        if not a:
+            raise ValueError(f"The dataset for {CFF_LABEL[role]} is not in the library.")
+        fac = units.factor(unit or "kg", a["unit"])
+        if fac is None:
+            raise ValueError(f"The dataset for {CFF_LABEL[role]} is in {a['unit']}, which cannot be converted from "
+                             f"{unit}. Pick a dataset per unit of mass.")
+        j = mc.act_index[a["id"]]
+        f = np.zeros(mc.n)
+        f[j] = 1.0 if mc.diag[j] >= 0 else -1.0
+        score[role] = (M.Q @ mc.solve(f)) * fac * mass        # result of `mass` of material through this dataset
+        used[role] = {"id": a["id"], "name": a["name"], "location": a["location"], "unit": a["unit"],
+                      "amount_per_unit_material": fac}
+    rows = []
+    for k, m in enumerate(M.rows):
+        r = {"method_id": m["id"], "family": m["family"], "category": m["category"], "indicator": m["indicator"],
+             "unit": m["unit"], "approaches": {}}
+        for ap in EOL_APPROACHES:
+            parts = {role: float(co[ap][role] * score[role][k]) for role in need}
+            r["approaches"][ap] = {"total": float(sum(parts.values())), "parts": parts}
+        rows.append(r)
+    return {"approaches": list(EOL_APPROACHES), "coefficients": co, "parameters": {k: v[k] for k in
+                                                                                  ("A", "R1", "R2", "Qsin", "Qsout")},
+            "datasets": used, "mass": mass, "unit": unit, "results": rows,
+            "note": "Energy recovery is not part of this comparison (R3 = 0). Formulas: Ekvall et al. (2020), "
+                    "'Modeling recycling in life cycle assessment', IVL report C551, and the PEF Circular Footprint "
+                    "Formula (Commission Recommendation (EU) 2021/2279, Annex C)."}
 
 
 # ============================================================================ database comparison and update

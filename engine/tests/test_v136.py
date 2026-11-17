@@ -151,12 +151,16 @@ class TestLinkingGeography(Base):
         st = {x["location"]: bool(x["linked"]) for x in linking.groups(self.st, db)}
         self.assertEqual(st, {"FR": True, "DE": False, "PL": False})
 
-    def test_auto_link_needs_one_supplier_at_the_location(self):
+    def test_auto_link_falls_back_to_the_global_dataset(self):
         db = self._db_with_electricity_inputs()
         r = linking.auto_link(self.st, db)
-        # the tutorial has no electricity dataset at FR, DE or PL: nothing may be linked by guessing
-        self.assertEqual(r["auto_linked"], 0)
-        self.assertEqual(r["left_for_review"], 3)
+        # the tutorial has no electricity dataset at FR, DE or PL, only a global one: since 1.10 the inputs follow
+        # ecoinvent's linking rules (same location, containing region, RoW, GLO) and get the global dataset, and the
+        # result says so by rule
+        self.assertEqual(r["auto_linked"], 3)
+        self.assertEqual(r["by_rule"], {"global": 3})
+        self.assertEqual(r["left_for_review"], 0)
+        self.assertEqual({x["method"] for x in linking.log(self.st, db)}, {"automatic"})
 
 
 # ---------------------------------------------------------------------------------------- JSON-LD providers

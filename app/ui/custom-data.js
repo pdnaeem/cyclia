@@ -210,10 +210,11 @@
     const outs = [$("#cdPrProduct").value, ...C.co.map((c) => c.product)].filter(Boolean);
     const label = { mass: "kg per unit (only if the unit is not a mass unit)", energy: "MJ per unit (only if the unit is not an energy unit)", economic: "price per unit", physical: `${val("cdAlProp") || "property"} per unit`, manual: "share (0 to 1)" }[m];
     $("#cdAlEco").hidden = m !== "economic"; $("#cdAlPhys").hidden = m !== "physical";
-    $("#cdAlValues").innerHTML = C.co.length && m ? outs.map((u) => { const p = prods.find((x) => x.uuid === u);
+    $("#cdAlValues").innerHTML = m === "subdivision" ? (C.co.length ? '<p class="hint">No allocation: give every line in step 5 the product it belongs to. A shared line is refused.</p>' : "")
+      : C.co.length && m ? outs.map((u) => { const p = prods.find((x) => x.uuid === u);
       return `<div class="cd-co-row"><span class="grow">${esc(p ? p.name : "?")} (${esc(p ? p.data.unit : "")})</span><span class="hint">${label}</span><input data-av="${esc(u)}" type="number" step="any" size="8" value="${esc(C.alValues[u] ?? "")}"></div>`; }).join("") : "";
     const sh = procOf(C.proc) && procOf(C.proc).shares;
-    $("#cdCoSummary").textContent = C.co.length ? `(${C.co.length} co-product${C.co.length > 1 ? "s" : ""}${sh ? ", shares " + Object.entries(sh).map(([u, f]) => { const p = prods.find((x) => x.uuid === u); return `${p ? p.name : "?"} ${(f * 100).toPrecision(3)} %`; }).join(", ") : ""})` : "";
+    $("#cdCoSummary").textContent = C.co.length ? `(${C.co.length} co-product${C.co.length > 1 ? "s" : ""}${m === "subdivision" ? ", subdivided" : sh ? ", shares of the shared lines " + Object.entries(sh).map(([u, f]) => { const p = prods.find((x) => x.uuid === u); return `${p ? p.name : "?"} ${(f * 100).toPrecision(3)} %`; }).join(", ") : ""})` : "";
   }
   $("#cdCoRows").addEventListener("input", (e) => { const r = e.target.closest("[data-ci]"); if (!r) return; const c = C.co[Number(r.dataset.ci)];
     c[e.target.dataset.cf] = e.target.dataset.cf === "amount" ? Number(e.target.value) : e.target.value; renderAlValues(); });
@@ -277,6 +278,9 @@
     renderExchanges(p);
     exchangeForm(null);
     $("#cdHistOut").innerHTML = "";
+    $("#cdVerOut").innerHTML = "";
+    if ($("#cdVerBox").open) showVersions().catch(() => {});
+    else $("#cdVerList").innerHTML = "";
     $("#cdDeps").innerHTML = "";
     if (p) api("GET", `/api/custom/dependents?process=${encodeURIComponent(p.uuid)}`).then((d) => {
       if (C.proc !== p.uuid) return;
@@ -321,10 +325,20 @@
     const ex = p ? p.exchanges : [];
     $("#cdExchanges").innerHTML = !p ? empty(7, "Save the process in step 4 first.")
       : ex.length ? `<thead><tr><th>Type</th><th>Flow or supplier</th><th class="num">Entered</th><th class="num">In reference unit</th><th>Uncertainty</th><th>Source and revision</th><th></th></tr></thead><tbody>` +
-        ex.map((e) => `<tr><td>${exType(e)}</td><td>${esc(e.label)}</td><td class="num">${fmt(e.amount)} ${esc(e.unit)}${e.formula ? `<br><span class="meta">= ${esc(e.formula)}</span>` : ""}</td><td class="num">${fmt(e.amount_ref)} ${esc(e.ref_unit)}</td><td>${uncText(e)}</td>
+        ex.map((e) => `<tr><td>${exType(e)}${e.assign ? `<br><span class="meta">only ${esc(prodName(e.assign))}</span>` : ((p.data.coproducts || []).length && p.data.allocation && p.data.allocation.method !== "subdivision" ? '<br><span class="meta">shared</span>' : "")}</td><td>${esc(e.label)}</td><td class="num">${fmt(e.amount)} ${esc(e.unit)}${e.formula ? `<br><span class="meta">= ${esc(e.formula)}</span>` : ""}</td><td class="num">${fmt(e.amount_ref)} ${esc(e.ref_unit)}</td><td>${uncText(e)}</td>
           <td>${esc(e.source || "")}<br><span class="meta">revision ${e.revision || 1}${e.author ? ", " + esc(e.author) : ""}</span></td>
           <td><button class="ghost" data-cdxedit="${e.id}">Edit</button><button class="ghost" data-cdxdel="${e.id}">Remove</button></td></tr>`).join("") + "</tbody>"
         : empty(7, "No line yet. Add inputs, waste, credits, emissions and resources below.");
+  }
+  function prodName(u) { const x = C.data && C.data.products.find((q) => q.uuid === u); return x ? x.name : "?"; }
+  function fillAssign(e) {
+    const p = procOf(C.proc), cps = p ? p.data.coproducts || [] : [];
+    $("#cdXAssignRow").hidden = !cps.length;
+    if (!cps.length) { $("#cdXAssign").innerHTML = ""; return; }
+    const sub = p.data.allocation && p.data.allocation.method === "subdivision";
+    $("#cdXAssign").innerHTML = (sub ? "" : opt("", "all products (shared, allocated)")) +
+      [p.data.product, ...cps.map((c) => c.product)].map((u) => opt(u, `only ${prodName(u)}`)).join("");
+    $("#cdXAssign").value = e && e.assign ? e.assign : sub ? p.data.product : "";
   }
   function fillTargets(keep) {
     const kind = $("#cdXKind").value, src = $("#cdXSupSrc").value;
@@ -396,6 +410,7 @@
       $("#cdXAmount").value = ""; $("#cdXSrc").value = ""; $("#cdXComment").value = ""; $("#cdXUnc").value = "none";
       uncFields();
     }
+    fillAssign(e);
   }
   $("#cdXKind").addEventListener("change", () => { $("#cdXUnit").value = ""; fillTargets(); });
   $("#cdXSupSrc").addEventListener("change", () => { $("#cdXUnit").value = ""; fillTargets(); });
@@ -415,7 +430,8 @@
     if (!t) throw new Error("Choose the supplier or the flow.");
     const b = { process: C.proc, id: C.editX ? C.editX.id : undefined, kind: kind === "elementary" ? "elementary" : "technosphere",
       avoided: kind === "avoided", supplier: t, flow: t, unit: val("cdXUnit"), uncertainty: $("#cdXUnc").value,
-      source: val("cdXSrc"), comment: val("cdXComment"), author: C.data.database.author || "" };
+      source: val("cdXSrc"), comment: val("cdXComment"), author: C.data.database.author || "",
+      assign: $("#cdXAssignRow").hidden ? "" : $("#cdXAssign").value };
     const amt = val("cdXAmount");
     if (amt !== "" && !Number.isNaN(Number(amt))) b.amount = Number(amt); else b.formula = amt;
     if (b.uncertainty === "pedigree") b.pedigree = [0, 1, 2, 3, 4].map((i) => num("cdPed" + i));
@@ -537,6 +553,12 @@
     C.proc = uid; $("#cdProc").value = uid; fillProcForm(); drawDiagram();
   }
   function nodeClick(n) {
+    if (C.pick !== null && C.pick !== undefined && C.dgFound[C.pick]) {
+      if (!n.custom) { toast("Click one of your processes: library datasets cannot be changed here.", true); return; }
+      const a = C.dgFound[C.pick];
+      C.pick = null; drawChips(); $("#cdConnectHint").textContent = "";
+      newInput(n, libSrc(a)); return;
+    }
     if (C.connect === null && $("#btnCdConnect").classList.contains("on")) {
       C.connect = n.id; $("#cdConnectHint").textContent = `Supplier: ${n.label}. Now click the process that uses it.`; drawDiagram(); return;
     }
@@ -544,22 +566,67 @@
       if (!n.custom) { toast("Click one of your processes: library datasets cannot be changed here.", true); return; }
       const src = C.g.nodes[C.connect];
       connectMode(false);
-      selectProcess(n.id);
-      $("#cdXKind").value = "technosphere";
-      if (src.custom) { $("#cdXSupSrc").value = "custom"; fillTargets(); $("#cdXTarget").value = src.id; }
-      else { $("#cdXSupSrc").value = "library"; fillTargets({ value: src.target, label: src.tlabel }); }
-      $("#cdXUnit").value = ""; refUnit();
-      $("#cdXMode").textContent = `New input of "${n.label}" from "${src.label}": enter the amount`;
-      $("#cdSec5 .subpanel").scrollIntoView({ behavior: "smooth", block: "center" });
-      setTimeout(() => $("#cdXAmount").focus(), 300);
+      newInput(n, src);
       return;
     }
     if (n.custom) { selectProcess(n.id); toast(`Selected: ${n.label}. Its details are in steps 4 and 5.`); }
   }
+  function newInput(n, src) {
+    // the input form of process n, with supplier src ({custom, id} or {target, label} of a library dataset)
+    selectProcess(n.id);
+    $("#cdXKind").value = "technosphere";
+    if (src.custom) { $("#cdXSupSrc").value = "custom"; fillTargets(); $("#cdXTarget").value = src.id; }
+    else { $("#cdXSupSrc").value = "library"; fillTargets({ value: String(src.target), label: src.tlabel }); }
+    $("#cdXUnit").value = ""; refUnit();
+    $("#cdXMode").textContent = `New input of "${n.label}" from "${src.label}": enter the amount`;
+    $("#cdSec5 .subpanel").scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => $("#cdXAmount").focus(), 300);
+  }
+  C.dgFound = []; C.pick = null;
+  const libSrc = (a) => ({ custom: false, target: a.id, label: a.name, tlabel: `${a.name} [${a.location}] (${a.db})` });
+  function drawChips() {
+    $("#cdDgFound").innerHTML = C.dgFound.map((a, i) => `<span class="cd-chip${C.pick === i ? " on" : ""}" draggable="true" tabindex="0" role="button" data-chip="${i}" title="Drag onto the process that uses it, or click it and then the process">${esc(cut(`${a.name} [${a.location}]`, 60))} <span class="meta">${esc(a.unit)}, ${esc(a.db)}</span></span>`).join("");
+  }
+  $("#btnCdDgSearch").addEventListener("click", (e) => guard(e.target, async () => {
+    if (!val("cdDgSearch")) throw new Error("Type a word to search, e.g. electricity.");
+    C.dgFound = (await api("GET", `/api/search?q=${encodeURIComponent(val("cdDgSearch"))}`)).results.filter((a) => a.id).slice(0, 24);
+    C.pick = null; drawChips();
+    if (!C.dgFound.length) toast("Nothing found. Try a shorter word.", true);
+  }));
+  $("#cdDgSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#btnCdDgSearch").click(); });
+  function pickChip(i) {
+    C.pick = C.pick === i ? null : i; drawChips();
+    if (C.pick !== null) { if ($("#btnCdConnect").classList.contains("on")) connectMode(false); $("#cdConnectHint").textContent = `Supplier: ${C.dgFound[i].name}. Now click the process that uses it.`; }
+    else $("#cdConnectHint").textContent = "";
+  }
+  $("#cdDgFound").addEventListener("click", (e) => { const c = e.target.closest("[data-chip]"); if (c) pickChip(Number(c.dataset.chip)); });
+  $("#cdDgFound").addEventListener("keydown", (e) => { const c = e.target.closest("[data-chip]"); if (c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); pickChip(Number(c.dataset.chip)); } });
+  $("#cdDgFound").addEventListener("dragstart", (e) => { const c = e.target.closest("[data-chip]"); if (!c) return; e.dataTransfer.setData("text/plain", "cyclia-lib:" + c.dataset.chip); e.dataTransfer.effectAllowed = "copy"; });
+  const dropNode = (evt) => { const gEl = evt.target.closest && evt.target.closest("[data-node]"); const n = gEl && C.g && C.g.nodes[gEl.dataset.node]; return n && n.custom ? { n, gEl } : null; };
+  $("#cdCanvas").addEventListener("dragover", (evt) => {
+    evt.preventDefault();
+    $$("#cdCanvas .cd-node.drop").forEach((x) => x.classList.remove("drop"));
+    const d = dropNode(evt); if (d) d.gEl.classList.add("drop");
+    evt.dataTransfer.dropEffect = d ? "copy" : "none";
+  });
+  $("#cdCanvas").addEventListener("dragleave", () => $$("#cdCanvas .cd-node.drop").forEach((x) => x.classList.remove("drop")));
+  $("#cdCanvas").addEventListener("drop", (evt) => {
+    evt.preventDefault();
+    $$("#cdCanvas .cd-node.drop").forEach((x) => x.classList.remove("drop"));
+    const t = evt.dataTransfer.getData("text/plain") || "";
+    if (!t.startsWith("cyclia-lib:")) return;
+    const a = C.dgFound[Number(t.slice(11))], d = dropNode(evt);
+    if (!a) return;
+    if (!d) { toast("Drop the supplier onto one of your processes (the solid boxes).", true); return; }
+    C.pick = null; drawChips(); $("#cdConnectHint").textContent = "";
+    newInput(d.n, libSrc(a));
+  });
+  $("#btnCdNewProc").addEventListener("click", () => { $("#btnCdProcNew").click(); $("#cdPrName").scrollIntoView({ behavior: "smooth", block: "center" }); });
   function connectMode(on) {
     $("#btnCdConnect").classList.toggle("on", on);
     $("#btnCdConnect").textContent = on ? "Cancel connecting" : "Connect";
     C.connect = null;
+    if (on && C.pick !== null) { C.pick = null; drawChips(); }
     $("#cdConnectHint").textContent = on ? "Click the supplier first (one of your processes or a library dataset)." : "";
     drawDiagram();
   }
@@ -720,6 +787,40 @@
     await api("POST", "/api/custom/undo", { process: C.proc }); toast("Last change undone (press again to redo it)."); await loadDb();
     if ($("#cdHistOut").innerHTML) await showHistory();
   }));
+  // ------------------------------------------------------------------ named versions
+  async function showVersions() {
+    if (!C.proc) { $("#cdVerList").innerHTML = '<p class="hint">Save the process first.</p>'; return; }
+    const uid = C.proc, v = (await api("GET", `/api/custom/versions?process=${encodeURIComponent(uid)}`)).versions;
+    if (C.proc !== uid) return;
+    $("#cdVerList").innerHTML = v.length ? `<div class="table-wrap"><table><thead><tr><th>Version</th><th>Saved (UTC)</th><th>Lines</th><th>Since then</th><th></th></tr></thead><tbody>` +
+      v.map((x) => `<tr><td><b>${esc(x.name)}</b>${x.note ? `<br><span class="meta">${esc(x.note)}</span>` : ""}</td><td>${esc((x.time || "").replace("T", " ").slice(0, 16))}${x.author ? `<br><span class="meta">${esc(x.author)}</span>` : ""}</td><td class="num">${x.lines}</td>
+        <td class="meta">${x.same_as_current ? "same as now" : esc(x.changes_since)}</td>
+        <td><button class="ghost" data-vcmp="${x.id}">Compare with now</button><button class="ghost" data-vres="${x.id}"${x.same_as_current ? " disabled" : ""}>Restore</button><button class="ghost" data-vdel="${x.id}">Delete</button></td></tr>`).join("") + "</tbody></table></div>"
+      : '<p class="hint">No named version yet.</p>';
+  }
+  $("#cdVerBox").addEventListener("toggle", () => { if ($("#cdVerBox").open) { $("#cdVerOut").innerHTML = ""; showVersions().catch((e) => toast(e.message, true)); } });
+  $("#btnCdVerSave").addEventListener("click", (e) => guard(e.target, async () => {
+    if (!C.proc) throw new Error("Save the process first.");
+    await api("POST", "/api/custom/versions", { process: C.proc, name: val("cdVerName"), note: val("cdVerNote"), author: (C.data && C.data.database.author) || "" });
+    toast(`Version "${val("cdVerName")}" saved.`); $("#cdVerName").value = ""; $("#cdVerNote").value = ""; await showVersions();
+  }));
+  $("#cdVerList").addEventListener("click", (e) => {
+    const c = e.target.closest("[data-vcmp]"), r = e.target.closest("[data-vres]"), d = e.target.closest("[data-vdel]");
+    if (c) guard(c, async () => {
+      const x = await api("POST", "/api/custom/versions/compare", { process: C.proc, a: Number(c.dataset.vcmp), b: "current" });
+      const show = (v) => (v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
+      const st = { changed: "changed", added: "added since", removed: "removed since", same: "same" };
+      $("#cdVerOut").innerHTML = `<p class="hint"><b>"${esc(x.a)}" compared with now:</b> ${x.summary.changed} line(s) changed, ${x.summary.added} added, ${x.summary.removed} removed, ${x.summary.same} the same. ${esc(x.note)}</p>` +
+        (x.fields.length ? `<div class="table-wrap"><table><thead><tr><th>Field</th><th>In the version</th><th>Now</th></tr></thead><tbody>${x.fields.map((f) => `<tr><td>${esc(f.field)}</td><td class="meta">${esc(cut(show(f.a), 160))}</td><td class="meta">${esc(cut(show(f.b), 160))}</td></tr>`).join("")}</tbody></table></div>` : "") +
+        `<div class="table-wrap"><table><thead><tr><th>Line</th><th>Change</th><th class="num">In the version</th><th class="num">Now</th><th class="num">Difference</th></tr></thead><tbody>${x.lines.map((l) => `<tr${l.state === "same" ? ' class="muted"' : ""}><td>${esc(l.line)}${l.avoided ? " (avoided)" : ""}${l.assign ? `<br><span class="meta">only ${esc(prodName(l.assign))}</span>` : ""}</td><td>${st[l.state]}</td><td class="num">${l.a === null ? "" : fmt(l.a)}${l.formula_a ? `<br><span class="meta">= ${esc(l.formula_a)}</span>` : ""}</td><td class="num">${l.b === null ? "" : fmt(l.b)}${l.formula_b ? `<br><span class="meta">= ${esc(l.formula_b)}</span>` : ""}</td><td class="num">${l.change === null ? "" : (l.change * 100).toFixed(2) + " %"}</td></tr>`).join("")}</tbody></table></div>`;
+    });
+    if (r) guard(r, async () => {
+      await api("POST", "/api/custom/versions/restore", { process: C.proc, version: Number(r.dataset.vres), author: (C.data && C.data.database.author) || "" });
+      toast("Version restored. Undo brings the previous state back."); await loadDb(); $("#cdVerBox").open = true; await showVersions();
+      if (typeof refreshStatus === "function") await refreshStatus();
+    });
+    if (d) guard(d, async () => { await api("POST", "/api/custom/versions/delete", { process: C.proc, version: Number(d.dataset.vdel) }); toast("Version deleted."); await showVersions(); });
+  });
   $("#btnCdDeleted").addEventListener("click", (e) => guard(e.target, async () => {
     needDb();
     const d = (await api("GET", `/api/custom/${C.db}/deleted`)).processes;
@@ -866,7 +967,7 @@
     await saveModelScope();
     const r = await api("POST", "/api/allocation/compare", { model_id: S.model.id, method_ids: mids.slice(0, 6) });
     $("#allocCmpOut").innerHTML = `<p class="hint">${esc(r.note)}</p><div class="table-wrap"><table><thead><tr><th>Choice</th><th class="num">Share of the main product</th>${r.methods.map((m) => `<th class="num">${esc(m.category)} (${esc(m.unit)})</th>`).join("")}</tr></thead><tbody>` +
-      r.rows.map((x) => x.available ? `<tr${x.current ? ' class="ok"' : ""}><td>${esc(x.choice)}${x.current ? " (chosen)" : ""}</td><td class="num">${(x.share * 100).toPrecision(4)} %</td>${(x.totals || []).map((v) => `<td class="num">${fmt(v)}</td>`).join("")}</tr>`
+      r.rows.map((x) => x.available ? `<tr${x.current ? ' class="ok"' : ""}><td>${esc(x.choice)}${x.current ? " (chosen)" : ""}</td><td class="num">${x.share === null || x.share === undefined ? "by line" : (x.share * 100).toPrecision(4) + " %"}</td>${(x.totals || []).map((v) => `<td class="num">${fmt(v)}</td>`).join("")}</tr>`
         : `<tr><td>${esc(x.choice)}</td><td colspan="${1 + r.methods.length}" class="hint">${esc(x.reason)}</td></tr>`).join("") + "</tbody></table></div>";
   }));
 })();

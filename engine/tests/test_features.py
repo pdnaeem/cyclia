@@ -364,7 +364,8 @@ class TestFeatures(unittest.TestCase):
         self.assertEqual(r["database"]["system_model"], "attributional")
         v = self.api("POST", "/api/validate", {"db_id": md["id"]})
         keys = [x["key"] for x in v["statuses"]]
-        self.assertEqual(keys, ["matrix", "technosphere", "flows", "units", "metadata", "lcia"])
+        self.assertEqual(keys, ["matrix", "technosphere", "flows", "units", "metadata", "lcia", "links", "geography",
+                                "uncertainty", "duplicates", "provenance"])   # 1.10 added the last five
         meta = next(x for x in v["statuses"] if x["key"] == "metadata")
         self.assertEqual(meta["level"], "ok", meta)          # version, system model, source, licence, date, hash, importer
         hits = self.api("GET", "/api/explore?q=Widget+136")["results"]

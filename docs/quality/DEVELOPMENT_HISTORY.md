@@ -178,6 +178,33 @@ optimisation of discrete choices, Sobol indices with parameters of custom data, 
 fallback and coverage. 1.8.1 corrected the recording of ecoinvent benchmarks in the Benchmark Centre and the review
 merge on coarse clocks.
 
+## 2v. 1.10.0
+
+Database management (road to 2.0, step 2):
+- supplier linking by geography, with ecoinvent's rules on the constructive_geometries topology;
+- a log of linking decisions, each of which can be undone;
+- five more database checks with an Excel export;
+- dataset provenance in the explorer;
+- tests that an import reproduces the regression snapshot and that a stopped import leaves results unchanged.
+
+The user's 1.9.2 run on ecoinvent 3.13 settled the last deviation. The refined solution matched ecoinvent for the 180
+tiny biotic resources results the plain LU solve had wrong, so every solve now refines once. All 61,400 results of
+that run are within 0.1 %, and the reports are published in docs/benchmarks.
+
+The first part of step 3 (modelling) was added to the same release at the user's request: end-of-life approaches
+side by side, and the supply chain tree in the Database explorer. Then, also at the user's request and still as
+1.10.0: subdivision of multi-output processes of own data (a line belongs to one product or is shared), named
+versions of a process with line-by-line comparison and undoable restore, and library suppliers searched and dragged
+onto processes in the diagram of own data.
+
+The rest of step 3 followed, again in 1.10.0: allocation, subdivision or system expansion as the explicit choice of a
+model (one rule, line_share, used by every calculation path), and supplier relations edited by drag and drop in the
+model diagram. Writing the tests found that the datasets list of a model applied the allocation share twice; fixed.
+
+Last, the CFF was tested against the published worked example of Rickert and Ciroth (2020), which uses the PEF
+Annex C values for paper. No official numerical example with energy recovery was found, which the acceptance
+record states.
+
 ## 2u. 1.9.2
 
 The user's 1.9.1 run gave values identical to 1.9.0's. Ecological Scarcity 2021 biotic resources still deviated:

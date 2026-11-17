@@ -64,7 +64,6 @@ def _prepare(store, model_id, method_ids, slots, scenario=None, bg=None):
         raise OptimiseError("The model could not be calculated.")
     ctx = calc.Context(store, calc._scenario(store, scenario))
     model = ctx.model(model_id)
-    share = calc.allocation_share(model["scope"])
     inputs = {i["id"]: i for i in model["inputs"]}
     mc = calc.get_mc(store, bg)
     M = calc.Methods(store, mc, method_ids)
@@ -86,6 +85,9 @@ def _prepare(store, model_id, method_ids, slots, scenario=None, bg=None):
         if inp["kind"] not in ("activity", "model"):
             raise OptimiseError(f"'{ln['name']}': only dataset and model lines can be exchanged.")
         sign = -1.0 if inp["avoided"] else 1.0
+        if inp.get("derived"):
+            raise OptimiseError(f"'{ln['name']}' is a system expansion credit; change what it replaces in step 2.")
+        share = calc.line_share(model["scope"], inp)
         cur_cost = None
         if inp.get("unit_cost") is not None:
             cur_cost = float(inp["unit_cost"]) * float(ln["input_amount"] if ln["input_amount"] is not None
@@ -170,7 +172,6 @@ def optimise(store, model_id, method_ids, slots, objective, constraints=(), scen
     if has_cost:
         # purchase cost per functional unit of the model's own lines that carry a cost per unit
         model = store.model(_id(model_id, "model_id"))
-        share = calc.allocation_share(model["scope"])
         lines = {l["input_id"]: l for l in base["lines"]}
         base_cost = 0.0
         for inp in model["inputs"]:
@@ -178,7 +179,8 @@ def optimise(store, model_id, method_ids, slots, objective, constraints=(), scen
             if inp.get("unit_cost") is None or not ln or ln["module_d"]:
                 continue
             amt = ln["input_amount"] if ln["input_amount"] is not None else ln["amount"]
-            base_cost += float(inp["unit_cost"]) * float(amt) * (-1.0 if inp["avoided"] else 1.0) * share
+            base_cost += float(inp["unit_cost"]) * float(amt) * (-1.0 if inp["avoided"] else 1.0) * \
+                calc.line_share(model["scope"], inp)
     base_vec = np.concatenate([totals, [base_cost if base_cost is not None else 0.0]])
     combos = np.array(list(itertools.product(*[range(len(p["options"])) for p in prepared])), dtype=np.int64)
     vals = np.tile(base_vec, (len(combos), 1))

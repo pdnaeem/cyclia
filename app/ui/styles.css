@@ -1007,6 +1007,11 @@ tr.flash td { background: var(--ochre-weak); transition: background .3s; }
 .cd-canvas .cd-node.lib rect { fill: var(--sunken); stroke-dasharray: 4 3; }
 .cd-canvas .cd-node.sel rect { stroke: var(--spruce); stroke-width: 2; }
 .cd-canvas .cd-node.src rect { stroke: var(--ochre); stroke-width: 2; }
+.cd-canvas .cd-node.drop rect { stroke: var(--spruce); stroke-width: 3; fill: var(--sunken); }
+.cd-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.cd-chip { border: 1px dashed var(--rule-strong); border-radius: 999px; padding: 3px 10px; background: var(--panel); font-size: 12px; cursor: grab; }
+.cd-chip.on { border-style: solid; border-color: var(--ochre); }
+.cd-chip:focus-visible { outline: 2px solid var(--spruce); outline-offset: 2px; }
 .cd-canvas .cd-node text { fill: var(--ink); font-size: 12px; pointer-events: none; }
 .cd-canvas .cd-node .sub { fill: var(--ink-soft); font-size: 10px; }
 .cd-canvas .cd-edge { fill: none; stroke: var(--ink-soft); stroke-width: 1.6; cursor: pointer; }
@@ -1024,3 +1029,16 @@ tr.flash td { background: var(--ochre-weak); transition: background .3s; }
 .rv-thread { border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
 .rv-thread p { margin: 4px 0; }
 .rv-reply { margin-left: 18px !important; padding-left: 8px; border-left: 3px solid var(--rule); }
+tr.muted td { opacity: .55; }
+.sc-tree, .sc-tree ul { list-style: none; margin: 0; padding-left: 1.1rem; }
+.sc-tree > li { padding-left: 0; }
+.sc-tree summary, .sc-tree .sc-rest { display: grid; grid-template-columns: minmax(0, 1fr) 120px 140px 64px; gap: .6rem; align-items: center; padding: .15rem 0; }
+.sc-tree .sc-rest { grid-template-columns: minmax(0, 1fr) 140px; padding-left: 1rem; }
+.sc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-bar { height: .5rem; background: var(--line, #e5e5e5); border-radius: 3px; overflow: hidden; }
+.sc-bar span { display: block; height: 100%; background: var(--accent, #2f6f5e); }
+.sc-bar span.neg { background: var(--warn, #b8741a); }
+@media (max-width: 700px) { .sc-tree summary { grid-template-columns: minmax(0, 1fr) 90px 50px; } .sc-tree .sc-bar { display: none; } }
+#diagram .dg-box.drop rect { stroke: var(--spruce); stroke-width: 3; }
+#invRows select.assign { display: block; margin-top: 4px; font-size: 11px; max-width: 110px; }
+.cp-table .cp-rname { font-size: 12px; }

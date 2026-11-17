@@ -60,7 +60,7 @@ import units  # noqa: E402
 from importers import demo, ecoinvent_login, ecospold2, jsonld, lcia, other_formats, tutorial  # noqa: E402
 from store import Workspace  # noqa: E402
 
-VERSION = "1.9.2"
+VERSION = "1.10.0"
 APP = "Cyclia"
 trust.APP_VERSION = VERSION
 UI_DIR = os.environ.get("CYCLIA_UI") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "ui")
@@ -646,7 +646,7 @@ def unlinked_link(st, body, q, db_id):
     target = _need(body, "target_id")[0]
     try:
         r = linking.link(st.store, int(db_id), body.get("product", ""), body.get("unit", ""), _int(target, "target_id", 1), body.get("factor"),
-                         location=body.get("location"))
+                         location=body.get("location"), author=st.author)
     except ValueError as e:
         raise ApiError(str(e))
     calc.invalidate()
@@ -655,14 +655,55 @@ def unlinked_link(st, body, q, db_id):
 
 @route("POST", r"/api/databases/(\d+)/unlink")
 def unlinked_unlink(st, body, q, db_id):
-    r = linking.unlink(st.store, int(db_id), body.get("product", ""), body.get("unit", ""), location=body.get("location"))
+    r = linking.unlink(st.store, int(db_id), body.get("product", ""), body.get("unit", ""), location=body.get("location"),
+                       author=st.author)
     calc.invalidate()
     return r
 
 
 @route("POST", r"/api/databases/(\d+)/autolink")
 def unlinked_auto(st, body, q, db_id):
-    r = linking.auto_link(st.store, int(db_id))
+    r = linking.auto_link(st.store, int(db_id), author=st.author)
+    calc.invalidate()
+    return r
+
+
+@route("GET", r"/api/activities/(\d+)/provenance")
+def activity_provenance(st, body, q, act_id):
+    import dbquality
+    try:
+        return dbquality.dataset_provenance(st.store, int(act_id))
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+@route("POST", "/api/export/database-check")
+def export_database_check(st, body, q):
+    """The database check (matrix, completeness, flows, units, metadata, LCIA, links, geography, uncertainty,
+    duplicates, provenance) as an Excel workbook, with the linking decisions."""
+    import dbquality
+    db = body.get("db_id")
+    db_id = _int(db, "db_id", 1) if db not in (None, "") else None
+    v = _calc_error(calc.validate_database, st.store, db_id)
+    name = (st.store.one("SELECT name FROM databases WHERE id=?", (db_id,)) or {}).get("name") if db_id else "library"
+    path = _export_path(st, body, {"name": f"{name} database check"}, "xlsx")
+    _writable(path)
+    dbquality.excel(path, v, linking.log(st.store, db_id) if db_id else [])
+    return {"path": path, "file": os.path.basename(path)}
+
+
+@route("GET", r"/api/databases/(\d+)/link-log")
+def link_log(st, body, q, db_id):
+    """The linking decisions of a database (1.10): who linked what to which supplier, by which rule, and when."""
+    return {"log": linking.log(st.store, int(db_id))}
+
+
+@route("POST", r"/api/link-log/(\d+)/undo")
+def link_undo(st, body, q, log_id):
+    try:
+        r = linking.undo(st.store, int(log_id), author=st.author)
+    except ValueError as e:
+        raise ApiError(str(e))
     calc.invalidate()
     return r
 
@@ -1010,6 +1051,10 @@ def input_update(st, body, q, iid):
         raise ApiError("That line no longer exists.", 404)
     _unlocked(store, row["model_id"])
     fields = {k: body[k] for k in ("label", "comment", "stage", "avoided", "pedigree") if k in body}
+    if "assign" in body:
+        if (body["assign"] or "") not in ("", "main", "coproducts"):
+            raise ApiError("A line belongs to the main product, to the co-products, or to all products (shared).")
+        fields["assign"] = body["assign"] or ""
     if "data_type" in body:
         if body["data_type"] not in DATA_TYPES:
             raise ApiError("Data type must be primary, secondary or estimate.")
@@ -2257,6 +2302,32 @@ def scenario_file(st, body, q):
 
 
 # ------------------------------------------------------------------ professional analyses (1.3.2)
+@route("POST", "/api/eol/compare")
+def eol_compare(st, body, q):
+    """Results of one material under cut-off, end-of-life recycling, 50:50 and the Circular Footprint Formula."""
+    try:
+        return analysis.eol_compare(st.store, body.get("params") or {}, body.get("datasets") or {},
+                                    _ids(body.get("method_ids") or [], "method_ids"), body.get("mass", 1.0),
+                                    body.get("unit") or "kg")
+    except calc.LCAError as e:
+        raise ApiError(str(e))
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+@route("GET", r"/api/activities/(\d+)/supply-chain")
+def activity_supply_chain(st, body, q, act_id):
+    import supplychain
+    g = lambda k, d: (q.get(k) or [d])[0] if isinstance(q.get(k), list) else (q.get(k) or d)
+    try:
+        return supplychain.supply_chain(st.store, int(act_id), g("method_id", ""), g("depth", 3), g("top", 5),
+                                        g("min_share", 0.005))
+    except calc.LCAError as e:
+        raise ApiError(str(e))
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
 @route("POST", "/api/cff/preview")
 def cff_preview(st, body, q):
     try:
@@ -2483,7 +2554,20 @@ def allocation_overview(st, body, q):
         av = [i["label"] or i["target"]["name"] for i in full["inputs"] if i["avoided"]]
         rule = {"mass": "mass", "price": "economic value", "energy": "energy content",
                 "physical": f"physical causality ({sc.get('alloc_property') or 'property'})"}.get(basis, "manual share" if share < 1 else "")
+        mf = calc.multifunctional(sc)
+        assigned = sum(1 for i in full["inputs"] if i.get("assign"))
         issues = []
+        if mf == "system_expansion":
+            share, rule = 1.0, "system expansion: " + ", ".join(
+                f"{c.get('name') or 'co-product'} replaces dataset {c.get('replaces') or '(not chosen)'}" for c in cps)
+            if any(c.get("replaces") in (None, "") or c.get("replaces_amount") in (None, "") for c in cps):
+                issues.append("system expansion: a co-product has no replaced product or amount")
+        elif mf == "subdivision":
+            rule = f"subdivision ({assigned} of {len(full['inputs'])} lines assigned)"
+            if assigned < len(full["inputs"]):
+                issues.append("subdivision: some lines are shared")
+        elif assigned:
+            rule = (rule or "allocation") + f", {assigned} line(s) subdivided"
         if share < 1 and not (sc.get("allocation") or "").strip():
             issues.append("allocation procedure not described")
         if basis and not cps:
@@ -2494,6 +2578,9 @@ def allocation_overview(st, body, q):
             issues.append("consequential study with allocation: use system expansion")
         if share < 1 and av:
             issues.append("allocation and system expansion in the same model: check for double counting")
+        if mf == "system_expansion" and av:
+            issues.append("system expansion with credit lines entered by hand as well: check that no co-product is "
+                          "credited twice")
         out.append({"id": m["id"], "name": m["name"], "share": share, "rule": rule,
                     "coproducts": [{"name": c.get("name") or "", "mass": c.get("mass"), "price": c.get("price"),
                                     "energy": c.get("energy"), "physical": c.get("physical")} for c in cps],
@@ -2711,6 +2798,42 @@ def custom_restore(st, body, q):
     _cd_free(st)
     uid, hid = _need(body, "process", "history_id")
     _cd(custom_data.restore, st.store, uid, hid, body.get("which") or "before", body.get("author") or "")
+    return {"ok": True}
+
+
+@route("GET", "/api/custom/versions")
+def custom_versions(st, body, q):
+    uid = (q.get("process") or [""])[0]
+    if not uid:
+        raise ApiError("Missing field: process")
+    return {"versions": _cd(custom_data.versions, st.store, uid)}
+
+
+@route("POST", "/api/custom/versions")
+def custom_version_save(st, body, q):
+    uid, name = _need(body, "process", "name")
+    vid = _cd(custom_data.save_version, st.store, uid, name, body.get("note") or "", body.get("author") or "")
+    return {"id": vid}
+
+
+@route("POST", "/api/custom/versions/compare")
+def custom_version_compare(st, body, q):
+    uid, a = _need(body, "process", "a")
+    return _cd(custom_data.compare_versions, st.store, uid, a, body.get("b") or "current")
+
+
+@route("POST", "/api/custom/versions/restore")
+def custom_version_restore(st, body, q):
+    _cd_free(st)
+    uid, vid = _need(body, "process", "version")
+    _cd(custom_data.restore_version, st.store, uid, vid, body.get("author") or "")
+    return {"ok": True}
+
+
+@route("POST", "/api/custom/versions/delete")
+def custom_version_delete(st, body, q):
+    uid, vid = _need(body, "process", "version")
+    _cd(custom_data.delete_version, st.store, uid, vid)
     return {"ok": True}
 
 

@@ -468,6 +468,11 @@ def _report(grp, db, runs, cyclia_version):
                          f"{_pct(c.get('p95'))} | {_pct(c.get('max'))} | {_pct(c.get('within_0_1'), 4)} % | "
                          f"{_pct(c.get('within_1'), 4)} % | "
                          f"{'' if c.get('cancellation') is None else format(c['cancellation'], ',')} |")
+            if c.get("refined"):
+                notes.append(f"{fam}, {c['category']} ({c.get('indicator') or ''}): {c['refined']} results that the run "
+                             "reported as below numerical resolution are compared with its refined solution (one step "
+                             "of iterative refinement, as computed by Cyclia from 1.10.0); the row gives that "
+                             "comparison.")
             if c.get("analysis"):
                 notes.append(f"{fam}, {c['category']} ({c.get('indicator') or ''}): {c['analysis']}")
             elif c.get("hint") and (c.get("median") or 0) > 0.1:
@@ -564,8 +569,20 @@ def publication_from_workbook(path):
             per_method = True
             for k, (_, c) in enumerate(cats):
                 gi = ah.get("Sum of absolute contributions")
-                vals = [(b[k][ah["ecoinvent"]], b[k][ah["Cyclia"]], b[k][ah["Deviation %"]],
-                         b[k][gi] if gi is not None and gi < len(b[k]) else None) for b in blocks]
+                ri = ah.get("Cyclia, refined solution")
+                vals, refined = [], 0
+                for bl in blocks:
+                    row = bl[k]
+                    e, y, dv = row[ah["ecoinvent"]], row[ah["Cyclia"]], row[ah["Deviation %"]]
+                    note = str(row[ah["Note"]] or "") if "Note" in ah else ""
+                    rv = row[ri] if ri is not None and ri < len(row) else None
+                    # 1.10.0: a result left out as 'below numerical resolution' by 1.9.2 is compared with the refined
+                    # solution of that run, which is what the 1.10.0 engine computes (one step of iterative refinement)
+                    if note.startswith("below numerical resolution") and rv is not None and e:
+                        y, dv = rv, (rv - e) / abs(e) * 100
+                        refined += 1
+                    vals.append((e, y, dv, row[gi] if gi is not None and gi < len(row) else None))
+                c["refined"] = refined
                 d = np.array([v[2] for v in vals if v[2] is not None], dtype=float)
                 if not len(d):
                     continue

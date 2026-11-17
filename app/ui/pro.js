@@ -146,6 +146,25 @@
     $("#cffPanel").hidden = true;
   }));
 
+  /* ---------------- End-of-life approaches side by side (1.10) ---------------- */
+  $("#btnEolCompare").addEventListener("click", (e) => guard(e.target, async () => {
+    const mass = Number($("#cffMass").value) || 1;
+    const datasets = {};
+    $$("#cffDatasets .cff-row").forEach((row) => { const v = $(".cff-sel", row).value; if (v) datasets[row.dataset.role] = Number(v); });
+    const ids = [...S.selectedMethods];
+    if (!ids.length) throw new Error("Choose impact categories in step 4 first.");
+    const r = await api("POST", "/api/eol/compare", { mass, unit: $("#cffUnit").value, params: cffParams(), datasets, method_ids: ids });
+    const ap = r.approaches;
+    const f = (v) => (v === 0 ? "0" : Math.abs(v) >= 0.01 && Math.abs(v) < 1e5 ? v.toPrecision(4) : v.toExponential(3));
+    $("#eolOut").innerHTML = `<h4>End-of-life approaches for ${fmt(r.mass)} ${esc(r.unit)} of material</h4>
+      <p class="hint">R1 ${r.parameters.R1}, R2 ${r.parameters.R2}, A ${r.parameters.A}, Qsin/Qp ${r.parameters.Qsin}, Qsout/Qp ${r.parameters.Qsout}. ${esc(r.note)}</p>
+      <table><thead><tr><th>Category</th><th>Unit</th>${ap.map((a) => `<th class="num">${esc(a)}</th>`).join("")}</tr></thead><tbody>
+      ${r.results.map((x) => { const v = ap.map((a) => x.approaches[a].total), lo = Math.min(...v), hi = Math.max(...v);
+        return `<tr><td>${esc(x.category)}${x.indicator && x.indicator !== x.category ? ` <span class="hint">${esc(x.indicator)}</span>` : ""}</td><td>${esc(x.unit || "")}</td>${v.map((t) => { const tol = 1e-9 * Math.max(Math.abs(lo), Math.abs(hi)); return `<td class="num${t <= lo + tol && hi - lo > tol ? " ok" : ""}">${f(t)}</td>`; }).join("")}</tr>`; }).join("")}</tbody></table>
+      <details><summary>Coefficients per unit of material</summary><table><thead><tr><th>Role</th>${ap.map((a) => `<th class="num">${esc(a)}</th>`).join("")}</tr></thead><tbody>
+      ${Object.keys(r.coefficients[ap[0]]).map((role) => `<tr><td>${esc(role.replace(/_/g, " "))}</td>${ap.map((a) => `<td class="num">${f(r.coefficients[a][role])}</td>`).join("")}</tr>`).join("")}</tbody></table></details>`;
+  }));
+
   /* ---------------- Summary: costs and water ---------------- */
   const _renderSummary = renderSummary;
   renderSummary = function () {

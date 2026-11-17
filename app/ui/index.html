@@ -266,6 +266,10 @@
 
         <h2>Allocation <button type="button" class="q" data-help="allocation" aria-label="Help">?</button></h2>
         <div class="form-grid">
+          <label class="wide">How the co-products are handled (ISO 14044 4.3.4.2)<select name="multifunctional">
+            <option value="">Allocation: shared lines divided by the share below</option>
+            <option value="subdivision">Subdivision: every line belongs to this product or to the co-products</option>
+            <option value="system_expansion">System expansion: all lines, credit for what the co-products replace</option></select></label>
           <label class="wide">Allocation procedure (text for the report)<input name="allocation" placeholder="Economic allocation between cotton fibre and cottonseed"></label>
           <label>How the share is set<select name="alloc_basis">
             <option value="">No allocation or manual %</option><option value="mass">By mass of co-products</option>
@@ -276,8 +280,11 @@
           <label>Mass of this product per functional unit (kg, for the mass-balance check)<input name="main_mass" type="number" min="0" step="any"></label>
         </div>
         <div class="alloc-cp">
-          <table class="cp-table"><thead><tr><th>Co-product</th><th>Mass (kg)</th><th>Economic value</th><th>Energy (MJ)</th><th>Physical property</th><th></th></tr></thead><tbody id="cpRows"></tbody></table>
-          <button type="button" class="ghost" id="btnAddCp">Add co-product</button><button type="button" class="ghost" id="btnAllocCmp" title="Results under mass, economic, energy, physical and manual allocation and without allocation, for the categories of step 4">Compare allocation choices</button>
+          <p class="hint" id="mfHint"></p>
+          <table class="cp-table"><thead><tr><th>Co-product</th><th>Mass (kg)</th><th>Economic value</th><th>Energy (MJ)</th><th>Physical property</th><th class="cp-se">Replaces (system expansion)</th><th class="cp-se">Amount replaced</th><th></th></tr></thead><tbody id="cpRows"></tbody></table>
+          <div class="row" id="cpFind" hidden><span class="hint" id="cpFindFor"></span><input id="cpFindQ" class="grow" placeholder="Search the product it replaces, e.g. whey powder, heat"><button type="button" id="btnCpFind">Search</button><button type="button" class="ghost" id="btnCpFindClose">Close</button></div>
+          <div id="cpFindOut" class="cd-chips"></div>
+          <button type="button" class="ghost" id="btnAddCp">Add co-product</button><button type="button" class="ghost" id="btnAllocCmp" title="Results under mass, economic, energy, physical and manual allocation, subdivision and system expansion, for the categories of step 4">Compare allocation choices</button>
           <p class="hint" id="allocShare"></p>
           <div id="allocCmpOut"></div>
         </div>
@@ -437,7 +444,8 @@
           <div id="cffCoef" class="hint"></div>
           <h4>Datasets</h4>
           <div id="cffDatasets" class="cff-ds"></div>
-          <div class="row"><button class="primary" id="btnCffApply">Add lines to the model</button></div>
+          <div class="row"><button class="primary" id="btnCffApply">Add lines to the model</button><button id="btnEolCompare">Compare end-of-life approaches</button></div>
+          <div id="eolOut"></div>
         </div>
         <div id="litPanel" class="subpanel" hidden>
           <div class="row"><h3 class="grow">Inventory from a paper or table</h3><button class="ghost" data-close>Close</button></div>
@@ -463,6 +471,8 @@
         </div>
         <div id="invProblems" class="problems" hidden></div>
         <div id="diagram" class="diagram" hidden></div>
+        <div id="dgTools" class="row" hidden><input id="dgFindQ" class="grow" placeholder="Find a dataset or one of your models to drop into the diagram, e.g. steel, transport"><button id="btnDgFind">Search</button></div>
+        <div id="dgFound" class="cd-chips" hidden></div>
         <div class="table-wrap">
           <table class="inv-table">
             <thead><tr><th>Stage</th><th>Input or output</th><th>Amount</th><th>Credit <button class="q" data-help="avoided product" aria-label="Help">?</button></th><th class="col-year">Year</th><th>Data quality <button class="q" data-help="pedigree matrix" aria-label="Help">?</button></th><th>Data source</th><th><span class="sr">Actions</span></th></tr></thead>
@@ -1012,9 +1022,9 @@
           <div class="row"><input id="cdPrTech" class="grow" placeholder="Technology"><input id="cdPrTime" placeholder="Time period (e.g. 2024-2025)"><select id="cdPrData"><option value="">data type</option><option>primary</option><option>secondary</option><option>estimate</option></select></div>
           <div class="row"><input id="cdPrSrc" class="grow" placeholder="Source of the data"><span class="hint">Data quality:</span><input id="cdDqTer" type="number" min="1" max="5" placeholder="TeR" size="3"><input id="cdDqGer" type="number" min="1" max="5" placeholder="GeR" size="3"><input id="cdDqTir" type="number" min="1" max="5" placeholder="TiR" size="3"><input id="cdDqP" type="number" min="1" max="5" placeholder="P" size="3"></div>
           <details id="cdCoBox"><summary>Co-products and allocation <span class="hint" id="cdCoSummary"></span></summary>
-            <p class="hint">When the process makes more than one product (cheese and whey, sawn wood and sawdust), list the other products here and choose how its inputs and emissions are shared. Mass and energy use the amounts (in kg or MJ; give kg or MJ per unit when the unit is not a mass or energy unit), economic uses the price per unit, manual takes your shares (they must add up to 1). Cyclia then makes one dataset per product. ISO 14044 prefers avoiding allocation, for example by system expansion with an avoided product; use allocation when that is not possible and say why in the source.</p>
+            <p class="hint">When the process makes more than one product (cheese and whey, sawn wood and sawdust), list the other products here and choose how its inputs and emissions are shared. Mass and energy use the amounts (in kg or MJ; give kg or MJ per unit when the unit is not a mass or energy unit), economic uses the price per unit, manual takes your shares (they must add up to 1). Cyclia then makes one dataset per product. ISO 14044 prefers avoiding allocation, first by subdivision, then by system expansion with an avoided product; use allocation when that is not possible and say why in the source. Subdivision: in step 5, set "belongs to" on each line that only one product causes (the drying of whey, the pressing of cheese); that line goes wholly to that product and only the shared lines are allocated. Choose "subdivision only" when every line belongs to one product.</p>
             <div id="cdCoRows"></div>
-            <div class="row"><button class="ghost" id="btnCdCoAdd">Add a co-product</button><select id="cdAlMethod"><option value="">allocation method</option><option value="mass">mass</option><option value="energy">energy</option><option value="economic">economic</option><option value="physical">physical causality</option><option value="manual">manual shares</option></select><input id="cdAlSrc" class="grow" placeholder="Source of prices or properties, and why allocation is used"></div>
+            <div class="row"><button class="ghost" id="btnCdCoAdd">Add a co-product</button><select id="cdAlMethod"><option value="">allocation method</option><option value="mass">mass</option><option value="energy">energy</option><option value="economic">economic</option><option value="physical">physical causality</option><option value="manual">manual shares</option><option value="subdivision">subdivision only (every line belongs to one product)</option></select><input id="cdAlSrc" class="grow" placeholder="Source of prices or properties, and why allocation is used"></div>
             <div class="row" id="cdAlEco" hidden><span class="hint">Prices in</span><input id="cdAlCur" placeholder="currency, e.g. EUR" size="10"><span class="hint">of the year</span><input id="cdAlYear" type="number" placeholder="e.g. 2025" size="7"></div>
             <div class="row" id="cdAlPhys" hidden><span class="hint">Physical property that causes the shares:</span><input id="cdAlProp" placeholder="e.g. protein content" size="18"><input id="cdAlPropUnit" placeholder="its unit, e.g. kg per kg" size="14"></div>
             <div id="cdAlValues"></div>
@@ -1028,6 +1038,12 @@
           </details>
           <div class="row"><input id="cdPrComment" class="grow" placeholder="Comment"><button class="primary" id="btnCdProc">Save process</button><button class="ghost" id="btnCdUndo" title="Undo the last change of this process; press again to redo it">Undo last change</button></div>
           <p class="hint" id="cdDeps"></p>
+          <details id="cdVerBox"><summary>Named versions of this process</summary>
+            <p class="hint">Keep the process as it is now under a name (for example "as reviewed" or "supplier data 2025"), to compare a later state with it line by line or to go back to it. Restoring a version is one change in the history, so it can be undone.</p>
+            <div class="row"><input id="cdVerName" placeholder="Version name" size="22"><input id="cdVerNote" class="grow" placeholder="Note (what this version is, who checked it)"><button id="btnCdVerSave">Save this version</button></div>
+            <div id="cdVerList"></div>
+            <div id="cdVerOut"></div>
+          </details>
         </div>
         <div class="block cd-sec" id="cdSec5">
           <h3><span class="cd-n">5</span>Inputs, waste, credits, emissions and resources</h3>
@@ -1043,6 +1059,7 @@
             <div class="row"><input id="cdXAmount" placeholder="Amount or formula" size="16" title="A number, or a formula of parameters such as dough / (1 - loss)"><input id="cdXUnit" list="cdUnits" placeholder="Unit" size="7"><span class="hint" id="cdXRefUnit"></span>
               <select id="cdXUnc"><option value="none">no uncertainty</option><option value="pedigree">pedigree scores</option><option value="lognormal">lognormal</option><option value="normal">normal</option><option value="triangular">triangular</option><option value="uniform">uniform</option></select>
               <span id="cdXUncFields"></span></div>
+            <div class="row" id="cdXAssignRow" hidden><span class="hint">Belongs to</span><select id="cdXAssign" title="Subdivision: a line that only one product causes goes wholly to that product"></select><span class="hint grow">Shared lines are divided by the allocation method of step 4; a line that belongs to one product goes wholly to it.</span></div>
             <div class="row"><input id="cdXSrc" class="grow" placeholder="Source"><input id="cdXComment" class="grow" placeholder="Comment"><button class="primary" id="btnCdX">Add</button><button class="ghost" id="btnCdXCancel" hidden>Cancel</button></div>
           </div>
           <details class="cd-sup" id="cdSupBox"><summary>Ask a supplier for these amounts</summary>
@@ -1056,8 +1073,10 @@
         </div>
         <div class="block cd-sec" id="cdDiagramBlock">
           <h3>Supply chain diagram</h3>
-          <p class="hint">Your processes and the library datasets they use. Drag a box to arrange the diagram. Click a box to open the process. To add an input, press <b>Connect</b>, click the supplier, then the process that uses it, and enter the amount. Click an arrow to edit that line.</p>
+          <p class="hint">Your processes and the library datasets they use. Drag a box to arrange the diagram. Click a box to open the process. To add an input, press <b>Connect</b>, click the supplier, then the process that uses it, and enter the amount. To bring in a new supplier from the library, search it below and drag it onto the process that uses it (or click it, then click the process). Click an arrow to edit that line.</p>
           <div class="row"><button id="btnCdConnect">Connect</button><span class="hint grow" id="cdConnectHint"></span><button class="ghost" id="btnCdAutoLayout">Arrange automatically</button></div>
+          <div class="row"><input id="cdDgSearch" class="grow" placeholder="Find a supplier in the library, e.g. electricity, steel, lorry"><button id="btnCdDgSearch">Search</button><button class="ghost" id="btnCdNewProc" title="Start a new process of your own; it appears in the diagram once saved">New process</button></div>
+          <div id="cdDgFound" class="cd-chips"></div>
           <div class="cd-canvas-wrap"><svg id="cdCanvas" class="cd-canvas" role="img" aria-label="Supply chain diagram of the custom database"></svg></div>
         </div>
         <div class="block cd-sec" id="cdSec6">

@@ -199,8 +199,8 @@ $("#dbList").addEventListener("click", (e) => {
     const p = $("#validatePanel");
     p.hidden = false; p.innerHTML = '<p class="hint">Checking the matrix...</p>';
     const v = await api("POST", "/api/validate", { db_id: Number(va.dataset.validate) });
-    p.innerHTML = `<div class="row"><h3 class="grow">Database check</h3><button class="ghost" data-close>Close</button></div><p><b>${esc(v.verdict)}</b></p>
-      ${(v.statuses || []).length ? `<table><thead><tr><th>Check</th><th>Status</th><th>Result</th></tr></thead><tbody>${v.statuses.map((x) => `<tr><td>${esc(x.label)}</td><td><span class="${x.level === "ok" ? "ok" : x.level === "error" ? "danger" : "warn"}">${esc(x.level)}</span></td><td>${esc(x.message)}</td></tr>`).join("")}</tbody></table><h3>Numbers</h3>` : ""}
+    p.innerHTML = `<div class="row"><h3 class="grow">Database check</h3><button class="ghost" data-checkxlsx="${va.dataset.validate}">Export to Excel</button><button class="ghost" data-close>Close</button></div><p><b>${esc(v.verdict)}</b></p>
+      ${(v.statuses || []).length ? `<table><thead><tr><th>Check</th><th>Status</th><th>Result</th></tr></thead><tbody>${v.statuses.map((x) => `<tr><td>${esc(x.label)}</td><td><span class="${x.level === "ok" ? "ok" : x.level === "error" ? "danger" : x.level === "note" ? "hint" : "warn"}">${esc(x.level)}</span></td><td>${esc(x.message)}</td></tr>`).join("")}</tbody></table><h3>Numbers</h3>` : ""}
       <table><tbody>${[["Datasets in the library", v.datasets], ["Technosphere exchanges", v.exchanges], ["Elementary exchanges", v.elementary_exchanges],
         ["Random solves checked", v.sampled], ["Largest relative residual", v.max_relative_residual.toExponential(1)], ["Datasets with zero production", v.zero_production],
         ["Inputs without supplier", v.unlinked_inputs], ["Elementary flows used", v.flows_used], ["...of which without any factor", v.flows_without_any_factor]]
@@ -209,6 +209,8 @@ $("#dbList").addEventListener("click", (e) => {
 });
 $("#validatePanel").addEventListener("click", (e) => {
   if (e.target.closest("[data-close]")) $("#validatePanel").hidden = true;
+  const cx = e.target.closest("[data-checkxlsx]");
+  if (cx) guard(cx, () => exportTo("/api/export/database-check", "Cyclia database check.xlsx", "xlsx", { db_id: Number(cx.dataset.checkxlsx) }));
   const sv = e.target.closest("[data-savemeta]");
   if (sv) guard(sv, async () => {
     const body = {};
@@ -225,8 +227,9 @@ async function openLinkPanel(dbId) {
   const p = $("#linkPanel");
   p.hidden = false;
   p.innerHTML = `<div class="row"><h3 class="grow">Link missing suppliers of ${esc(db ? db.name : "")}</h3>
-      <button data-autolink>Link exact matches automatically</button><button class="ghost" data-close>Close</button></div>
-    <p class="hint">Each row is a product used by datasets in this database without a single supplier: produced in no dataset of the import, produced by several (Cyclia does not guess), or without a supplier link in the dataset. Each location is a separate row, so every location gets its own supplier. Units are converted. "Link automatically" only links rows with exactly one supplier at the same location (or one global market for inputs without a location).</p>
+      <button data-autolink>Link automatically</button><button class="ghost" data-linklog>Decisions</button><button class="ghost" data-close>Close</button></div>
+    <p class="hint">Each row is a product used by datasets in this database without a single supplier: produced in no dataset of the import, produced by several (Cyclia does not guess), or without a supplier link in the dataset. Each location is a separate row, so every location gets its own supplier. Units are converted. "Link automatically" follows ecoinvent's linking rules: a supplier at the same location, else the smallest region that contains it, else RoW where no other supplier covers it, else GLO. Rows with several producers in the import, a RoW that covers the location only in part, or a location outside the ecoinvent geographies are left for you. Every decision is recorded and can be undone under Decisions.</p>
+    <div id="linkLog" hidden></div>
     <table class="link-table"><thead><tr><th>Product</th><th>Location</th><th>Unit</th><th class="num">Uses</th><th>Why unlinked</th><th>Status</th><th></th></tr></thead><tbody>
     ${groups.map((g, i) => `<tr data-i="${i}"><td>${esc(g.product)}</td><td>${esc(g.location || "-")}</td><td>${esc(g.unit)}</td><td class="num">${g.uses}</td>
       <td>${esc(g.reasons || "no producer")}${g.candidates && g.candidates.length ? ` <span class="hint">(${g.candidates.length} candidates)</span>` : ""}</td>
@@ -241,8 +244,22 @@ $("#linkPanel").addEventListener("click", (e) => {
   const auto = e.target.closest("[data-autolink]");
   if (auto) guard(auto, async () => {
     const r = await api("POST", `/api/databases/${S.linkDb}/autolink`, {});
-    toast(`${r.auto_linked} product(s) linked automatically` + (r.left_for_review ? `; ${r.left_for_review} need your choice (several or no suppliers at their location).` : "."), false); S.result = null;
+    const how = Object.entries(r.by_rule || {}).map(([k, v]) => `${v} by ${k}`).join(", ");
+    toast(`${r.auto_linked} product(s) linked automatically${how ? ` (${how})` : ""}` + (r.left_for_review ? `; ${r.left_for_review} need your choice.` : "."), false); S.result = null;
     await refreshStatus(); await openLinkPanel(S.linkDb);
+  });
+  const lg = e.target.closest("[data-linklog]");
+  if (lg) guard(lg, async () => {
+    const { log } = await api("GET", `/api/databases/${S.linkDb}/link-log`);
+    const box = $("#linkLog");
+    box.hidden = false;
+    box.innerHTML = `<h3>Linking decisions</h3>${log.length ? `<table><thead><tr><th>When</th><th>Decision</th><th>Product</th><th>Location</th><th>Supplier</th><th>Rule</th><th class="num">Inputs</th><th></th></tr></thead><tbody>${log.map((d) => `<tr${d.undone ? ' class="muted"' : ""}><td>${esc(d.time)}</td><td>${esc(d.action)}, ${esc(d.method)}${d.author ? `<br><span class="hint">${esc(d.author)}</span>` : ""}</td><td>${esc(d.product || "")}</td><td>${esc(d.location || "-")}</td><td>${esc(d.target_name || "")}${d.target_location ? ` [${esc(d.target_location)}]` : ""}${d.factor != null && d.factor !== 1 ? ` <span class="hint">x ${fmt(d.factor)}</span>` : ""}</td><td>${esc(d.rule || "")}</td><td class="num">${d.n}</td><td>${d.can_undo ? `<button class="ghost" data-undolink="${d.id}">Undo</button>` : d.undone ? '<span class="hint">undone</span>' : ""}</td></tr>`).join("")}</tbody></table>` : '<p class="empty">No decision yet.</p>'}`;
+  });
+  const ud = e.target.closest("[data-undolink]");
+  if (ud) guard(ud, async () => {
+    const r = await api("POST", `/api/link-log/${ud.dataset.undolink}/undo`, {});
+    toast(`${r.restored} input(s) put back as before.`); S.result = null;
+    await refreshStatus(); await openLinkPanel(S.linkDb); $("#linkPanel [data-linklog]").click();
   });
   const sg = e.target.closest("[data-suggest]");
   if (sg) guard(sg, async () => {
@@ -251,7 +268,7 @@ $("#linkPanel").addEventListener("click", (e) => {
     const { suggestions } = await api("POST", `/api/databases/${S.linkDb}/suggest`, { product: g.product, unit: g.unit, location: g.location || "" });
     row.hidden = false;
     row.firstElementChild.innerHTML = (suggestions.length ? `<ul class="results">${suggestions.map((s) => `<li><button data-linkto="${s.id}" data-g="${sg.dataset.suggest}">
-      <span class="rname">${esc(s.name)}</span><span class="loc">${esc(s.location)}</span><span class="rmeta">${esc(s.product)}, ${esc(s.unit)}, ${esc(s.db)}${s.factor !== 1 ? `, x ${fmt(s.factor)}` : ""}${s.recorded_candidate ? ", producer in this import" : ""}${g.location && !s.same_location ? ", other location" : ""}</span></button></li>`).join("")}</ul>`
+      <span class="rname">${esc(s.name)}</span><span class="loc">${esc(s.location)}</span><span class="rmeta">${esc(s.product)}, ${esc(s.unit)}, ${esc(s.db)}${s.factor !== 1 ? `, x ${fmt(s.factor)}` : ""}${s.recorded_candidate ? ", producer in this import" : ""}${g.location && s.geography_note ? `, ${esc(s.geography_note)}` : ""}</span></button></li>`).join("")}</ul>`
       : '<p class="hint">No dataset with a matching name and unit. Search below.</p>') +
       `<div class="row"><input class="grow" data-linksearch="${sg.dataset.suggest}" placeholder="Search another name"></div><ul class="results" data-linkres="${sg.dataset.suggest}"></ul>`;
   });
@@ -434,7 +451,7 @@ document.addEventListener("click", async (e) => {
 /* ---------------- models & scope ---------------- */
 const SCOPE_FIELDS = ["fu_description", "goal", "reasons", "application", "audience", "comparative", "author", "boundary",
   "stage_system", "geography", "period", "allocation", "alloc_share", "alloc_basis", "main_mass", "cutoff", "assumptions", "dq_requirements", "horizon",
-  "approach", "technology", "lcc_currency", "lcc_rate", "alloc_property", "lcc_period"];
+  "approach", "technology", "lcc_currency", "lcc_rate", "alloc_property", "lcc_period", "multifunctional"];
 const CONC_FIELDS = ["conclusions", "limitations", "recommendations", "review", "review_status"];
 
 function fillStageSystems() {
@@ -500,20 +517,34 @@ function renderCoproducts(cps) {
     <td><input data-cp="price" type="number" step="any" min="0" value="${esc(c.price ?? "")}"></td>
     <td><input data-cp="energy" type="number" step="any" min="0" value="${esc(c.energy ?? "")}"></td>
     <td><input data-cp="physical" type="number" step="any" min="0" value="${esc(c.physical ?? "")}"></td>
+    <td class="cp-se"><input type="hidden" data-cp="replaces" value="${esc(c.replaces ?? "")}"><input type="hidden" data-cp="replaces_name" value="${esc(c.replaces_name || "")}"><input type="hidden" data-cp="replaces_unit" value="${esc(c.replaces_unit || "")}">
+      <span class="cp-rname">${c.replaces ? esc(c.replaces_name || "dataset " + c.replaces) : '<span class="hint">not chosen</span>'}</span> <button type="button" class="ghost" data-cpfind>Choose</button></td>
+    <td class="cp-se"><input data-cp="replaces_amount" type="number" step="any" min="0" value="${esc(c.replaces_amount ?? "")}" size="6"> <span class="hint cp-runit">${esc(c.replaces_unit || "")}</span></td>
     <td><button type="button" class="ghost danger" data-cprm>Remove</button></td></tr>`).join("");
+  toggleSE();
   updateAllocShare();
+}
+function toggleSE() {
+  const f = $("#scopeForm"), mf = f.multifunctional.value;
+  $$(".cp-se").forEach((el) => (el.hidden = mf !== "system_expansion"));
+  $("#mfHint").textContent = mf === "system_expansion"
+    ? "System expansion: the model keeps all its lines, and each co-product is credited with the product it replaces (choose the dataset and the amount per functional unit). The credit appears as a line in the results."
+    : mf === "subdivision" ? "Subdivision: in step 3, say for each line whether it belongs to this product or to the co-products. Lines of the co-products are left out; nothing is allocated."
+      : "Allocation: lines are shared by the share of this product. In step 3, a line that only this product or only the co-products cause can be set to belong to it (subdivision of that line).";
 }
 function readCoproducts() {
   return $$("#cpRows tr").map((tr) => {
     const o = {};
     $$("[data-cp]", tr).forEach((i) => (o[i.dataset.cp] = i.type === "number" ? (i.value === "" ? "" : Number(i.value)) : i.value.trim()));
+    o.replaces = o.replaces === "" ? "" : Number(o.replaces);
     return o;
-  }).filter((c) => c.name || c.mass !== "" || c.price !== "" || c.energy !== "" || c.physical !== "");
+  }).filter((c) => c.name || c.mass !== "" || c.price !== "" || c.energy !== "" || c.physical !== "" || c.replaces !== "");
 }
 function toggleAlloc() {
-  const basis = $("#scopeForm").alloc_basis.value;
-  $$(".alloc-manual").forEach((el) => (el.hidden = !!basis));
-  $$(".alloc-cp").forEach((el) => (el.hidden = !basis));
+  const basis = $("#scopeForm").alloc_basis.value, mf = $("#scopeForm").multifunctional.value;
+  $$(".alloc-manual").forEach((el) => (el.hidden = !!basis || !!mf));
+  $$(".alloc-cp").forEach((el) => (el.hidden = !basis && !mf && !readCoproducts().length));
+  toggleSE();
   $$(".alloc-phys").forEach((el) => (el.hidden = basis !== "physical"));
   updateAllocShare();
 }
@@ -526,6 +557,32 @@ function updateAllocShare() {
   $("#allocShare").textContent = main > 0 ? `Share for this product: ${(100 * main / (main + others)).toFixed(2)} %` : "Enter this product's value to compute the share.";
 }
 $("#scopeForm").alloc_basis.addEventListener("change", toggleAlloc);
+$("#scopeForm").multifunctional.addEventListener("change", toggleAlloc);
+let cpPick = null, cpFound = [];
+$("#cpRows").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cpfind]"); if (!b) return;
+  cpPick = b.closest("tr");
+  $("#cpFind").hidden = false; $("#cpFindOut").innerHTML = "";
+  $("#cpFindFor").textContent = `What "${$("[data-cp=name]", cpPick).value || "this co-product"}" replaces:`;
+  $("#cpFindQ").focus();
+});
+$("#btnCpFind").addEventListener("click", (e) => guard(e.target, async () => {
+  if (!$("#cpFindQ").value.trim()) throw new Error("Type a word to search.");
+  cpFound = (await api("GET", "/api/search?q=" + encodeURIComponent($("#cpFindQ").value.trim()))).results.filter((a) => a.id).slice(0, 20);
+  $("#cpFindOut").innerHTML = cpFound.length ? cpFound.map((a, i) => `<button type="button" class="cd-chip" data-cpres="${i}">${esc(a.name)} [${esc(a.location)}] <span class="meta">${esc(a.unit)}, ${esc(a.db)}</span></button>`).join("") : '<span class="hint">Nothing found. Try a shorter word.</span>';
+}));
+$("#cpFindQ").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#btnCpFind").click(); } });
+$("#btnCpFindClose").addEventListener("click", () => { $("#cpFind").hidden = true; $("#cpFindOut").innerHTML = ""; cpPick = null; });
+$("#cpFindOut").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cpres]"); if (!b || !cpPick || !cpPick.isConnected) return;
+  const a = cpFound[Number(b.dataset.cpres)];
+  $("[data-cp=replaces]", cpPick).value = a.id; $("[data-cp=replaces_name]", cpPick).value = `${a.name} [${a.location}]`;
+  $("[data-cp=replaces_unit]", cpPick).value = a.unit;
+  $(".cp-rname", cpPick).textContent = `${a.name} [${a.location}]`; $(".cp-runit", cpPick).textContent = a.unit;
+  $("#cpFind").hidden = true; $("#cpFindOut").innerHTML = "";
+  toast("Chosen. Enter the amount it replaces per functional unit, then save step 2.");
+  $("[data-cp=replaces_amount]", cpPick).focus(); cpPick = null;
+});
 $("#scopeForm").addEventListener("input", (e) => { if (e.target.closest(".alloc-cp") || e.target.name === "main_value") updateAllocShare(); });
 $("#btnAddCp").addEventListener("click", () => { renderCoproducts([...readCoproducts(), { name: "" }]); });
 $("#cpRows").addEventListener("click", (e) => { if (e.target.closest("[data-cprm]")) { e.target.closest("tr").remove(); updateAllocShare(); } });
@@ -848,6 +905,7 @@ async function renderInventory() {
   $("#btnUndo").disabled = !(m && m.history && m.history.length);
   $("#btnUndo").title = m && m.history && m.history.length ? `Undo: ${m.history[0].label}` : "Nothing to undo";
   refreshStageList();
+  const hasCp = !!(m && (m.scope.coproducts || []).length && m.scope.multifunctional !== "system_expansion");
   const unitLists = await Promise.all(rows.map((r) => (r.kind === "fixed" ? Promise.resolve([r.input_unit]) : unitsFor(r.target.unit || ""))));
   $("#invRows").innerHTML = rows.map((r, k) => {
     const opts = [...new Set([r.input_unit, ...unitLists[k]])].filter(Boolean);
@@ -860,7 +918,7 @@ async function renderInventory() {
       <td><div class="tname">${esc(r.label || r.target.name)}</div><div class="tsub">${esc([r.kind === "flow" ? "elementary flow" : r.kind === "model" ? "model" : r.kind === "fixed" ? "EPD values" : "", r.target.location, r.kind === "fixed" ? "" : r.target.db].filter(Boolean).join(", "))}</div></td>
       <td><div class="amt-cell">${amountCell}<select class="unit" aria-label="Unit" ${r.kind === "fixed" ? "disabled" : ""}>${opts.map((u) => `<option ${u === r.input_unit ? "selected" : ""}>${esc(u)}</option>`).join("")}</select>
         <button class="ghost fx" data-fx title="${r.formula ? "Use a fixed number" : "Use a formula of parameters"}">${r.formula ? "123" : "f(x)"}</button></div>${conv}</td>
-      <td><input type="checkbox" class="avoided" ${r.avoided ? "checked" : ""} aria-label="Avoided product"></td>
+      <td><input type="checkbox" class="avoided" ${r.avoided ? "checked" : ""} aria-label="Avoided product">${hasCp ? `<select class="assign" aria-label="Belongs to" title="Subdivision: which product causes this line">${[["", "shared"], ["main", "this product"], ["coproducts", "co-products"]].map(([v, t]) => `<option value="${v}" ${v === (r.assign || "") ? "selected" : ""}>${t}</option>`).join("")}</select>` : ""}</td>
       <td class="col-year" ${dyn ? "" : "hidden"}><input class="year" type="number" min="0" step="any" value="${r.year || 0}" aria-label="Year"></td>
       <td><div class="ped">${r.pedigree.map((v, i) => `<select class="s${v}" title="${PED[i]}: ${PED_HELP[i]}" aria-label="${PED[i]}" data-i="${i}">${[1, 2, 3, 4, 5].map((n) => `<option ${n === v ? "selected" : ""}>${n}</option>`).join("")}</select>`).join("")}</div></td>
       <td><select class="dtype" aria-label="Data type" title="Primary: measured or from the supplier. Secondary: database or literature. Estimate: your own assumption.">${[["", "type?"], ["primary", "primary"], ["secondary", "secondary"], ["estimate", "estimate"]].map(([v, t]) => `<option value="${v}" ${v === (r.data_type || "") ? "selected" : ""}>${t}</option>`).join("")}</select><input class="note" value="${esc(r.comment || "")}" placeholder="source" aria-label="Data source">${(() => { const n = S.comments.filter((c) => c.input_id === r.id && !c.resolved).length; return `<button class="ghost cbadge${n ? " has" : ""}" data-cline="${r.id}" title="Comments on this line">${n ? n + " note" + (n > 1 ? "s" : "") : "note"}</button>`; })()}</td>
@@ -889,6 +947,7 @@ $("#invRows").addEventListener("change", (e) => {
   } else if (t.classList.contains("formula")) guard(null, () => patchLine(id, { formula: t.value.trim(), input_unit: $(".unit", tr).value }, true));
   else if (t.classList.contains("note")) guard(null, () => patchLine(id, { comment: t.value }));
   else if (t.classList.contains("dtype")) guard(null, () => patchLine(id, { data_type: t.value }));
+  else if (t.classList.contains("assign")) guard(null, () => patchLine(id, { assign: t.value }, !$("#diagram").hidden));
   else if (t.classList.contains("stage")) guard(null, () => patchLine(id, { stage: t.value.trim() }));
   else if (t.classList.contains("year")) guard(null, () => patchLine(id, { year: Number(t.value) || 0 }));
   else if (t.classList.contains("avoided")) { tr.classList.toggle("credit", t.checked); guard(null, () => patchLine(id, { avoided: t.checked })); }
@@ -928,19 +987,22 @@ $("#btnUndo").addEventListener("click", (e) => guard(e.target, async () => {
 }));
 
 /* flow diagram: stages as columns flowing into the product */
-$("#btnDiagram").addEventListener("click", () => { $("#diagram").hidden = !$("#diagram").hidden; if (!$("#diagram").hidden) renderDiagram(); });
+$("#btnDiagram").addEventListener("click", () => { $("#diagram").hidden = !$("#diagram").hidden; $("#dgTools").hidden = $("#dgFound").hidden = $("#diagram").hidden; if (!$("#diagram").hidden) renderDiagram(); });
 /* Model flow diagram: an editor as well as a picture. Drag a line to another stage column (or to "new stage"),
    click its amount to change it, click "credit" to make it an avoided product, x to remove it, and click the box
    to open its row in the table. */
 const DG = { colW: 210, boxH: 44, gap: 10, top: 38, drag: null };
 function renderDiagram() {
   const m = S.model;
-  if (!m || !m.inputs.length) { $("#diagram").innerHTML = '<p class="hint">Add lines to see the diagram.</p>'; return; }
+  if (!m || !m.inputs.length) { $("#diagram").innerHTML = '<p class="hint">Add lines to see the diagram, or find a dataset below and drop it here.</p><svg id="dgSvg" width="10" height="10"></svg>'; return; }
   const groups = {};
   m.inputs.forEach((i) => (groups[i.stage || ""] = groups[i.stage || ""] || []).push(i));
+  const sc = m.scope || {}, mf = sc.multifunctional || "", hasCp = (sc.coproducts || []).length > 0;
+  const seCredits = mf === "system_expansion" ? (sc.coproducts || []).filter((c) => c.replaces) : [];
+  if (seCredits.length) groups["\u0001se"] = seCredits.map((c, k) => ({ se: true, id: "se" + k, label: `${c.name || "co-product"} replaces ${c.replaces_name || "dataset " + c.replaces}`, input_amount: c.replaces_amount, input_unit: c.replaces_unit || "", avoided: true, target: {} }));
   const names = Object.keys(groups).sort((a, b) => (a === "") - (b === "") || (a.toUpperCase().startsWith("D") - b.toUpperCase().startsWith("D")) || a.localeCompare(b));
   const { colW, boxH, gap, top } = DG;
-  const cols = [...names, "\u0000new"];
+  const cols = [...names.filter((n) => n !== "\u0001se"), ...(groups["\u0001se"] ? ["\u0001se"] : []), "\u0000new"];
   const H = Math.max(...names.map((n) => groups[n].length), 1) * (boxH + gap) + top + 30;
   const W = cols.length * (colW + 30) + 220;
   const prodY = Math.max(top, H / 2 - 30);
@@ -949,16 +1011,24 @@ function renderDiagram() {
   cols.forEach((n, c) => {
     const x = c * (colW + 30), isNew = n === "\u0000new";
     svg += `<rect class="dg-col" data-col="${c}" x="${x - 6}" y="24" width="${colW + 12}" height="${Math.max(H, 140) - 30}" rx="6" fill="${isNew ? "transparent" : "var(--sunken)"}" stroke="${isNew ? "var(--rule)" : "none"}" stroke-dasharray="${isNew ? "5 4" : ""}" opacity="${isNew ? 1 : .55}"/>`;
-    svg += `<text x="${x}" y="17" font-size="12" font-weight="600" fill="${isNew ? "var(--ink-soft)" : "var(--ink)"}">${esc(isNew ? "+ drop here for a new stage" : n === "" ? "No stage" : n.length > 30 ? n.slice(0, 29) + "…" : n)}</text>`;
+    svg += `<text x="${x}" y="17" font-size="12" font-weight="600" fill="${isNew ? "var(--ink-soft)" : "var(--ink)"}">${esc(isNew ? "+ drop here for a new stage" : n === "\u0001se" ? "System expansion credits" : n === "" ? "No stage" : n.length > 30 ? n.slice(0, 29) + "…" : n)}</text>`;
     if (isNew) return;
     groups[n].forEach((i, r) => {
       const y = top + r * (boxH + gap), credit = i.avoided;
+      if (i.se) {
+        svg += `<g transform="translate(${x},${y})"><title>Derived from step 2 (co-products): change it there</title><rect width="${colW}" height="${boxH}" rx="5" fill="var(--sunken)" stroke="var(--neg)" stroke-dasharray="4 3"/>
+          <text x="8" y="17" font-size="11" fill="var(--ink)">${esc(i.label.slice(0, 31))}</text><text x="8" y="34" font-size="11" fill="var(--neg)">credit ${esc(`${fmt(i.input_amount)} ${i.input_unit}`)}</text></g>
+          <path d="M${x + colW} ${y + boxH / 2} C ${W - 200} ${y + boxH / 2}, ${W - 230} ${prodY + 30}, ${W - 190} ${prodY + 30}" fill="none" stroke="var(--neg)" stroke-width="1" opacity=".45" stroke-dasharray="4 3" pointer-events="none"/>`;
+        return;
+      }
+      const asg = hasCp && mf !== "system_expansion" ? ({ "": "shared", main: "this product", coproducts: "co-products" })[i.assign || ""] : "";
       const amt = i.formula ? `= ${i.formula}` : `${fmt(i.input_amount)} ${i.input_unit}`;
       svg += `<g class="dg-box" data-line="${i.id}" transform="translate(${x},${y})" style="cursor:grab"><title>Drag to another stage, click to open the line</title>
         <rect width="${colW}" height="${boxH}" rx="5" fill="var(--panel)" stroke="${i.missing ? "var(--danger)" : credit ? "var(--neg)" : "var(--rule-strong)"}"/>
         <text x="8" y="17" font-size="11" fill="var(--ink)">${esc(((i.label || i.target.name) + "").slice(0, 31))}</text>
         <text x="8" y="34" font-size="11" fill="var(--spruce)" data-amt="${i.id}" style="cursor:text;text-decoration:underline dotted">${esc(amt.slice(0, 22))}</text>
         <text x="${colW - 58}" y="34" font-size="10" fill="${credit ? "var(--neg)" : "var(--ink-faint)"}" data-credit="${i.id}" style="cursor:pointer">${credit ? "credit ✓" : "credit"}</text>
+        ${asg ? `<text x="${colW - 120}" y="34" font-size="10" fill="${i.assign ? "var(--ochre)" : "var(--ink-faint)"}" data-asg="${i.id}" style="cursor:pointer"><title>Belongs to (click to change): shared, this product, co-products</title>${asg.length > 10 ? asg.slice(0, 9) + "…" : asg}</text>` : ""}
         <text x="${colW - 14}" y="15" font-size="13" fill="var(--ink-faint)" data-dgrm="${i.id}" style="cursor:pointer" aria-label="Remove">×</text></g>
         <path d="M${x + colW} ${y + boxH / 2} C ${W - 200} ${y + boxH / 2}, ${W - 230} ${prodY + 30}, ${W - 190} ${prodY + 30}" fill="none" stroke="${credit ? "var(--neg)" : "var(--spruce)"}" stroke-width="1" opacity=".45" ${credit ? 'stroke-dasharray="4 3"' : ""} pointer-events="none"/>`;
     });
@@ -966,7 +1036,7 @@ function renderDiagram() {
   svg += `<rect x="${W - 190}" y="${prodY}" width="185" height="60" rx="6" fill="var(--spruce)"/>
     <text x="${W - 180}" y="${prodY + 25}" font-size="12" font-weight="600" fill="var(--panel)">${esc(m.name.slice(0, 26))}</text>
     <text x="${W - 180}" y="${prodY + 44}" font-size="11" fill="var(--panel)">${esc(`${fmt(m.amount)} ${m.unit}`)}</text></svg></div>
-    <div class="row"><p class="hint grow">Drag a box to another stage to move the line there. Click an amount to change it, "credit" to make the line an avoided product, × to remove it, or the box to open its row. Dashed blue lines are credits; red boxes point to missing datasets.</p><button class="ghost" id="dgAdd">+ Add a line</button></div>`;
+    <div class="row"><p class="hint grow">Drag a box to another stage to move the line there. Click an amount to change it, "credit" to make the line an avoided product, × to remove it, or the box to open its row. To change a supplier, find a dataset below and drop it onto the line; drop it onto a stage column to add it as a new line. Dashed blue lines are credits; red boxes point to missing datasets.</p><button class="ghost" id="dgAdd">+ Add a line</button></div>`;
   $("#diagram").innerHTML = svg;
   $("#diagram").style.position = "relative";
 }
@@ -990,7 +1060,7 @@ function dgInline(evt, value, onSave, placeholder) {
   inp.addEventListener("blur", () => { if (inp.value.trim() !== "") done(true); });
 }
 $("#diagram").addEventListener("pointerdown", (evt) => {
-  if (evt.target.closest("[data-amt],[data-credit],[data-dgrm]")) return;
+  if (evt.target.closest("[data-amt],[data-credit],[data-dgrm],[data-asg]")) return;
   const g = evt.target.closest(".dg-box"); if (!g) return;
   const p = dgPoint(evt), tr = g.transform.baseVal.consolidate().matrix;
   DG.drag = { g, id: Number(g.dataset.line), ox: p.x - tr.e, oy: p.y - tr.f, sx: p.x, sy: p.y, moved: false };
@@ -1022,6 +1092,63 @@ $("#diagram").addEventListener("pointerup", (evt) => {
   if ((row.stage || "") === target) { renderDiagram(); return; }
   guard(null, () => patchLine(d.id, { stage: target }, true));
 });
+/* Supplier relations in the diagram: find a dataset (or one of your models) and drop it onto a line to replace its
+   supplier, or onto a stage column to add it as a new line. */
+DG.found = [];
+$("#btnDgFind").addEventListener("click", (e) => guard(e.target, async () => {
+  const q = $("#dgFindQ").value.trim();
+  if (!q) throw new Error("Type a word to search, e.g. steel.");
+  const res = (await api("GET", "/api/search?q=" + encodeURIComponent(q))).results.filter((a) => a.id).slice(0, 18)
+    .map((a) => ({ kind: "activity", id: a.id, name: a.name, sub: `${a.location}, ${a.unit}, ${a.db}`, unit: a.unit }));
+  const mine = (S.models || []).filter((x) => S.model && x.id !== S.model.id && (x.name || "").toLowerCase().includes(q.toLowerCase()))
+    .map((x) => ({ kind: "model", id: x.id, name: x.name, sub: `my model, ${x.unit || ""}`, unit: x.unit }));
+  DG.found = [...mine, ...res];
+  $("#dgFound").innerHTML = DG.found.length ? DG.found.map((a, i) => `<span class="cd-chip" draggable="true" data-dgchip="${i}" title="Drag onto a line to replace its supplier, or onto a stage column to add a line">${esc(a.name)} <span class="meta">${esc(a.sub)}</span></span>`).join("")
+    : '<span class="hint">Nothing found. Try a shorter word.</span>';
+}));
+$("#dgFindQ").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#btnDgFind").click(); });
+$("#dgFound").addEventListener("dragstart", (e) => { const c = e.target.closest("[data-dgchip]"); if (!c) return; e.dataTransfer.setData("text/plain", "cyclia-dg:" + c.dataset.dgchip); e.dataTransfer.effectAllowed = "copy"; });
+function dgDropTarget(evt) {
+  const box = evt.target.closest && evt.target.closest(".dg-box");
+  if (box) return { line: Number(box.dataset.line), el: box };
+  if (!$("#dgSvg") || !DG.cols) return null;
+  const p = dgPoint(evt), c = Math.floor((p.x + 15) / (DG.colW + 30));
+  return c >= 0 && c < DG.cols.length && DG.cols[c] !== "\u0001se" ? { stage: DG.cols[c] } : null;
+}
+$("#diagram").addEventListener("dragover", (evt) => {
+  evt.preventDefault();
+  $$("#diagram .dg-box.drop").forEach((x) => x.classList.remove("drop"));
+  const t = dgDropTarget(evt); if (t && t.el) t.el.classList.add("drop");
+  evt.dataTransfer.dropEffect = t ? "copy" : "none";
+});
+$("#diagram").addEventListener("drop", (evt) => {
+  evt.preventDefault();
+  $$("#diagram .dg-box.drop").forEach((x) => x.classList.remove("drop"));
+  const raw = evt.dataTransfer.getData("text/plain") || "";
+  if (!raw.startsWith("cyclia-dg:") || !S.model) return;
+  const a = DG.found[Number(raw.slice(10))], t = dgDropTarget(evt);
+  if (!a || !t) return;
+  if (t.line) {
+    const row = S.model.inputs.find((r) => r.id === t.line);
+    if (row.kind !== "activity" || a.kind !== "activity") { toast("Only a dataset line can take another dataset as supplier. Drop it onto a stage column to add it as a new line.", true); return; }
+    guard(null, async () => {
+      await api("POST", `/api/inputs/${row.id}/replace`, { ref_id: a.id });
+      await loadModel(S.model.id); S.result = null; renderInventory(); markSteps();
+      toast(`Supplier of "${row.label || row.target.name}" is now ${a.name}. The amount is kept; Undo reverses it.`);
+    });
+    return;
+  }
+  const stage = t.stage === "\u0000new" ? "" : t.stage;
+  dgInline(evt, "", (v) => {
+    const n = Number(v);
+    if (!(n >= 0)) { toast("Enter a positive amount (use a dot for decimals).", true); return; }
+    guard(null, async () => {
+      const { model } = await api("POST", `/api/models/${S.model.id}/inputs`, { kind: a.kind, ref_id: a.id, amount: n, unit: a.unit, stage });
+      S.model = model; S.result = null; renderInventory(); markSteps();
+      toast(`Added: ${a.name}${stage ? " in " + stage : ""}.`);
+    });
+  }, `amount in ${a.unit || "its unit"}`);
+});
 function dgOpenRow(id) {
   const row = $(`#invRows tr[data-id="${id}"]`); if (!row) return;
   row.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1030,6 +1157,13 @@ function dgOpenRow(id) {
 }
 $("#diagram").addEventListener("click", (e) => {
   const am = e.target.closest("[data-amt]"), cr = e.target.closest("[data-credit]"), rm = e.target.closest("[data-dgrm]");
+  const ag = e.target.closest("[data-asg]");
+  if (ag) {
+    const row = S.model.inputs.find((r) => r.id === Number(ag.dataset.asg));
+    const next = { "": "main", main: "coproducts", coproducts: "" }[row.assign || ""];
+    guard(null, () => patchLine(row.id, { assign: next }, true));
+    return;
+  }
   if (e.target.closest("#dgAdd")) { $("#searchBox").scrollIntoView({ behavior: "smooth", block: "center" }); $("#searchBox").focus(); return; }
   if (am) {
     const row = S.model.inputs.find((r) => r.id === Number(am.dataset.amt));

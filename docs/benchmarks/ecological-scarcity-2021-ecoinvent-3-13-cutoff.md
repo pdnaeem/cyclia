@@ -2,9 +2,9 @@
 
 Database: ecoinvent (3.13, cutoff)
 
-**Ecological Scarcity 2021**: Validated except some categories. 95.50 % of 2,000 results within 0.1 % of ecoinvent's value, 95.50 % within 1 %. Categories with less than 95 % of results within 1 %: natural resources.
+**Ecological Scarcity 2021**: Validated. 100.00 % of 2,000 results within 0.1 % of ecoinvent's value, 100.00 % within 1 %.
 
-**Ecological Scarcity 2021 no LT**: Validated except some categories. 95.50 % of 2,000 results within 0.1 % of ecoinvent's value, 95.50 % within 1 %. Categories with less than 95 % of results within 1 %: natural resources no LT.
+**Ecological Scarcity 2021 no LT**: Validated. 100.00 % of 2,000 results within 0.1 % of ecoinvent's value, 100.00 % within 1 %.
 
 ## What was compared
 
@@ -12,7 +12,7 @@ Database: ecoinvent (3.13, cutoff)
 - Results compared: 4,000 (datasets x impact categories).
 - Datasets: 100 compared of 27,401 in the results file, matched by 'Activity UUID_Product UUID' (or by name, geography and product).
 - The cumulative inventory was compared with ecoinvent's cumulative LCI as well, which separates deviations caused by the inventory from those caused by the factors.
-- Software: Cyclia 1.9.1; run on 2026-11-16.
+- Software: Cyclia 1.9.2; run on 2026-11-17.
 
 ## Deviation per impact category
 
@@ -34,7 +34,7 @@ Deviation = |Cyclia - ecoinvent| / |ecoinvent| x 100, per dataset. Signed median
 | Ecological Scarcity 2021 | energy resources | energy resources | UBP | 100 | 1.78e-07 | 6.52e-09 | 4.21e-06 | 0.00025 | 100 % | 100 % | 0 |
 | Ecological Scarcity 2021 | land use | land use | UBP | 100 | 4.96e-06 | -6.56e-08 | 7.43e-05 | 0.000353 | 100 % | 100 % | 0 |
 | Ecological Scarcity 2021 | mineral resources | mineral resources | UBP | 100 | 9.23e-07 | 4.59e-08 | 5.59e-05 | 0.00534 | 100 % | 100 % | 0 |
-| Ecological Scarcity 2021 | natural resources | biotic resources | UBP | 100 | 4.86e+03 | -4.52e+03 | 3.08e+04 | 2.11e+05 | 10 % | 10 % | 0 |
+| Ecological Scarcity 2021 | natural resources | biotic resources | UBP | 100 | 5.58e-05 | 2.03e-07 | 0.00274 | 0.0157 | 100 % | 100 % | 0 |
 | Ecological Scarcity 2021 | ozone depletion | ozone depletion | UBP | 100 | 2.2e-07 | 0 | 1.02e-05 | 0.000239 | 100 % | 100 % | 0 |
 | Ecological Scarcity 2021 | total | UBP | UBP | 100 | 2.23e-07 | 0 | 4.73e-06 | 0.000212 | 100 % | 100 % | 0 |
 | Ecological Scarcity 2021 | waste disposal | radioactive waste to deposit | UBP | 100 | 1.16e-06 | 6.08e-09 | 3.82e-05 | 0.000859 | 100 % | 100 % | 0 |
@@ -54,7 +54,7 @@ Deviation = |Cyclia - ecoinvent| / |ecoinvent| x 100, per dataset. Signed median
 | Ecological Scarcity 2021 no LT | energy resources no LT | energy resources no LT | UBP | 100 | 1.78e-07 | 6.52e-09 | 4.21e-06 | 0.00025 | 100 % | 100 % | 0 |
 | Ecological Scarcity 2021 no LT | land use no LT | land use no LT | UBP | 100 | 4.96e-06 | -6.56e-08 | 7.43e-05 | 0.000353 | 100 % | 100 % | 0 |
 | Ecological Scarcity 2021 no LT | mineral resources no LT | mineral resources no LT | UBP | 100 | 9.23e-07 | 4.59e-08 | 5.59e-05 | 0.00534 | 100 % | 100 % | 0 |
-| Ecological Scarcity 2021 no LT | natural resources no LT | biotic resources no LT | UBP | 100 | 4.86e+03 | -4.52e+03 | 3.08e+04 | 2.11e+05 | 10 % | 10 % | 0 |
+| Ecological Scarcity 2021 no LT | natural resources no LT | biotic resources no LT | UBP | 100 | 5.58e-05 | 2.03e-07 | 0.00274 | 0.0157 | 100 % | 100 % | 0 |
 | Ecological Scarcity 2021 no LT | ozone depletion no LT | ozone depletion no LT | UBP | 100 | 2.2e-07 | 0 | 1.02e-05 | 0.000239 | 100 % | 100 % | 0 |
 | Ecological Scarcity 2021 no LT | total no LT | UBP no LT | UBP | 100 | 2.27e-07 | 0 | 4.53e-06 | 0.000204 | 100 % | 100 % | 0 |
 | Ecological Scarcity 2021 no LT | waste disposal no LT | radioactive waste to deposit no LT | UBP | 100 | 1.16e-06 | 6.08e-09 | 3.82e-05 | 0.000859 | 100 % | 100 % | 0 |
@@ -63,8 +63,8 @@ Deviation = |Cyclia - ecoinvent| / |ecoinvent| x 100, per dataset. Signed median
 
 ## Notes
 
-- Ecological Scarcity 2021, natural resources (biotic resources): 90 of 100 results deviate by more than 0.1 %. In each of them both results are at most 1e-05 of the largest result of the category in the sample, and in 83 the two programs give opposite signs. Cyclia's sum of absolute contributions is at most 81 times its net result, far from the 1e9 the round-off rule of 1.9.1 needs, so that rule does not apply. The category is not validated. Cyclia 1.9.2 measures whether each such result is resolved by the solver and lists the datasets and exchanges that carry it (sheets Contributions and Negative exchanges).
-- Ecological Scarcity 2021 no LT, natural resources no LT (biotic resources no LT): 90 of 100 results deviate by more than 0.1 %. In each of them both results are at most 1e-05 of the largest result of the category in the sample, and in 83 the two programs give opposite signs. Cyclia's sum of absolute contributions is at most 81 times its net result, far from the 1e9 the round-off rule of 1.9.1 needs, so that rule does not apply. The category is not validated. Cyclia 1.9.2 measures whether each such result is resolved by the solver and lists the datasets and exchanges that carry it (sheets Contributions and Negative exchanges).
+- Ecological Scarcity 2021, natural resources (biotic resources): 90 results that the run reported as below numerical resolution are compared with its refined solution (one step of iterative refinement, as computed by Cyclia from 1.10.0); the row gives that comparison.
+- Ecological Scarcity 2021 no LT, natural resources no LT (biotic resources no LT): 90 results that the run reported as below numerical resolution are compared with its refined solution (one step of iterative refinement, as computed by Cyclia from 1.10.0); the row gives that comparison.
 
 ## How to read this
 

@@ -29,7 +29,7 @@ CREATE INDEX IF NOT EXISTS lib.idx_custom_kind ON custom_items(kind, db_id);
 CREATE TABLE IF NOT EXISTS lib.custom_exchanges (id INTEGER PRIMARY KEY, process_uuid TEXT, kind TEXT,
     target TEXT, amount REAL, unit TEXT, amount_ref REAL, avoided INTEGER DEFAULT 0, utype INTEGER DEFAULT 0,
     p1 REAL, p2 REAL, p3 REAL, pedigree TEXT, uncertainty TEXT, source TEXT, comment TEXT, modified TEXT,
-    author TEXT, created TEXT, revision INTEGER DEFAULT 1, formula TEXT, unit_factor REAL);
+    author TEXT, created TEXT, revision INTEGER DEFAULT 1, formula TEXT, unit_factor REAL, assign TEXT);
 CREATE INDEX IF NOT EXISTS lib.idx_custom_ex ON custom_exchanges(process_uuid);
 CREATE TABLE IF NOT EXISTS lib.custom_factors (method_id INTEGER, flow_uuid TEXT, status TEXT, value REAL,
     value_entered REAL, unit_entered TEXT, source TEXT, comment TEXT, author TEXT, modified TEXT, review TEXT,
@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS lib.custom_factors (method_id INTEGER, flow_uuid TEXT
 CREATE TABLE IF NOT EXISTS lib.custom_history (id INTEGER PRIMARY KEY, item TEXT, kind TEXT, action TEXT,
     author TEXT, time TEXT, data TEXT);
 CREATE INDEX IF NOT EXISTS lib.idx_custom_hist ON custom_history(item);
+CREATE TABLE IF NOT EXISTS lib.custom_versions (id INTEGER PRIMARY KEY, item TEXT, db_id INTEGER, name TEXT,
+    note TEXT, author TEXT, time TEXT, data TEXT);
+CREATE INDEX IF NOT EXISTS lib.idx_custom_ver ON custom_versions(item);
 CREATE TABLE IF NOT EXISTS lib.benchmark_runs (id INTEGER PRIMARY KEY, kind TEXT, title TEXT, time TEXT, summary TEXT);
 CREATE TABLE IF NOT EXISTS lib.custom_units (name TEXT PRIMARY KEY, dimension TEXT, factor REAL, description TEXT,
     source TEXT, author TEXT, created TEXT);
@@ -84,6 +87,10 @@ CREATE TABLE IF NOT EXISTS lib.unlinked (id INTEGER PRIMARY KEY, db_id INTEGER, 
     unit TEXT, amount REAL, location TEXT, link_key TEXT, utype INTEGER DEFAULT 0, p1 REAL, p2 REAL, p3 REAL,
     linked_to INTEGER, reason TEXT DEFAULT 'no producer', candidates TEXT);
 CREATE INDEX IF NOT EXISTS lib.idx_unlinked_db ON unlinked(db_id, product);
+CREATE TABLE IF NOT EXISTS lib.link_log (id INTEGER PRIMARY KEY, db_id INTEGER, time TEXT, action TEXT, method TEXT,
+    product TEXT, unit TEXT, location TEXT, target_id INTEGER, factor REAL, rule TEXT, author TEXT, n INTEGER,
+    before TEXT, undone INTEGER DEFAULT 0, undo_of INTEGER);
+CREATE INDEX IF NOT EXISTS lib.idx_link_log_db ON link_log(db_id);
 CREATE TABLE IF NOT EXISTS lib.templates (id INTEGER PRIMARY KEY, name TEXT UNIQUE, category TEXT, description TEXT,
     spec TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS lib.activity_dq (activity_id INTEGER PRIMARY KEY, ter REAL, ger REAL, tir REAL, p REAL,
@@ -110,7 +117,7 @@ CREATE TABLE IF NOT EXISTS model_inputs (
     stage TEXT DEFAULT '', input_amount REAL, input_unit TEXT, avoided INTEGER DEFAULT 0,
     ref_db TEXT, ref_key TEXT, formula TEXT, year REAL DEFAULT 0, fixed TEXT, data_type TEXT DEFAULT '',
     source_ref TEXT DEFAULT '', data_year REAL, supplier TEXT DEFAULT '', verified INTEGER DEFAULT 0, unit_cost REAL, pef TEXT,
-    cost_type TEXT DEFAULT '', replace_every REAL, cost_gsd REAL);
+    cost_type TEXT DEFAULT '', replace_every REAL, cost_gsd REAL, assign TEXT DEFAULT '');
 CREATE INDEX IF NOT EXISTS idx_inputs_model ON model_inputs(model_id);
 CREATE TABLE IF NOT EXISTS parameters (
     id INTEGER PRIMARY KEY, model_id INTEGER, name TEXT, value REAL, formula TEXT, unit TEXT, comment TEXT,
@@ -133,7 +140,8 @@ PROJECT_MIGRATIONS = {
                      ("formula", "TEXT"), ("year", "REAL DEFAULT 0"), ("fixed", "TEXT"),
                      ("data_type", "TEXT DEFAULT ''"), ("source_ref", "TEXT DEFAULT ''"), ("data_year", "REAL"),
                      ("supplier", "TEXT DEFAULT ''"), ("verified", "INTEGER DEFAULT 0"), ("unit_cost", "REAL"), ("pef", "TEXT"),
-                     ("cost_type", "TEXT DEFAULT ''"), ("replace_every", "REAL"), ("cost_gsd", "REAL")],
+                     ("cost_type", "TEXT DEFAULT ''"), ("replace_every", "REAL"), ("cost_gsd", "REAL"),
+                     ("assign", "TEXT DEFAULT ''")],
 }
 DB_META_COLUMNS = ("original_name", "release_date", "geography", "technology", "licence", "reference_period",
                    "data_reference", "source_path", "source_sha256", "importer_version", "import_report")
@@ -143,13 +151,13 @@ LIB_MIGRATIONS = {"tech": [("src_unlinked", "INTEGER")], "flow_mapping": [("s_uu
                   "databases": [(c, "TEXT") for c in DB_META_COLUMNS],
                   "custom_factors": [("review", "TEXT")],
                   "custom_exchanges": [("author", "TEXT"), ("created", "TEXT"), ("revision", "INTEGER DEFAULT 1"),
-                                       ("formula", "TEXT"), ("unit_factor", "REAL")],
+                                       ("formula", "TEXT"), ("unit_factor", "REAL"), ("assign", "TEXT")],
                   "slca_data": [("raw_value", "TEXT"), ("raw_unit", "TEXT"), ("quality", "TEXT"), ("activity_unit", "TEXT")]}
 LEGACY_DATA_TABLES = ["databases", "activities", "activities_fts", "tech", "flows", "bio", "methods", "cfs", "nw"]
 INPUT_COLUMNS = ["id", "model_id", "kind", "ref_id", "amount", "label", "comment", "pedigree", "position", "stage",
                  "input_amount", "input_unit", "avoided", "ref_db", "ref_key", "formula", "year", "fixed", "data_type",
                  "source_ref", "data_year", "supplier", "verified", "unit_cost", "pef", "cost_type", "replace_every",
-                 "cost_gsd"]
+                 "cost_gsd", "assign"]
 UNCERTAINTY_TYPES = {0: "none", 1: "lognormal", 2: "normal", 3: "triangular", 4: "uniform"}
 
 
@@ -196,6 +204,10 @@ def _scope_num(scope, key, what, lo=None, hi=None, lo_open=False):
     numcheck.optional(scope.get(key), what, lo=lo, hi=hi, lo_open=lo_open)
 
 
+LINE_ASSIGN = ("", "main", "coproducts")
+MULTIFUNCTIONAL = ("", "allocation", "subdivision", "system_expansion")
+
+
 def check_scope_numbers(scope):
     """Every number of the goal and scope must be finite and in its range (1.8.3). A JSON reader refuses NaN and
     Infinity, but 1e309 still becomes infinity, and stored scopes reach the calculation by other paths too."""
@@ -215,6 +227,11 @@ def check_scope_numbers(scope):
             raise ValueError("Each co-product is a set of fields.")
         for b in ("mass", "price", "energy", "physical"):
             _scope_num(cp, b, f"Co-product '{cp.get('name', '')}': {b}", 0)
+        _scope_num(cp, "replaces_amount", f"Co-product '{cp.get('name', '')}': the amount of the product it replaces", 0)
+        if cp.get("replaces") not in (None, ""):
+            numcheck.identifier(cp["replaces"], f"Co-product '{cp.get('name', '')}': the dataset it replaces")
+    if (scope.get("multifunctional") or "") not in MULTIFUNCTIONAL:
+        raise ValueError("How the model handles its co-products is allocation, subdivision or system expansion.")
     _scope_num(scope, "aware_lat", "The latitude", -90, 90)
     _scope_num(scope, "aware_lon", "The longitude", -180, 180)
 
@@ -484,12 +501,24 @@ class ProjectStore:
         c = self.conn
         c.execute(f"DELETE FROM tech WHERE output_id IN ({ids})", (db_id,))
         c.execute(f"DELETE FROM tech WHERE input_id IN ({ids})", (db_id,))
+        # 1.10: other databases' inputs linked to datasets of this database lose their supplier; record that in their
+        # linking log, so the decision list shows why they are unlinked again
+        for g in c.execute(f"SELECT db_id, product, unit, location, linked_to, COUNT(*) AS n FROM unlinked "
+                           f"WHERE linked_to IN ({ids}) AND db_id!=? GROUP BY db_id, product, unit, location, linked_to",
+                           (db_id, db_id)).fetchall():
+            g = dict(g) if not isinstance(g, dict) else g
+            c.execute("INSERT INTO link_log(db_id,time,action,method,product,unit,location,target_id,rule,n,before) "
+                      "VALUES(?,datetime('now'),'unlink','database deleted',?,?,?,NULL,?,?,'[]')",
+                      (g["db_id"], g["product"], g["unit"], g["location"],
+                       f"the supplier's database was deleted (dataset {g['linked_to']})", g["n"]))
         c.execute(f"UPDATE unlinked SET linked_to=NULL WHERE linked_to IN ({ids})", (db_id,))
         c.execute(f"DELETE FROM bio WHERE activity_id IN ({ids})", (db_id,))
         c.execute("DELETE FROM unlinked WHERE db_id=?", (db_id,))
+        c.execute("DELETE FROM link_log WHERE db_id=?", (db_id,))
         c.execute("DELETE FROM activity_dq WHERE activity_id IN (SELECT id FROM activities WHERE db_id=?)", (db_id,))
         c.execute("DELETE FROM custom_exchanges WHERE process_uuid IN (SELECT uuid FROM custom_items WHERE db_id=? "
                   "AND kind IN ('product','process'))", (db_id,))
+        c.execute("DELETE FROM custom_versions WHERE db_id=?", (db_id,))
         c.execute("DELETE FROM custom_items WHERE db_id=? AND kind IN ('database','product','process')", (db_id,))
         c.execute("DELETE FROM activities WHERE db_id=?", (db_id,))
         c.execute("DELETE FROM databases WHERE id=?", (db_id,))
@@ -811,7 +840,7 @@ class ProjectStore:
         refused value leaves the line exactly as it was (1.8.4)."""
         allowed = {"amount", "label", "comment", "stage", "input_amount", "input_unit", "avoided", "pedigree",
                    "formula", "year", "fixed", "ref_id", "ref_db", "ref_key", "data_type", "source_ref", "data_year",
-                   "supplier", "verified", "unit_cost", "pef", "cost_type", "replace_every", "cost_gsd"}
+                   "supplier", "verified", "unit_cost", "pef", "cost_type", "replace_every", "cost_gsd", "assign"}
         clean = {}
         for k, v in fields.items():
             if k not in allowed:
@@ -836,6 +865,11 @@ class ProjectStore:
                 v = json.dumps(check_fixed(v)) if v else None
             elif k == "formula":
                 v = (v or "").strip() or None
+            elif k == "assign":
+                v = v or ""
+                if v not in LINE_ASSIGN:
+                    raise ValueError("A line belongs to the main product, to the co-products, or to all products "
+                                     "(shared).")
             clean[k] = v
         if not clean:
             return

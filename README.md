@@ -71,12 +71,12 @@ Cyclia checks its own calculations against independent references:
 
 | Check | Result |
 |---|---|
-| Comparison with ecoinvent's published LCIA results (ecoinvent 3.13 cut-off, 100 datasets, 46 method families including ReCiPe 2016, CML-IA, IPCC 2013 and 2021, EF 3.0 and 3.1, 614 categories) | **61,400 results; 612 of 614 categories have every result within 0.1 %** (largest deviation 0.019 %). The two exceptions are Ecological Scarcity 2021 "biotic resources" with and without long-term emissions, where 90 of 100 results deviate; those results are at most 1e-5 of the category's largest result and mostly differ in sign, so they are not validated; Cyclia 1.9.2 adds the checks that trace them. Run with Cyclia 1.9.0 and 1.9.1, identical values ([reports per method](docs/benchmarks/README.md)) |
+| Comparison with ecoinvent's published LCIA results (ecoinvent 3.13 cut-off, 100 datasets, 46 method families including ReCiPe 2016, CML-IA, IPCC 2013 and 2021, EF 3.0 and 3.1, 614 categories) | **All 61,400 results within 0.1 %** in all 614 categories (largest deviation 0.019 %, median 3.9e-07 %). Run with Cyclia 1.9.2; 180 very small results of Ecological Scarcity 2021 "biotic resources" are compared with the iteratively refined solution that Cyclia uses since 1.10.0 ([reports per method](docs/benchmarks/README.md)) |
 | Validation suite of 35 product systems with exact known answers | Run it in the app (Toolbox > Validation) and attach the report to your study |
 | Independent second calculation (rebuilt matrices, different solver) | Built in ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Comparison with Brightway (bw2calc) on the same database | All results within 1e-6, largest difference 1.4e-12; runs in the app on any database ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Characterisation factors compared with openLCA, Brightway or CSV factor sets | Flow by flow, with the effect of every difference |
-| Automated tests of the calculation engine | 415 tests (1.9.2), run on Windows, macOS and Linux for every change |
+| Automated tests of the calculation engine | 449 tests (1.10.0), run on Windows, macOS and Linux for every change |
 | Full-library regression | Every dataset of the shipped reference libraries under every impact category, every demo model and the factor matching of every category, compared on every change with a committed snapshot (relative tolerance 1e-9). The same check runs on any installed library, ecoinvent included, from the app or `engine/tools/regression.py` |
 | Release gate | No installer is built unless the whole suite passes with Brightway installed at pinned versions (a skipped Brightway test fails the build), together with the regression, the 35 validation systems and the IPCC 2021 check |
 | Scientific Benchmark Centre | In the app (Toolbox > Validation): every check with its reference, result, differences and status; a check that did not run is never shown as validated |
@@ -199,7 +199,7 @@ and to check for updates.
 
 If Cyclia helps your research, please cite it:
 
-> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.9.2)
+> Rehman, N. U. (2026). *Cyclia: open-source life cycle assessment software for researchers* (version 1.10.0)
 > [Computer software]. https://doi.org/10.5281/zenodo.23853747
 
 GitHub's "Cite this repository" button gives APA and BibTeX from [CITATION.cff](CITATION.cff). In the app,
