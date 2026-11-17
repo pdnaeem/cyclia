@@ -76,7 +76,7 @@ Cyclia checks its own calculations against independent references:
 | Independent second calculation (rebuilt matrices, different solver) | Built in ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Comparison with Brightway (bw2calc) on the same database | All results within 1e-6, largest difference 1.4e-12; runs in the app on any database ([cross validation](docs/CROSS_VALIDATION.md)) |
 | Characterisation factors compared with openLCA, Brightway or CSV factor sets | Flow by flow, with the effect of every difference |
-| Automated tests of the calculation engine | 449 tests (1.10.0), run on Windows, macOS and Linux for every change |
+| Automated tests of the calculation engine | 450 tests (1.10.0), run on Windows, macOS and Linux for every change |
 | Full-library regression | Every dataset of the shipped reference libraries under every impact category, every demo model and the factor matching of every category, compared on every change with a committed snapshot (relative tolerance 1e-9). The same check runs on any installed library, ecoinvent included, from the app or `engine/tools/regression.py` |
 | Release gate | No installer is built unless the whole suite passes with Brightway installed at pinned versions (a skipped Brightway test fails the build), together with the regression, the 35 validation systems and the IPCC 2021 check |
 | Scientific Benchmark Centre | In the app (Toolbox > Validation): every check with its reference, result, differences and status; a check that did not run is never shown as validated |

@@ -308,19 +308,63 @@ class TestIterativeRefinement(unittest.TestCase):
         mc.t_rows, mc.t_cols = A.nonzero()
         return mc, A
 
-    def test_refined_solution_has_a_smaller_residual(self):
+    @staticmethod
+    def exact(A, f):
+        """Exact solution of the upper triangular test system, in rational numbers (every float is a rational)."""
+        import numpy as np
+        from fractions import Fraction
+        D, n = A.toarray(), A.shape[0]
+        x = [Fraction(0)] * n
+        for i in range(n - 1, -1, -1):
+            x[i] = (Fraction(f[i]) - sum(Fraction(D[i, j]) * x[j] for j in range(i + 1, n) if D[i, j])) / Fraction(D[i, i])
+        return np.array([float(v) for v in x])
+
+    def test_solution_is_exact_to_round_off(self):
+        # 1.10.0 CI on macOS: the earlier test compared the absolute residuals of the plain and the refined solution.
+        # Both are at round-off (backward error about 1e-32 here), and which is smaller depends on the platform's
+        # floating point, so that comparison said nothing. Here the solution is compared with the exact one.
         import numpy as np
         mc, A = self.system()
         mc.reached = lambda d: np.ones(mc.n, dtype=bool)
         f = np.zeros(mc.n)
         f[-1] = 1.0
-        plain = mc.lu.solve(f)
+        ex = self.exact(A, f)
         refined = calc.MatrixCache.solve(mc, f)
-        r_plain = np.abs(f - A @ plain).max()
-        r_ref = np.abs(f - A @ refined).max()
-        self.assertLessEqual(r_ref, r_plain)
+        rel = np.abs(refined - ex) / np.abs(ex)
+        self.assertLess(rel.max(), 1e-12)
+        backward = np.abs(f - A @ refined).max() / (abs(A).max() * np.abs(refined).max())
+        self.assertLess(backward, 1e-14)
         y = calc.solve_transposed(mc, np.ones(mc.n))
         self.assertAlmostEqual(float(y @ f), float(np.ones(mc.n) @ refined), delta=1e-9 * abs(float(y @ f)))
+
+    def test_refinement_corrects_an_inexact_factorisation(self):
+        # The mechanism, on every platform: with a factorisation that is off by a relative 1e-7 (as a factorisation
+        # that lost digits is), x += A^-1 (f - A x) with the true A shrinks the error by about that factor.
+        import numpy as np
+        import scipy.sparse as sp
+        from scipy.sparse.linalg import splu
+        mc, A = self.system()
+        mc.reached = lambda d: np.ones(mc.n, dtype=bool)
+        mc.lu = splu((A + 1e-7 * sp.identity(mc.n, format="csc")).tocsc())
+        for k in (mc.n - 1, mc.n // 2, 3):
+            with self.subTest(demand=k):
+                f = np.zeros(mc.n)
+                f[k] = 1.0
+                ex = self.exact(A, f)
+                nz = ex != 0
+                plain = (np.abs(mc.lu.solve(f) - ex)[nz] / np.abs(ex[nz])).max()
+                ref = (np.abs(calc.MatrixCache.solve(mc, f) - ex)[nz] / np.abs(ex[nz])).max()
+                self.assertGreater(plain, 1e-8)                       # the inexact factorisation alone is off
+                # one step squares the relative error (about 6e-6 -> 2e-11 here); the bound leaves a factor 10
+                self.assertLess(ref, 10 * plain ** 2 + 1e-12)
+                self.assertLess(ref, 1e-3 * plain)
+                # the transposed solve is refined the same way
+                ey = self.exact(A.T.tocsc()[::-1, ::-1].tocsc(), f[::-1])[::-1]
+                m = ey != 0
+                pt = (np.abs(mc.lu.solve(f, trans="T") - ey)[m] / np.abs(ey[m])).max()
+                rt = (np.abs(calc.solve_transposed(mc, f) - ey)[m] / np.abs(ey[m])).max()
+                self.assertLess(rt, 10 * pt ** 2 + 1e-12)
+                self.assertLess(rt, 1e-3 * pt)
 
     def test_an_explicit_lu_is_not_refined_against_another_matrix(self):
         import numpy as np

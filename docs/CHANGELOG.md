@@ -81,6 +81,9 @@ docs/quality/ACCEPTANCE_1.10.0.md.
 - **Fixed: datasets list of a model with allocation.** The list of datasets in a model's supply chain (with
   provenance) applied the allocation share twice to amounts and direct contributions. Totals and contribution
   results were not affected.
+- **Refinement test made platform independent.** The test of iterative refinement compared two residuals that are
+  both at round-off, so it failed on macOS by chance. It now checks against exact rational solutions, including a
+  case where one refinement step squares the error of an inexact factorisation.
 - **Imports reproduce results.** Tested: the same file imported twice gives bit-identical results, and an import
   stopped by the staging checks leaves every result of the library unchanged.
 - Note on automatic linking: an input at a location for which only a global dataset exists is now linked to it

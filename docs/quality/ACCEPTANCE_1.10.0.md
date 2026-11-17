@@ -2,7 +2,7 @@
 
 Step 2 of the road to 2.0 (docs/DEVELOPMENT_PLAN.md): database management, and step 3 (modelling).
 
-The suite has 449 automated tests. Here, without Brightway, 445 pass and the four Brightway comparisons are skipped.
+The suite has 450 automated tests. Here, without Brightway, 446 pass and the four Brightway comparisons are skipped.
 The reference regression snapshot passes (at its tolerance of 1e-9, after the refinement step below), as do the
 validation suite (35 of 35) and the IPCC check.
 
@@ -23,8 +23,14 @@ transposed solves (regression snapshot, benchmark adjoint). A factorisation pass
 Carlo samples) is not refined against the library matrix.
 
 Tests (TestIterativeRefinement):
-- on a badly scaled chain, the refined solution has a residual no larger than the plain one;
-- forward and refined transposed solves agree;
+- on a badly scaled chain (solution up to 2.5e51), the solution agrees with the exact rational solution to round-off,
+  and forward and refined transposed solves agree;
+- with a factorisation off by a relative 1e-7, one refinement step squares the relative error (about 6e-6 to 2e-11)
+  for the forward and the transposed solve, compared with exact rational solutions.
+
+The first CI run on macOS failed an earlier form of this test, which compared the absolute residuals of the plain
+and refined solutions. Both were at round-off (backward error near 1e-32), so which was smaller depended on the
+platform; the test, not the engine, was wrong, and it was replaced by the two above.
 - an explicit factorisation of another matrix is used unrefined.
 
 **Published.** docs/benchmarks holds the run's reports. All 61,400 results are within 0.1 % and the largest deviation
